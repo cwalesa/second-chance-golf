@@ -1,11 +1,16 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
-import { makeClassicTree, drawCountryClub, drawVillageAmenities } from './classic-art';
+import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
+import { makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, TurfKind } from './art/textures';
+import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
+import { makeTree, makeTreeShadow, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer } from './sim';
 import { Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
+
+interface Decor { x: number; y: number; kind: 'shrub' | 'rock' | 'flowers' | 'reeds'; v: number; i: number }
 
 export const TS = 32; // tile size in the cached terrain canvas
 
@@ -42,6 +47,16 @@ export class Renderer {
   ch = 600;
   dpr = 1;
   private trees: HTMLCanvasElement[] = [];
+  private treesSmall: HTMLCanvasElement[] = [];
+  private treeShadow = makeTreeShadow();
+  private glint = makeGlint();
+  private shrubs = [0, 1, 2, 3].map(makeShrub);
+  private rocks = [0, 1].map(makeRock);
+  private flowers = [0, 1, 2].map(makeFlowers);
+  private reeds = [0, 1].map(makeReeds);
+  private bench = makeBench();
+  private washer = makeBallWasher();
+  private decor: Decor[] = [];
   private builtFor: World | null = null;
   private regionKey = '';
   private cmaps: Record<string, HTMLCanvasElement> = {};
@@ -54,7 +69,17 @@ export class Renderer {
     this.base.height = this.terr.height;
     this.tctx = this.base.getContext('2d')!;
     this.tctx2 = this.terr.getContext('2d')!;
-    for (let v = 0; v < 8; v++) this.trees.push(makeClassicTree(v));
+    for (let v = 0; v < TREE_VARIANTS; v++) {
+      const big = makeTree(v);
+      const small = document.createElement('canvas');
+      small.width = TREE_W / 2;
+      small.height = TREE_H / 2;
+      const sc = small.getContext('2d')!;
+      sc.imageSmoothingQuality = 'high';
+      sc.drawImage(big, 0, 0, small.width, small.height);
+      this.trees.push(big);
+      this.treesSmall.push(small);
+    }
   }
 
   resize() {
@@ -119,7 +144,6 @@ export class Renderer {
   private prevTerrain: Uint8Array | null = null;
   private composeAt = 0;
   private needCompose = false;
-  private masks = new Map<string, HTMLCanvasElement[]>();
   private layerCv = document.createElement('canvas');
 
   private syncTerrain(w: World) {
@@ -128,7 +152,8 @@ export class Renderer {
       this.builtFor = w;
       this.regionKey = w.region;
       Object.assign(COL, REGIONS[w.region].palette);
-      this.masks.clear();
+      this.fields.clear();
+      this.patterns.clear();
       this.base.width = CFG.grid.w * TS;
       this.base.height = CFG.grid.h * TS;
       this.layerCv.width = this.layerCv.height = Renderer.CH * TS;
@@ -144,16 +169,26 @@ export class Renderer {
       const nDirty = w.dirty.size;
       let typeChanged = false;
       const todo = new Set<number>();
+      const region = { x0: w.w, y0: w.h, x1: 0, y1: 0 };
+      const keys = new Set<string>();
       for (const i of w.dirty) {
-        if (this.prevTerrain![i] !== w.terrain[i]) typeChanged = true;
-        this.markChunk(w, i);
         const x = i % w.w;
         const y = (i - x) / w.w;
+        if (this.prevTerrain![i] !== w.terrain[i]) {
+          typeChanged = true;
+          region.x0 = Math.min(region.x0, x);
+          region.y0 = Math.min(region.y0, y);
+          region.x1 = Math.max(region.x1, x + 1);
+          region.y1 = Math.max(region.y1, y + 1);
+          for (const k of Renderer.fieldsFor(this.prevTerrain![i])) keys.add(k);
+          for (const k of Renderer.fieldsFor(w.terrain[i])) keys.add(k);
+        }
+        this.markChunk(w, i);
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(w, x + dx, y + dy)) todo.add((y + dy) * w.w + x + dx);
       }
       for (const i of todo) this.drawTile(w, i % w.w, Math.floor(i / w.w));
       if (typeChanged) {
-        this.rebuildMasks(w);
+        this.rebuildMasks(w, region, keys);
         this.prevTerrain = Uint8Array.from(w.terrain);
       }
       w.dirty.clear();
@@ -192,7 +227,7 @@ export class Renderer {
         }
       cx.putImageData(img, 0, 0);
     };
-    const jit = (x: number, y: number) => (vnoise(x / 2.6, y / 2.6, 41) - 0.5) * 14;
+    const jit = (x: number, y: number) => (vnoise(x / 6.5, y / 6.5, 40) - 0.5) * 14 + (vnoise(x / 2.4, y / 2.4, 41) - 0.5) * 9;
     const add = (c: RGB, j: number): RGB => [c[0] + j, c[1] + j, c[2] + j];
     const wearOf = (cond: number) => Math.max(0, Math.min(1, (64 - cond) / 54));
     mk('rough', (x, y, i) => add(mix(COL.roughBad, COL.roughGood, Math.max(0, Math.min(1, (w.terrain[i] === T.ROUGH ? w.cond[i] : 62) / 70))), jit(x, y)));
@@ -216,88 +251,195 @@ export class Renderer {
     c.drawImage(this.cmaps[key], sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * TS, sy0 * TS, (sx1 - sx0) * TS, (sy1 - sy0) * TS);
     c.restore();
   }
-  // Small seamless material tiles are generated once, then stamped into the terrain cache.
-  // No per-frame noise generation, and repainting a tile preserves its grain.
-  private materials = new Map<string, CanvasPattern>();
-  private material(c: CanvasRenderingContext2D, kind: string) {
-    if (this.materials.has(kind)) return this.materials.get(kind)!;
-    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-    const g = cv.getContext('2d')!;
-    const n = kind === 'sand' ? 1800 : kind === 'rough' ? 1200 : 950;
-    for (let k = 0; k < n; k++) {
-      const x = hash2(k, 31, 708) * 128, y = hash2(k, 91, 812) * 128;
-      const light = hash2(k, 15, 73) > .5;
-      g.fillStyle = light ? 'rgba(255,252,217,.13)' : 'rgba(10,48,37,.13)';
-      const h = kind === 'rough' ? 1.5 + hash2(k, 8, 54) * 3 : kind === 'sand' ? .7 : 1.4;
-      g.fillRect(x, y, kind === 'sand' ? .8 : .9, h);
+  // Seamless material overlays are generated once (see art/textures.ts) and stamped into the terrain cache.
+  private patterns = new Map<string, CanvasPattern>();
+  private pattern(c: CanvasRenderingContext2D, key: string, make: () => HTMLCanvasElement): CanvasPattern {
+    let p = this.patterns.get(key);
+    if (!p) {
+      p = c.createPattern(make(), 'repeat')!;
+      this.patterns.set(key, p);
     }
-    if (kind === 'sand') {
-      g.strokeStyle = 'rgba(144,109,64,.12)'; g.lineWidth = .8;
-      for (let y = -128; y < 256; y += 6) {
-        g.beginPath();
-        for (let x = 0; x <= 128; x += 4) {
-          const py = y + Math.sin(x / 128 * Math.PI * 2) * 4;
-          if (x === 0) g.moveTo(x, py); else g.lineTo(x, py);
-        }
-        g.stroke();
-      }
-    }
-    const pat = c.createPattern(cv, 'repeat')!; this.materials.set(kind, pat); return pat;
+    return p;
   }
-  private stripePattern: CanvasPattern | null = null;
-  private getStripes(c: CanvasRenderingContext2D): CanvasPattern {
-    if (this.stripePattern) return this.stripePattern;
-    const p = document.createElement('canvas');
-    p.width = p.height = 2 * TS;
-    const g = p.getContext('2d')!;
-    g.fillStyle='rgba(225,255,204,.12)';g.fillRect(0,0,TS,TS*2);
-    g.fillStyle='rgba(9,77,48,.08)';g.fillRect(TS,0,TS,TS*2);
-    this.stripePattern = c.createPattern(p, 'repeat')!;
-    return this.stripePattern;
+  private turfPattern(c: CanvasRenderingContext2D, kind: TurfKind) {
+    return this.pattern(c, 'turf-' + kind, () => makeTurfTexture(kind));
   }
 
-  private static readonly R = 12;
-  private maskFor(w: World, pred: (t: number) => boolean, ths: number[]): HTMLCanvasElement[] {
+  // Organic edges: each surface is a tile mask blurred into a smooth field (stored as bytes), and every
+  // chunk thresholds that field after adding a little noise, so borders wobble like hand-mown turf.
+  private static readonly R = 16; // field pixels per tile
+  private static readonly M = 8; // margin (field pixels) around a chunk so shifted masks have data
+  private fields = new Map<string, Uint8Array>();
+  private fieldW = 0;
+  private fieldH = 0;
+  private maskCv = document.createElement('canvas');
+  private maskImages = new Map<string, ImageData>();
+  private warpNoise = new Float32Array(0);
+
+  private static readonly FIELD_PRED: Record<string, (t: number) => boolean> = {
+    grass: (t) => t === T.FAIRWAY || t === T.GREEN || t === T.TEE,
+    green: (t) => t === T.GREEN,
+    tee: (t) => t === T.TEE,
+    bunker: (t) => t === T.BUNKER,
+    water: (t) => t === T.WATER,
+  };
+
+  /** Which blurred fields a terrain type feeds. */
+  private static fieldsFor(t: number): string[] {
+    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : [];
+  }
+
+  /**
+   * Blur the tile mask for one surface into its byte field. With a region (in tiles) only that part is
+   * recomputed, so painting a few tiles does not re-blur the whole map.
+   */
+  private updateField(w: World, key: string, region?: { x0: number; y0: number; x1: number; y1: number }) {
     const R = Renderer.R;
-    const src = document.createElement('canvas');
-    src.width = w.w * R;
-    src.height = w.h * R;
-    const sc = src.getContext('2d')!;
+    const pred = Renderer.FIELD_PRED[key];
+    const FW = w.w * R;
+    let field = this.fields.get(key);
+    if (!field || field.length !== FW * w.h * R) {
+      field = new Uint8Array(FW * w.h * R);
+      this.fields.set(key, field);
+      region = undefined;
+    }
+    const grow = (r: { x0: number; y0: number; x1: number; y1: number }, n: number) => ({ x0: Math.max(0, r.x0 - n), y0: Math.max(0, r.y0 - n), x1: Math.min(w.w, r.x1 + n), y1: Math.min(w.h, r.y1 + n) });
+    const full = { x0: 0, y0: 0, x1: w.w, y1: w.h };
+    const copy = region ? grow(region, 2) : full;
+    const src = grow(copy, 3);
+    const sw = (src.x1 - src.x0) * R;
+    const sh = (src.y1 - src.y0) * R;
+    const cv = document.createElement('canvas');
+    cv.width = sw;
+    cv.height = sh;
+    const sc = cv.getContext('2d')!;
     sc.fillStyle = '#fff';
-    for (let y = 0; y < w.h; y++) for (let x = 0; x < w.w; x++) if (pred(w.terrain[y * w.w + x])) sc.fillRect(x * R, y * R, R, R);
+    for (let y = src.y0; y < src.y1; y++) {
+      let x = src.x0;
+      while (x < src.x1) {
+        if (!pred(w.terrain[y * w.w + x])) { x++; continue; }
+        let x2 = x;
+        while (x2 < src.x1 && pred(w.terrain[y * w.w + x2])) x2++;
+        sc.fillRect((x - src.x0) * R, (y - src.y0) * R, (x2 - x) * R, R);
+        x = x2;
+      }
+    }
     const blur = document.createElement('canvas');
-    blur.width = src.width;
-    blur.height = src.height;
+    blur.width = sw;
+    blur.height = sh;
     const bc = blur.getContext('2d')!;
     bc.filter = `blur(${R * 0.55}px)`;
-    bc.drawImage(src, 0, 0);
+    bc.drawImage(cv, 0, 0);
     bc.filter = 'none';
-    const data = bc.getImageData(0, 0, blur.width, blur.height);
-    return ths.map((th) => {
-      const out = document.createElement('canvas');
-      out.width = blur.width;
-      out.height = blur.height;
-      const oc = out.getContext('2d')!;
-      const img = oc.createImageData(blur.width, blur.height);
-      const lo = th - 0.09;
-      const hi = th + 0.09;
-      for (let i = 0; i < data.data.length; i += 4) {
-        const a = data.data[i + 3] / 255;
-        const t = Math.max(0, Math.min(1, (a - lo) / (hi - lo)));
-        img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
-        img.data[i + 3] = Math.round(t * t * (3 - 2 * t) * 255);
-      }
-      oc.putImageData(img, 0, 0);
-      return out;
-    });
+    const ox = (copy.x0 - src.x0) * R;
+    const oy = (copy.y0 - src.y0) * R;
+    const cw = (copy.x1 - copy.x0) * R;
+    const ch = (copy.y1 - copy.y0) * R;
+    const px = bc.getImageData(ox, oy, cw, ch).data;
+    for (let j = 0; j < ch; j++) {
+      const row = (copy.y0 * R + j) * FW + copy.x0 * R;
+      for (let i = 0; i < cw; i++) field[row + i] = px[(j * cw + i) * 4 + 3];
+    }
   }
 
-  private rebuildMasks(w: World) {
-    this.masks.set('grass', this.maskFor(w, (t) => t === T.FAIRWAY || t === T.GREEN || t === T.TEE, [0.5, 0.3]));
-    this.masks.set('green', this.maskFor(w, (t) => t === T.GREEN, [0.5, 0.32]));
-    this.masks.set('tee', this.maskFor(w, (t) => t === T.TEE, [0.5]));
-    this.masks.set('bunker', this.maskFor(w, (t) => t === T.BUNKER, [0.5, 0.3]));
-    this.masks.set('water', this.maskFor(w, (t) => t === T.WATER, [0.5, 0.3, 0.9]));
+  private rebuildMasks(w: World, region?: { x0: number; y0: number; x1: number; y1: number }, keys?: Set<string>) {
+    this.fieldW = w.w * Renderer.R;
+    this.fieldH = w.h * Renderer.R;
+    for (const key of Object.keys(Renderer.FIELD_PRED)) if (!keys || keys.has(key)) this.updateField(w, key, region);
+    this.buildDecor(w);
+  }
+
+  /** Scatter shrubs, rocks, flower patches and shore reeds. Placement depends only on terrain and hashes, so it is stable. */
+  private buildDecor(w: World) {
+    const list: Decor[] = [];
+    const at = (x: number, y: number) => (inBounds(w, x, y) ? w.terrain[y * w.w + x] : T.ROUGH);
+    for (let y = 1; y < w.h - 1; y++)
+      for (let x = 1; x < w.w - 1; x++) {
+        const i = y * w.w + x;
+        const t = w.terrain[i];
+        const h = hash2(x, y, 950);
+        const jx = x + 0.15 + hash2(x, y, 951) * 0.7;
+        const jy = y + 0.15 + hash2(x, y, 952) * 0.7;
+        const near = (pred: (n: number) => boolean) => pred(at(x - 1, y)) || pred(at(x + 1, y)) || pred(at(x, y - 1)) || pred(at(x, y + 1));
+        if (t === T.WATER) {
+          const shoreRough = near((n) => n === T.ROUGH);
+          if (shoreRough && h < 0.2) list.push({ x: jx, y: jy, kind: 'reeds', v: Math.floor(hash2(x, y, 953) * 2), i });
+          else if (near((n) => n !== T.WATER) && h > 0.93) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(hash2(x, y, 953) * 2), i });
+        } else if (t === T.ROUGH && !w.tree[i]) {
+          const edge = near((n) => n !== T.ROUGH && n !== T.PATH && n !== T.BUILDING);
+          const kind = hash2(x, y, 954);
+          if (edge) {
+            if (h < 0.05) list.push({ x: jx, y: jy, kind: 'shrub', v: Math.floor(kind * 4), i });
+            else if (h < 0.075) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
+            else if (h < 0.1) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
+          } else if (h < 0.012) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
+          else if (h > 0.992) list.push({ x: jx, y: jy, kind: 'shrub', v: Math.floor(kind * 4), i });
+          else if (h > 0.986) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
+        } else if (t === T.BUNKER && h > 0.985) {
+          list.push({ x: jx, y: jy, kind: 'rock', v: 1, i });
+        }
+      }
+    this.decor = list;
+  }
+
+  /** How much each surface's edge wanders (in field alpha units). Tee boxes stay tidy. */
+  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.15, tee: 0.03, bunker: 0.3, water: 0.26 };
+
+  /** Threshold the blurred field into a chunk-sized soft-edged alpha mask (drawn into the shared scratch canvas). */
+  private chunkMask(key: string, th: number, soft: number, tx0: number, ty0: number, tx1: number, ty1: number): HTMLCanvasElement {
+    const R = Renderer.R;
+    const M = Renderer.M;
+    const mw = (tx1 - tx0) * R + 2 * M;
+    const mh = (ty1 - ty0) * R + 2 * M;
+    const field = this.fields.get(key)!;
+    const warp = Renderer.WARP[key] ?? 0.15;
+    const imgKey = mw + 'x' + mh;
+    let img = this.maskImages.get(imgKey);
+    if (!img) {
+      img = new ImageData(mw, mh);
+      this.maskImages.set(imgKey, img);
+    }
+    const px = new Uint32Array(img.data.buffer);
+    const fx0 = tx0 * R - M;
+    const fy0 = ty0 * R - M;
+    const lo = th - soft;
+    const inv = 1 / (2 * soft);
+    for (let j = 0; j < mh; j++) {
+      const fy = Math.max(0, Math.min(this.fieldH - 1, fy0 + j));
+      const row = fy * this.fieldW;
+      for (let i = 0; i < mw; i++) {
+        const fx = Math.max(0, Math.min(this.fieldW - 1, fx0 + i));
+        const f = field[row + fx] / 255;
+        // noise only wobbles existing edges; it never conjures a surface out of empty ground
+        const a = f + warp * this.warpNoise[j * mw + i] * (f * 12 > 1 ? 1 : f * 12);
+        let t = (a - lo) * inv;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        px[j * mw + i] = (Math.round(t * t * (3 - 2 * t) * 255) << 24) | 0x00ffffff;
+      }
+    }
+    const cv = this.maskCv;
+    if (cv.width !== mw || cv.height !== mh) {
+      cv.width = mw;
+      cv.height = mh;
+    }
+    cv.getContext('2d')!.putImageData(img, 0, 0);
+    return cv;
+  }
+
+  private prepareWarp(tx0: number, ty0: number, tx1: number, ty1: number) {
+    const R = Renderer.R;
+    const M = Renderer.M;
+    const mw = (tx1 - tx0) * R + 2 * M;
+    const mh = (ty1 - ty0) * R + 2 * M;
+    if (this.warpNoise.length !== mw * mh) this.warpNoise = new Float32Array(mw * mh);
+    const fx0 = tx0 * R - M;
+    const fy0 = ty0 * R - M;
+    for (let j = 0; j < mh; j++)
+      for (let i = 0; i < mw; i++) {
+        const gx = (fx0 + i) / R;
+        const gy = (fy0 + j) / R;
+        this.warpNoise[j * mw + i] = (vnoise(gx * 0.5, gy * 0.5, 6) - 0.5) * 1.3 + (vnoise(gx * 1.3, gy * 1.3, 7) - 0.5) * 0.7 + (vnoise(gx * 3.3, gy * 3.3, 8) - 0.5) * 0.3;
+      }
   }
 
   private static readonly CH = 16; // chunk size in tiles for partial recomposition
@@ -324,6 +466,8 @@ export class Renderer {
 
   private composeChunk(w: World, cx: number, cy: number) {
     const C = Renderer.CH;
+    const R = Renderer.R;
+    const M = Renderer.M;
     const tx0 = cx * C;
     const ty0 = cy * C;
     const tx1 = Math.min(w.w, tx0 + C);
@@ -332,22 +476,52 @@ export class Renderer {
     const Y = ty0 * TS;
     const CW = (tx1 - tx0) * TS;
     const CHH = (ty1 - ty0) * TS;
-    const k = Renderer.R / TS;
+    const k = R / TS; // field pixels per terrain pixel
     const t = this.tctx2;
+    this.prepareWarp(tx0, ty0, tx1, ty1);
     t.globalCompositeOperation = 'source-over';
+    // rough: darker, longer, with big soft dapples of sun and shade
     this.drawSmooth(t, 'rough', tx0, ty0, tx1, ty1, w);
-    t.fillStyle = this.material(t, 'rough'); t.fillRect(X, Y, CW, CHH);
+    t.fillStyle = this.turfPattern(t, 'rough');
+    t.fillRect(X, Y, CW, CHH);
     t.drawImage(this.base, X, Y, CW, CHH, X, Y, CW, CHH);
     const lc = this.layerCv.getContext('2d')!;
     // work in a chunk-sized scratch canvas: full-size scratch copies make software canvases crawl
-    const stamp = (fill: (c: CanvasRenderingContext2D) => void, mask: HTMLCanvasElement) => {
+    type Shift = [number, number];
+    interface Cut { th: number; soft?: number; shift: Shift }
+    // largest field value per surface inside this chunk (plus margin): lets us skip layers that cannot appear here
+    const peak = new Map<string, number>();
+    for (const key of Object.keys(Renderer.FIELD_PRED)) {
+      const field = this.fields.get(key)!;
+      let max = 0;
+      const fy0 = Math.max(0, ty0 * R - M);
+      const fy1 = Math.min(this.fieldH, ty1 * R + M);
+      const fx0 = Math.max(0, tx0 * R - M);
+      const fx1 = Math.min(this.fieldW, tx1 * R + M);
+      for (let fy = fy0; fy < fy1 && max < 255; fy++) {
+        const row = fy * this.fieldW;
+        for (let fx = fx0; fx < fx1; fx++) if (field[row + fx] > max) max = field[row + fx];
+      }
+      peak.set(key, max / 255);
+    }
+    const stamp = (fill: (c: CanvasRenderingContext2D) => void, key: string, th: number, soft = 0.09, cut?: Cut) => {
+      const top = peak.get(key)!;
+      if (top < 0.01 || top + (Renderer.WARP[key] ?? 0.15) * 0.9 < th - soft) return;
       lc.setTransform(1, 0, 0, 1, 0, 0);
       lc.globalCompositeOperation = 'source-over';
       lc.clearRect(0, 0, this.layerCv.width, this.layerCv.height);
       lc.setTransform(1, 0, 0, 1, -X, -Y);
       fill(lc);
+      const dx = X - M / k;
+      const dy = Y - M / k;
       lc.globalCompositeOperation = 'destination-in';
-      lc.drawImage(mask, X * k, Y * k, CW * k, CHH * k, X, Y, CW, CHH);
+      let mask = this.chunkMask(key, th, soft, tx0, ty0, tx1, ty1);
+      lc.drawImage(mask, dx, dy, mask.width / k, mask.height / k);
+      if (cut) {
+        mask = this.chunkMask(key, cut.th, cut.soft ?? soft, tx0, ty0, tx1, ty1);
+        lc.globalCompositeOperation = 'destination-out';
+        lc.drawImage(mask, dx + cut.shift[0], dy + cut.shift[1], mask.width / k, mask.height / k);
+      }
       lc.globalCompositeOperation = 'source-over';
       t.drawImage(this.layerCv, 0, 0, CW, CHH, X, Y, CW, CHH);
     };
@@ -355,93 +529,200 @@ export class Renderer {
       c.fillStyle = col;
       c.fillRect(X, Y, CW, CHH);
     };
-    const tex = (cmap: string, types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
-      this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w);
-      if (cmap !== 'water') { c.fillStyle = this.material(c, cmap === 'sand' ? 'sand' : 'turf'); c.fillRect(X, Y, CW, CHH); }
+    const pat = (p: CanvasPattern, alpha = 1) => (c: CanvasRenderingContext2D) => {
+      c.globalAlpha = alpha;
+      c.fillStyle = p;
+      c.fillRect(X, Y, CW, CHH);
+      c.globalAlpha = 1;
+    };
+    const eachTile = (types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
       for (let y = ty0; y < ty1; y++)
         for (let x = tx0; x < tx1; x++) {
           const i = y * w.w + x;
           if (types.includes(w.terrain[i])) draw(c, x, y, i);
         }
     };
-    const m = (key: string) => this.masks.get(key)!;
-    // grass: first-cut ring, then body
-    stamp(flat('rgba(46,112,52,0.32)'), m('grass')[1]);
-    stamp(tex('grass', [T.FAIRWAY, T.GREEN, T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.fairGood, COL.fairWorn, ((x - y) >> 1) & 1 ? 4 : -3)), m('grass')[0]);
-    stamp((c) => {
-      c.fillStyle = this.getStripes(c);
-      c.fillRect(X, Y, CW, CHH);
-    }, m('grass')[0]);
-    stamp(flat('rgba(150,214,140,0.45)'), m('green')[1]);
-    stamp(tex('green', [T.GREEN], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.greenGood, COL.greenWorn, (x + y) & 1 ? 3 : -2)), m('green')[0]);
-    stamp(tex('tee', [T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.teeGood, COL.fairWorn, 3)), m('tee')[0]);
-    // sand
-    stamp(flat('rgba(150,118,70,0.8)'), m('bunker')[1]);
-    stamp(tex('sand', [], () => {}), m('bunker')[0]);
-    // water: shore ring, body, deeper centre
-    stamp(flat('rgba(188,222,206,0.7)'), m('water')[1]);
-    stamp(tex('water', [T.WATER], (c, x, y) => {
-      c.strokeStyle = 'rgba(190,255,244,.19)'; c.lineWidth = .8;
-      for (let q = 0; q < 3; q++) {
-        const px = x * TS + hash2(x, y, 601 + q) * 19;
-        const py = y * TS + hash2(x, y, 611 + q) * TS;
-        c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + 5, py - 1.5, px + 11, py); c.stroke();
-      }
-    }), m('water')[0]);
-    stamp(flat('rgba(20,80,140,0.45)'), m('water')[2]);
+    const layers = (...fns: Array<(c: CanvasRenderingContext2D) => void>) => (c: CanvasRenderingContext2D) => fns.forEach((f) => f(c));
+    const tex = (cmap: string, kind: TurfKind, extra?: (c: CanvasRenderingContext2D) => void) => (c: CanvasRenderingContext2D) => {
+      this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w);
+      pat(this.turfPattern(c, kind))(c);
+      extra?.(c);
+    };
+
+    // ---- fairway family: soft shade just outside, a lighter first cut, then the striped body
+    stamp(flat('rgba(18,58,30,0.26)'), 'grass', 0.14, 0.14);
+    stamp(flat('rgba(132,196,88,0.62)'), 'grass', 0.3, 0.12);
+    const fairwayWear = eachTile([T.FAIRWAY, T.GREEN, T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i));
+    stamp(layers(tex('grass', 'fairway'), pat(this.pattern(t, 'stripe-fw', () => makeStripeTexture(100, 0.3))), fairwayWear), 'grass', 0.5, 0.075);
+    // slim darker line where the cut turns: reads as the edge of the mown area
+    stamp(flat('rgba(20,84,36,0.22)'), 'grass', 0.52, 0.04, { th: 0.6, shift: [0, 0] });
+
+    // ---- green: collar, defining edge, brightest finest turf
+    stamp(layers(flat('rgba(146,212,102,0.9)'), pat(this.turfPattern(t, 'fairway'), 0.8), pat(this.pattern(t, 'stripe-collar', () => makeStripeTexture(16, 0.18)), 0.7)), 'green', 0.28, 0.1);
+    stamp(flat('rgba(30,106,44,0.4)'), 'green', 0.46, 0.06);
+    stamp(layers(tex('green', 'green'), pat(this.pattern(t, 'stripe-green', () => makeStripeTexture(48, 0.16))), eachTile([T.GREEN], (c, x, y, i) => this.grassTile(c, w, x, y, i))), 'green', 0.54, 0.05);
+
+    // ---- tee box: flat, tight, crisp, with its own pale cut lines
+    stamp(flat('rgba(24,92,40,0.45)'), 'tee', 0.46, 0.035);
+    stamp(layers(tex('tee', 'tee'), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(TS, 0.2))), eachTile([T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i))), 'tee', 0.52, 0.03);
+
+    // ---- bunkers: grass lip, shaded NW inner wall, fine grain, raked furrows, a few footprints
+    stamp(flat('rgba(40,92,36,0.6)'), 'bunker', 0.22, 0.12);
+    stamp(flat('rgba(160,214,108,0.85)'), 'bunker', 0.36, 0.1);
+    const sandSurface = layers(
+      (c) => {
+        this.drawSmooth(c, 'sand', tx0, ty0, tx1, ty1, w);
+        pat(this.pattern(c, 'sand', () => makeSandTexture()))(c);
+      },
+      (c) => this.rakeLines(c, X, Y, CW, CHH),
+      eachTile([T.BUNKER], (c, x, y) => this.sandDetail(c, x, y)),
+    );
+    stamp(sandSurface, 'bunker', 0.5, 0.065);
+    // the lip shades the side facing away from the sun (upper left on screen, -x on the ground)
+    stamp(flat('rgba(118,84,42,0.7)'), 'bunker', 0.5, 0.065, { th: 0.5, soft: 0.2, shift: [6, 2.5] });
+    stamp(flat('rgba(255,250,226,0.4)'), 'bunker', 0.5, 0.2, { th: 0.5, soft: 0.065, shift: [-4, -1.6] });
+    stamp(flat('rgba(120,86,44,0.55)'), 'bunker', 0.52, 0.03, { th: 0.58, shift: [0, 0] });
+
+    // ---- water: wet bank, pale pebbled shore, depth bands (light shallows -> dark centre), bank shadow
+    stamp(flat('rgba(72,84,44,0.5)'), 'water', 0.2, 0.1);
+    stamp(flat('rgba(214,212,166,0.82)'), 'water', 0.34, 0.08);
+    const waterSurface = layers(
+      (c) => {
+        this.drawSmooth(c, 'water', tx0, ty0, tx1, ty1, w);
+        pat(this.pattern(c, 'water', () => makeWaterTexture()))(c);
+      },
+      eachTile([T.WATER], (c, x, y, i) => this.waterDetail(c, w, x, y, i)),
+    );
+    stamp(waterSurface, 'water', 0.5, 0.065);
+    stamp(flat('rgba(24,128,176,0.3)'), 'water', 0.62, 0.12);
+    stamp(flat('rgba(14,94,150,0.36)'), 'water', 0.78, 0.12);
+    stamp(flat('rgba(8,58,112,0.42)'), 'water', 0.92, 0.1);
+    stamp(flat('rgba(178,248,222,0.42)'), 'water', 0.5, 0.08, { th: 0.58, soft: 0.1, shift: [0, 0] });
+    stamp(flat('rgba(6,40,60,0.5)'), 'water', 0.5, 0.065, { th: 0.5, soft: 0.2, shift: [7, 2.8] });
+    stamp(flat('rgba(40,70,50,0.45)'), 'water', 0.5, 0.03, { th: 0.56, shift: [0, 0] });
   }
 
-  private grassTile(c: CanvasRenderingContext2D, w: World, x: number, y: number, i: number, good: RGB, worn: RGB, stripe: number) {
+  /** Curved rake furrows: continuous across tiles because they depend only on world position. */
+  private rakeLines(c: CanvasRenderingContext2D, X: number, Y: number, CW: number, CHH: number) {
+    c.lineWidth = 1.1;
+    c.lineCap = 'round';
+    const gap = 9;
+    for (let y = Math.floor(Y / gap) * gap - 20; y < Y + CHH + 20; y += gap) {
+      const row = Math.round(y / gap);
+      const furrow = (dy: number) => {
+        c.beginPath();
+        for (let x = X - 8; x <= X + CW + 8; x += 8) {
+          const bend = Math.sin(x / 46 + row * 0.5) * 7 + Math.sin(x / 120 - y / 70) * 11;
+          if (x === X - 8) c.moveTo(x, y + dy + bend);
+          else c.lineTo(x, y + dy + bend);
+        }
+        c.stroke();
+      };
+      // broken furrows read as raked marks rather than ruled lines
+      c.setLineDash([26 + (row % 5) * 6, 8, 44, 10 + (row % 3) * 4]);
+      c.lineDashOffset = row * 17;
+      c.strokeStyle = 'rgba(140,102,58,0.2)';
+      furrow(0);
+      c.strokeStyle = 'rgba(255,252,232,0.32)';
+      furrow(1.4);
+    }
+    c.setLineDash([]);
+  }
+
+  /** Footprints and pebbles scattered on sand tiles. */
+  private sandDetail(c: CanvasRenderingContext2D, x: number, y: number) {
+    const px = x * TS;
+    const py = y * TS;
+    if (hash2(x, y, 910) < 0.16) {
+      const fx = px + 6 + hash2(x, y, 911) * (TS - 12);
+      const fy = py + 6 + hash2(x, y, 912) * (TS - 12);
+      const ang = hash2(x, y, 913) * Math.PI * 2;
+      c.fillStyle = 'rgba(120,88,48,0.4)';
+      for (let s = 0; s < 4; s++) {
+        const ox = Math.cos(ang) * s * 7 + (s % 2 ? 1.6 : -1.6) * -Math.sin(ang);
+        const oy = Math.sin(ang) * s * 7 + (s % 2 ? 1.6 : -1.6) * Math.cos(ang);
+        c.beginPath();
+        c.ellipse(fx + ox, fy + oy, 2.4, 1.4, ang, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = 'rgba(255,250,228,0.3)';
+        c.fillRect(fx + ox - 2, fy + oy - 1.6, 2, 0.9);
+        c.fillStyle = 'rgba(120,88,48,0.4)';
+      }
+    }
+    if (hash2(x, y, 914) < 0.14) {
+      for (let s = 0; s < 3; s++) {
+        const bx = px + hash2(x, y, 915 + s) * TS;
+        const by = py + hash2(x, y, 920 + s) * TS;
+        c.fillStyle = 'rgba(96,84,72,0.4)';
+        c.beginPath();
+        c.ellipse(bx + 0.8, by + 0.7, 1.8, 1.2, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = s % 2 ? '#b8ab94' : '#cfc3ac';
+        c.beginPath();
+        c.ellipse(bx, by, 1.7, 1.2, 0, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+  }
+
+  /** Lily pads on open water, painted flat into the terrain. */
+  private waterDetail(c: CanvasRenderingContext2D, w: World, x: number, y: number, i: number) {
+    void i;
+    if (hash2(x, y, 930) > 0.1) return;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if (!inBounds(w, x + dx, y + dy) || w.terrain[(y + dy) * w.w + x + dx] !== T.WATER) return;
+    const n = 1 + Math.floor(hash2(x, y, 931) * 3);
+    const cx = x * TS + 8 + hash2(x, y, 932) * 16;
+    const cy = y * TS + 8 + hash2(x, y, 933) * 16;
+    for (let k = 0; k < n; k++) paintLilyPad(c, cx + (hash2(x, y, 934 + k) - 0.5) * 12, cy + (hash2(x, y, 938 + k) - 0.5) * 9, 4 + hash2(x, y, 942 + k) * 2.5, x * 7 + y * 13 + k);
+  }
+
+  /** Worn turf stays readable: dirt scuffs and thin patches appear as condition drops. */
+  private grassTile(c: CanvasRenderingContext2D, w: World, x: number, y: number, i: number) {
     const cond = w.cond[i];
     const px = x * TS;
     const py = y * TS;
-    void good;
-    void worn;
-    void stripe;
     if (cond < 44) {
       const n = cond < 25 ? 3 : 2;
       for (let k = 0; k < n; k++) {
         const ex = px + hash2(x, y, 50 + k) * TS;
         const ey = py + hash2(x, y, 60 + k) * TS;
-        const r = TS * (0.3 + hash2(x, y, 70 + k) * 0.3);
+        const r = TS * (0.34 + hash2(x, y, 70 + k) * 0.34);
         const g = c.createRadialGradient(ex, ey, 1, ex, ey, r);
-        const a = 0.28 + (44 - cond) / 120;
+        const a = 0.3 + (44 - cond) / 110;
         g.addColorStop(0, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},${a})`);
+        g.addColorStop(0.6, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},${a * 0.5})`);
         g.addColorStop(1, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},0)`);
         c.fillStyle = g;
         c.fillRect(ex - r, ey - r, r * 2, r * 2);
       }
-      c.fillStyle = 'rgba(90,70,40,0.35)';
-      for (let k = 0; k < 4; k++) c.fillRect(px + hash2(x, y, 100 + k) * TS, py + hash2(x, y, 110 + k) * TS, 1.5, 1.5);
-    } else {
-      c.fillStyle = 'rgba(255,255,255,0.10)';
-      for (let k = 0; k < 4; k++) c.fillRect(px + hash2(x, y, 120 + k) * (TS - 2), py + hash2(x, y, 130 + k) * (TS - 3), 1, 3);
-      c.fillStyle = 'rgba(20,70,30,0.10)';
-      for (let k = 0; k < 3; k++) c.fillRect(px + hash2(x, y, 140 + k) * (TS - 2), py + hash2(x, y, 150 + k) * (TS - 3), 1, 3);
+      c.fillStyle = 'rgba(96,74,42,0.4)';
+      for (let k = 0; k < 6; k++) c.fillRect(px + hash2(x, y, 100 + k) * TS, py + hash2(x, y, 110 + k) * TS, 1.6, 1.3);
+      c.fillStyle = 'rgba(224,196,140,0.35)';
+      for (let k = 0; k < 3; k++) c.fillRect(px + hash2(x, y, 160 + k) * TS, py + hash2(x, y, 170 + k) * TS, 1.3, 1.3);
     }
   }
 
-  /** Base layer: rough, paths and the clubhouse footprint. Other ground shows rough underneath. */
+  /** Base layer: rough tufts, paved paths with stone edging, and the clubhouse footprint. */
   private drawTile(w: World, x: number, y: number) {
     const c = this.tctx;
     const i = y * w.w + x;
     const t = w.terrain[i];
     const px = x * TS;
     const py = y * TS;
-    const jit = (vnoise(x / 2.6, y / 2.6, 41) - 0.5) * 15 + (hash2(x, y, 40) - 0.5) * 4;
     const cond = t === T.ROUGH ? w.cond[i] : 62;
     c.clearRect(px, py, TS, TS);
     if (t === T.ROUGH) {
       const tall = cond < 45;
-      const n = tall ? 4 : 2;
+      const n = tall ? 5 : 3;
       for (let k = 0; k < n; k++) {
         const bx = px + hash2(x, y, 140 + k) * TS;
         const by = py + 4 + hash2(x, y, 150 + k) * (TS - 4);
-        c.strokeStyle = tall ? (k % 2 ? 'rgba(151,164,96,0.42)' : 'rgba(85,120,65,0.4)') : k % 2 ? 'rgba(96,166,80,0.7)' : 'rgba(36,98,44,0.6)';
+        c.strokeStyle = tall ? (k % 2 ? 'rgba(168,176,104,0.48)' : 'rgba(92,124,66,0.46)') : k % 2 ? 'rgba(104,170,76,0.62)' : 'rgba(28,86,40,0.58)';
         c.lineWidth = 1.2;
         c.beginPath();
         c.moveTo(bx, by);
-        c.quadraticCurveTo(bx + (hash2(x, y, 160 + k) - 0.5) * 5, by - (tall ? 3 : 1.5), bx + (hash2(x, y, 165 + k) - 0.5) * 6, by - (tall ? 6 + hash2(x, y, 170 + k) * 4 : 3));
+        c.quadraticCurveTo(bx + (hash2(x, y, 160 + k) - 0.5) * 5, by - (tall ? 3 : 1.5), bx + (hash2(x, y, 165 + k) - 0.5) * 6, by - (tall ? 6 + hash2(x, y, 170 + k) * 4 : 3.5));
         c.stroke();
       }
       if (cond < 32 && hash2(x, y, 180) < 0.16) {
@@ -451,31 +732,88 @@ export class Renderer {
         c.fill();
       }
     } else if (t === T.PATH || t === T.BUILDING) {
-      c.fillStyle = css(COL.path, jit);
-      c.fillRect(px, py, TS, TS);
-      c.strokeStyle = 'rgba(83,92,84,.19)'; c.lineWidth = .8;
-      for (let row = 0; row < 4; row++) {
-        const yy = py + row * 8; c.beginPath(); c.moveTo(px, yy); c.lineTo(px + TS, yy); c.stroke();
-        for (let col = 0; col < 3; col++) {
-          const xx = px + col * 16 + (row % 2 ? 8 : 0);
-          if (xx < px + TS) { c.beginPath(); c.moveTo(xx, yy); c.lineTo(xx, yy + 8); c.stroke(); }
+      this.paveTile(c, w, x, y);
+    }
+  }
+
+  /** Flagstone paving: tinted pavers, grout, a lit top-left edge on every stone, and stone edging where it meets turf. */
+  private paveTile(c: CanvasRenderingContext2D, w: World, x: number, y: number) {
+    const px = x * TS;
+    const py = y * TS;
+    const jit = (vnoise(x / 3.2, y / 3.2, 41) - 0.5) * 16;
+    c.fillStyle = css(COL.path, jit - 6);
+    c.fillRect(px, py, TS, TS);
+    const rows = [0, 11, 21, 32];
+    for (let r = 0; r < 3; r++) {
+      const y0 = py + rows[r];
+      const y1 = py + rows[r + 1];
+      const off = hash2(x, y, 700 + r) * 10;
+      let sx = px - 10 + off;
+      let k = 0;
+      while (sx < px + TS) {
+        const wd = 12 + hash2(x, y, 710 + r * 5 + k) * 8;
+        const x0 = Math.max(px, sx);
+        const x1 = Math.min(px + TS, sx + wd);
+        if (x1 > x0 + 1) {
+          const tint = (hash2(x, y, 730 + r * 5 + k) - 0.5) * 18;
+          c.fillStyle = css(COL.path, jit + tint + 4);
+          c.fillRect(x0 + 0.7, y0 + 0.7, x1 - x0 - 1.4, y1 - y0 - 1.4);
+          c.fillStyle = 'rgba(255,250,232,0.34)';
+          c.fillRect(x0 + 0.7, y0 + 0.7, x1 - x0 - 1.4, 1);
+          c.fillRect(x0 + 0.7, y0 + 0.7, 1, y1 - y0 - 1.4);
+          c.fillStyle = 'rgba(96,86,70,0.28)';
+          c.fillRect(x0 + 0.7, y1 - 1.3, x1 - x0 - 1.4, 0.8);
         }
-      }
-      c.fillStyle = 'rgba(110,100,86,0.25)';
-      for (let k = 0; k < 6; k++) c.fillRect(px + hash2(x, y, 230 + k) * (TS - 1), py + hash2(x, y, 240 + k) * (TS - 1), 1.5, 1.5);
-      if (hash2(x, y, 250) < 0.35) {
-        c.strokeStyle = 'rgba(70,64,52,0.55)';
-        c.lineWidth = 1;
-        const sx = px + hash2(x, y, 251) * TS;
-        c.beginPath();
-        c.moveTo(sx, py);
-        c.lineTo(sx + 5, py + TS * 0.4);
-        c.lineTo(sx - 2, py + TS * 0.75);
-        c.stroke();
-        c.fillStyle = 'rgba(80,140,60,0.9)';
-        c.fillRect(sx + 3, py + TS * 0.4 - 1, 2, 3);
+        sx += wd;
+        k++;
       }
     }
+    c.fillStyle = 'rgba(110,100,86,0.25)';
+    for (let k = 0; k < 4; k++) c.fillRect(px + hash2(x, y, 230 + k) * (TS - 1), py + hash2(x, y, 240 + k) * (TS - 1), 1.3, 1.3);
+    if (hash2(x, y, 250) < 0.22) {
+      c.strokeStyle = 'rgba(70,64,52,0.5)';
+      c.lineWidth = 0.9;
+      const sx = px + hash2(x, y, 251) * TS;
+      c.beginPath();
+      c.moveTo(sx, py);
+      c.lineTo(sx + 4, py + TS * 0.4);
+      c.lineTo(sx - 2, py + TS * 0.75);
+      c.stroke();
+      c.fillStyle = 'rgba(90,150,64,0.85)';
+      c.fillRect(sx + 2.5, py + TS * 0.4 - 1, 2, 2.5);
+    }
+    // stone edging along every side that borders something other than paving
+    const solid = (tx: number, ty: number) => {
+      if (!inBounds(w, tx, ty)) return true;
+      const n = w.terrain[ty * w.w + tx];
+      return n === T.PATH || n === T.BUILDING;
+    };
+    const edge = (dx: number, dy: number) => {
+      if (solid(x + dx, y + dy)) return;
+      const along = dx === 0 ? [1, 0] : [0, 1];
+      for (let s = 0; s < 4; s++) {
+        const a = (s + 0.5) * (TS / 4);
+        const ex = px + (dx === 0 ? a : dx > 0 ? TS - 2.6 : 2.6);
+        const ey = py + (dy === 0 ? a : dy > 0 ? TS - 2.6 : 2.6);
+        const tone = 168 + hash2(x * 4 + s, y, 760 + dx * 3 + dy) * 40;
+        c.fillStyle = 'rgba(70,64,50,0.45)';
+        c.beginPath();
+        c.ellipse(ex + 0.8, ey + 0.9, along[0] ? 4.4 : 3, along[1] ? 4.4 : 3, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = `rgb(${tone},${tone - 8},${tone - 26})`;
+        c.beginPath();
+        c.ellipse(ex, ey, along[0] ? 4.2 : 2.8, along[1] ? 4.2 : 2.8, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = 'rgba(255,252,236,0.45)';
+        c.beginPath();
+        c.ellipse(ex - 0.8, ey - 0.8, along[0] ? 2.4 : 1.2, along[1] ? 2.4 : 1.2, 0, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+    edge(-1, 0);
+    edge(1, 0);
+    edge(0, -1);
+    edge(0, 1);
   }
 
   // ---------- frame ----------
@@ -506,20 +844,17 @@ export class Renderer {
     const x1 = Math.min(w.w - 1, Math.ceil(Math.max(...corners.map(p => p.x))) + 5);
     const y1 = Math.min(w.h - 1, Math.ceil(Math.max(...corners.map(p => p.y))) + 5);
 
-    // water shimmer
-    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
-    ctx.lineWidth = Math.max(1, ts * 0.04);
+    // restrained water glints: one pre-rendered sprite, slowly twinkling
+    const gw = Math.max(8, ts * 0.9);
+    const gh = gw * 0.3;
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
-        if (w.terrain[y * w.w + x] !== T.WATER || hash2(x, y, 300) > 0.55) continue;
-        const p = this.toScreen(x, y);
-        const ph = time * 0.9 + hash2(x, y, 301) * 6;
-        const a = (Math.sin(ph) * 0.5 + 0.5) * 0.7 + 0.15;
-        ctx.globalAlpha = a;
-        ctx.beginPath();
-        ctx.moveTo(p.x + ts * 0.2, p.y + ts * (0.35 + 0.3 * hash2(x, y, 302)));
-        ctx.lineTo(p.x + ts * (0.45 + 0.1 * Math.sin(ph)), p.y + ts * (0.35 + 0.3 * hash2(x, y, 302)));
-        ctx.stroke();
+        if (w.terrain[y * w.w + x] !== T.WATER || hash2(x, y, 300) > 0.4) continue;
+        const ph = Math.sin(time * 0.7 + hash2(x, y, 301) * 40);
+        if (ph < 0.2) continue;
+        const p = this.toScreen(x + 0.2 + hash2(x, y, 302) * 0.6, y + 0.2 + hash2(x, y, 303) * 0.6);
+        ctx.globalAlpha = (ph - 0.2) * 0.9;
+        ctx.drawImage(this.glint, p.x - gw / 2, p.y - gh / 2, gw, gh);
       }
     ctx.globalAlpha = 1;
 
@@ -539,6 +874,7 @@ export class Renderer {
 
     this.drawHoleMarkers(game, time);
     this.drawClubEnhancements(game, time);
+    if (this.nearScreen(7, 44, 16)) drawClubGround(this, game);
 
     // y-sorted: trees + golfers
     type Item = { y: number; draw: () => void };
@@ -559,9 +895,19 @@ export class Renderer {
           let r = hash2(x, y, 401) * wsum;
           for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { variant = k; break; }
         }
-        if (variant === 0 && hh > .78 && game.region !== 'desert') variant = 7;
+        if (variant === 0 && game.region !== 'desert') {
+          if (hh > .96) variant = 9;
+          else if (hh > .82) variant = 7;
+          else if (hh > .5) variant = 8;
+        }
+        if (variant === 0 && game.season.index === 2 && hh < .2) variant = 4;
         items.push({ y: x + y + 1, draw: () => this.drawTree(x, y, variant, hh) });
       }
+    for (const d of this.decor) {
+      if (d.x < x0 || d.x > x1 + 1 || d.y < y0 || d.y > y1 + 1 || w.tree[d.i]) continue;
+      items.push({ y: d.x + d.y, draw: () => this.drawDecor(d) });
+    }
+    this.teeFurniture(game, items);
     for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
@@ -638,20 +984,64 @@ export class Renderer {
     ctx.restore();
   }
 
+  private drawSprite(sp: Sprite, x: number, y: number, scale: number, alpha = 1) {
+    const ctx = this.ctx;
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(sp.cv, x - sp.ax * scale, y - sp.ay * scale, sp.cv.width * scale, sp.cv.height * scale);
+    if (alpha !== 1) ctx.globalAlpha = 1;
+  }
+
+  private drawDecor(d: Decor) {
+    const p = this.toScreen(d.x, d.y);
+    const scale = this.ts / 52;
+    const sp = d.kind === 'shrub' ? this.shrubs[d.v % this.shrubs.length] : d.kind === 'rock' ? this.rocks[d.v % this.rocks.length] : d.kind === 'flowers' ? this.flowers[d.v % this.flowers.length] : this.reeds[d.v % this.reeds.length];
+    this.drawSprite(sp, p.x, p.y, scale);
+  }
+
+  /** Bench and ball washer beside each tee box, on the side away from the fairway. */
+  private teeFurniture(game: Game, items: Array<{ y: number; draw: () => void }>) {
+    const w = game.world;
+    for (const h of game.world.holes) {
+      const dir = Math.atan2(h.bend.y - h.tee.y, h.bend.x - h.tee.x);
+      const tc = center(h.tee);
+      const px = -Math.sin(dir);
+      const py = Math.cos(dir);
+      const place = (side: number, back: number, sp: Sprite, scale: number) => {
+        const wx = tc.x + px * side - Math.cos(dir) * back;
+        const wy = tc.y + py * side - Math.sin(dir) * back;
+        const tx = Math.floor(wx);
+        const ty = Math.floor(wy);
+        if (!inBounds(w, tx, ty)) return;
+        const tt = w.terrain[ty * w.w + tx];
+        if (tt === T.WATER || tt === T.BUNKER || tt === T.BUILDING || w.tree[ty * w.w + tx]) return;
+        items.push({ y: wx + wy, draw: () => { const s = this.toScreen(wx, wy); this.drawSprite(sp, s.x, s.y, this.ts / 52 * scale); } });
+      };
+      place(2.6, 0.4, this.bench, 1);
+      place(-2.5, 0.8, this.washer, 1);
+    }
+  }
+
   private drawTree(x: number, y: number, v: number, hh: number) {
     const ctx = this.ctx;
     const ts = this.ts;
     const p = this.toScreen(x + 0.5, y + 0.5);
-    const size = ts * (1.5 + hh * .55);
-    ctx.fillStyle = 'rgba(10,30,15,0.22)';
-    ctx.beginPath();
-    ctx.ellipse(p.x + size * 0.22, p.y - size * 0.02, size * 0.34, size * 0.12, 0, 0, Math.PI * 2);
-    ctx.fill();
-    const spr = this.trees[v];
+    const size = ts * (1.5 + hh * 0.55);
+    const s = size / TREE_W;
+    // sun is upper left: the cast shadow stretches toward the lower right, with a tight contact shadow at the trunk
+    const reach = v === 2 ? 1.05 : v === 6 ? 0.5 : 0.85;
+    ctx.drawImage(this.treeShadow, p.x - 58 * s * reach - size * 0.02, p.y - 30 * s * reach, 192 * s * reach, 64 * s * reach);
+    const small = size * this.dpr < 80;
+    const spr = small ? this.treesSmall[v] : this.trees[v];
+    const h = size * (TREE_H / TREE_W);
+    const baseY = h * TREE_BASE;
+    if (v === 3) {
+      ctx.drawImage(spr, p.x - size / 2, p.y - baseY, size, h);
+      return;
+    }
     ctx.save();
     ctx.translate(p.x, p.y);
-    if (v !== 3) ctx.rotate(Math.sin(this.time * 1.1 + hh * 40) * 0.018);
-    ctx.drawImage(spr, -size / 2, -size * 1.5, size, size * 1.55);
+    ctx.rotate(Math.sin(this.time * 1.1 + hh * 40) * 0.018);
+    ctx.drawImage(spr, -size / 2, -baseY, size, h);
     ctx.restore();
   }
 
@@ -662,9 +1052,14 @@ export class Renderer {
     const gt = CFG.golfers.types[g.type];
     const walking = g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave';
     const sw = walking ? Math.sin(g.walkT) : 0;
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    // same sun as the trees: a soft shadow stretched toward the lower right, plus a tight contact shadow
+    ctx.fillStyle = 'rgba(8,26,16,0.2)';
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y, u * 0.2, u * 0.07, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x + u * 0.2, p.y + u * 0.03, u * 0.3, u * 0.075, 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(4,16,10,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, u * 0.17, u * 0.055, 0, 0, Math.PI * 2);
     ctx.fill();
     if (selected) {
       ctx.strokeStyle = '#ffe27a';
@@ -946,8 +1341,14 @@ export class Renderer {
     }
   }
 
-  private drawBuilding(game: Game, time: number) { drawCountryClub(this, game, time); }
-  private drawStructures(game: Game, time: number) { drawVillageAmenities(this, game); void time; }
+  /** True when a ground point (with a radius in tiles) could be on screen; lets static scenery skip off-screen work. */
+  private nearScreen(wx: number, wy: number, radiusTiles: number) {
+    const p = this.toScreen(wx, wy);
+    const r = radiusTiles * this.ts * 1.2;
+    return p.x > -r && p.x < this.cw + r && p.y > -r * 1.4 && p.y < this.ch + r;
+  }
+  private drawBuilding(game: Game, time: number) { if (this.nearScreen(7, 44, 16)) drawCountryClub(this, game, time); }
+  private drawStructures(game: Game, time: number) { if (this.nearScreen(15, 41, 14)) drawVillageAmenities(this, game); void time; }
 
   private drawFx(game: Game) {
     const ctx = this.ctx;
