@@ -121,7 +121,7 @@ describe('goals and income', () => {
 });
 
 describe('satisfaction and pricing', () => {
-  const base = { golferId: 1, name: 'x', type: 'regular' as const, holes: 2, strokes: 10, par: 7, fee: 30, stats: { shots: 10, rough: 1, bunker: 0, water: 0, tree: 0, condSum: 800, condN: 10, wait: 5, picked: 0, closedOnMe: 0 } };
+  const base = { golferId: 1, name: 'x', type: 'regular' as const, holes: 2, strokes: 10, par: 7, fee: 30, event: false, fairFee: null, stats: { shots: 10, rough: 1, bunker: 0, water: 0, tree: 0, condSum: 800, condN: 10, wait: 5, picked: 0, closedOnMe: 0 } };
   it('worn turf, long waits and high fees each lower satisfaction', () => {
     const good = scoreRound(base, 30, 32).total;
     expect(scoreRound({ ...base, stats: { ...base.stats, condSum: 250 } }, 30, 32).total).toBeLessThan(good);
@@ -240,5 +240,59 @@ describe('improvements and pricing', () => {
     const h = deserialize(JSON.stringify(d))!;
     expect(h.upgrades.proShop).toBe(true);
     expect(h.upgrades.carts).toBe(false);
+  });
+});
+
+describe('events', () => {
+  it('books for a future day, charges setup only when it starts, and brings paying golfers', () => {
+    const g = new Game(undefined, 8);
+    const cash = g.cash;
+    expect(g.bookEvent('scramble')).toBe(true);
+    expect(g.bookings).toEqual([{ id: 'scramble', day: 2, fee: 45 }]);
+    expect(g.cash).toBe(cash); // nothing charged at booking
+    run(g, CFG.day.seconds + 1); // day 1 ends, day 2 starts the event
+    expect(g.activeEvent).not.toBeNull();
+    expect(g.today.maintenance).toBeGreaterThanOrEqual(150);
+    run(g, 60);
+    expect(g.activeEvent!.spawned).toBe(g.activeEvent!.total);
+    expect(g.activeEvent!.revenue).toBe(g.activeEvent!.total * 45);
+    run(g, CFG.day.seconds);
+    expect(g.lastEvent?.guests).toBeGreaterThan(5);
+    expect(g.activeEvent).toBeNull();
+    expect(g.bookings.length).toBe(0);
+  });
+  it('higher entry fees reduce turnout, and unmet requirements block booking or cancel with no charge', () => {
+    const g = new Game();
+    g.setEventFee('scramble', 45);
+    const cheap = g.expectedGuests('scramble');
+    g.setEventFee('scramble', 90);
+    expect(g.expectedGuests('scramble')).toBeLessThan(cheap);
+    g.closeHole(1);
+    g.closeHole(2);
+    expect(g.bookEvent('scramble')).toBe(false); // needs 2 open holes
+    g.openHole(1);
+    g.openHole(2);
+    const saved = Float32Array.from(g.world.cond);
+    g.world.cond.fill(40);
+    g.world.version++;
+    expect(g.bookEvent('league')).toBe(false); // turf is not good enough
+    g.world.cond.set(saved);
+    g.world.version++;
+    g.bookEvent('clinic');
+    g.closeHole(2);
+    const before = g.cash;
+    run(g, CFG.day.seconds + 1);
+    expect(g.activeEvent?.id).toBe('clinic'); // clinic only needs 1 hole, so it runs
+    expect(g.cash).not.toBe(before);
+  });
+  it('bookings survive save and load; cancel is free', () => {
+    const g = new Game();
+    g.bookEvent('clinic');
+    const h = deserialize(serialize(g))!;
+    expect(h.bookings.length).toBe(1);
+    const cash = h.cash;
+    h.cancelEvent(2);
+    expect(h.bookings.length).toBe(0);
+    expect(h.cash).toBe(cash);
   });
 });

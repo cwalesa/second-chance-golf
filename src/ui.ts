@@ -2,10 +2,11 @@ import { CFG } from './config';
 import { Game, fmtMoney } from './game';
 import { Editor, terrainLabel } from './input';
 import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId } from './editing';
+import { EVENTS, EVENT_IDS, EventId } from './events';
 import { holeCondition, holeStraightTiles, idx } from './terrain';
 import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } from './economy';
 
-type Tab = 'course' | 'guests' | 'money' | 'goals';
+type Tab = 'course' | 'guests' | 'money' | 'events' | 'goals';
 
 const ICON: Record<string, string> = {
   inspect: '<circle cx="10.5" cy="10.5" r="6" /><path d="M15 15l6 6" />',
@@ -89,6 +90,7 @@ export class UI {
       <div class="stat"><span class="k">Green fee</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
       <div class="stat" id="satbox" title="Average satisfaction of recent guests"><span class="k">Guests</span><span class="v small" id="sat"></span><div class="meter"><i id="satbar"></i></div></div>
       <div class="stat" title="Operating profit so far today (fees and sales minus maintenance)"><span class="k">Today</span><span class="v small" id="todayp"></span></div>
+      <div class="stat" id="evbox" style="display:none"><span class="k">Event</span><span class="v small" id="evtxt"></span></div>
       <div class="stat"><span class="k">On course</span><span class="v small" id="oncourse"></span></div>
       <div class="spacer"></div>
       <span class="saved" id="saved"></span>
@@ -128,7 +130,7 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${(['course', 'guests', 'money', 'goals'] as Tab[]).map((t) => `<button data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div><div class="body" id="sidebody"></div>`;
+    this.$('side').innerHTML = `<div class="tabs">${(['course', 'guests', 'money', 'events', 'goals'] as Tab[]).map((t) => `<button data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div><div class="body" id="sidebody"></div>`;
     this.$('side').addEventListener('click', (e) => {
       const el = (e.target as HTMLElement).closest('[data-tab],[data-act],[data-hole]') as HTMLElement | null;
       if (!el) return;
@@ -142,6 +144,9 @@ export class UI {
         if (el.dataset.act === 'open') this.game.openHole(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
         else if (el.dataset.act === 'buy') this.game.buyUpgrade(el.dataset.id as UpgradeId);
+        else if (el.dataset.act === 'book') this.game.bookEvent(el.dataset.id as EventId);
+        else if (el.dataset.act === 'cancelev') this.game.cancelEvent(id);
+        else if (el.dataset.act === 'evfee') this.game.setEventFee(el.dataset.ev as EventId, this.game.eventFees[el.dataset.ev as EventId] + Number(el.dataset.id));
         else if (el.dataset.act === 'cartfee') this.game.setCartFee(this.game.cartFee + Number(el.dataset.id));
         else if (el.dataset.act === 'tool') this.editor.setTool(el.dataset.id as ToolId);
         else if (el.dataset.act === 'clear-golfer') this.game.selectedGolfer = 0;
@@ -213,6 +218,10 @@ export class UI {
     set('clock', g.clockText);
     (this.$('daybar') as HTMLElement).style.width = `${(g.clock / CFG.day.seconds) * 100}%`;
     set('fee', fmtMoney(g.fee));
+    const nb = g.bookings[0];
+    const evText = g.activeEvent ? `${EVENTS[g.activeEvent.id].name}, today` : nb ? `${EVENTS[nb.id].name}, day ${nb.day}` : '';
+    (this.$('evbox') as HTMLElement).style.display = evText ? '' : 'none';
+    set('evtxt', evText);
     set('todayp', `${operatingProfit(g.today) >= 0 ? '+' : ''}${fmtMoney(operatingProfit(g.today))} · ${g.today.rounds} rounds`);
     const rep = g.reputation;
     set('sat', `${Math.round(rep)} · ${word(rep)}`);
@@ -308,6 +317,7 @@ export class UI {
       case 'course': return this.courseHtml();
       case 'guests': return this.guestsHtml();
       case 'money': return this.moneyHtml();
+      case 'events': return this.eventsHtml();
       default: return this.goalsHtml();
     }
   }
@@ -428,6 +438,33 @@ export class UI {
       html += `<div class="card"><div class="row"><span class="t">${u.name}</span><span class="reward">${fmtMoney(u.cost)}</span></div><div class="dim">${u.blurb}</div><div style="margin-top:6px">${g.upgrades[id] ? '<span class="badge open">OWNED</span>' : `<button class="btn" data-act="buy" data-id="${id}" ${g.cash < u.cost ? 'disabled' : ''}>Buy${g.cash < u.cost ? ` (need ${fmtMoney(u.cost - g.cash)} more)` : ''}</button>`}</div></div>`;
     }
     html += `</div><div class="sec"><h3>Recent transactions</h3><div class="feed">${g.log.filter((l) => !l.label.startsWith('Green fee')).slice(-8).reverse().map((l) => `<div class="row"><span>${l.label}<br><span class="dim">Day ${l.day}, ${l.hour}</span></span>${money(l.amount)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div>`;
+    return html;
+  }
+
+  private eventsHtml(): string {
+    const g = this.game;
+    let html = '';
+    const a = g.activeEvent;
+    if (a) html += `<div class="sec"><h3>Happening today</h3><div class="card"><div class="t">${EVENTS[a.id].name}</div><div class="row"><span class="k">Golfers arrived</span><span>${a.spawned} of ${a.total}</span></div><div class="row"><span class="k">Entry fees</span><span>${fmtMoney(a.revenue)}</span></div><div class="row"><span class="k">Rounds finished</span><span>${a.rounds}</span></div></div></div>`;
+    html += `<div class="sec"><h3>Booked</h3>`;
+    html += g.bookings.length ? g.bookings.map((b) => `<div class="card"><div class="row"><span class="t">${EVENTS[b.id].name}</span><span>Day ${b.day}</span></div><div class="dim">Entry ${fmtMoney(b.fee)}, setup ${fmtMoney(EVENTS[b.id].cost)} charged at the start.</div><div style="margin-top:6px"><button class="btn" data-act="cancelev" data-id="${b.day}">Cancel, free</button></div></div>`).join('') : '<div class="dim">Nothing booked. Events bring a burst of paying golfers at a 7 AM shotgun start.</div>';
+    html += `</div><div class="sec"><h3>Host an event</h3>`;
+    for (const id of EVENT_IDS) {
+      const d = EVENTS[id];
+      const fee = g.eventFees[id];
+      const n = g.expectedGuests(id);
+      const probs = g.eventProblemsFor(id);
+      const net = n * fee - d.cost;
+      html += `<div class="card"><div class="row"><span class="t">${d.name}</span><span class="reward">${fmtMoney(d.cost)} setup</span></div><div class="dim">${d.blurb}</div>
+        <div class="row" style="margin-top:6px;align-items:center"><span class="k">Entry fee (fair: ${fmtMoney(d.fair)})</span><span><button class="btn" data-act="evfee" data-ev="${id}" data-id="-5">−</button> <b>${fmtMoney(fee)}</b> <button class="btn" data-act="evfee" data-ev="${id}" data-id="5">+</button></span></div>
+        <div class="row"><span class="k">Expected turnout</span><span>about ${n} golfers</span></div>
+        <div class="row"><span class="k">Expected profit before upkeep</span>${money(net)}</div>
+        ${probs.map((p) => `<div class="note bad">${p}</div>`).join('')}
+        <div style="margin-top:6px"><button class="btn primary" data-act="book" data-id="${id}" ${probs.length ? 'disabled' : ''}>Book next free day</button></div></div>`;
+    }
+    html += '</div>';
+    const l = g.lastEvent;
+    if (l) html += `<div class="sec"><h3>Last event</h3><div class="card"><div class="t">${EVENTS[l.id].name}, day ${l.day}</div><div class="row"><span class="k">Golfers</span><span>${l.guests}</span></div><div class="row"><span class="k">Entries minus setup</span>${money(l.revenue - l.cost)}</div><div class="row"><span class="k">Satisfaction</span><span>${l.rounds ? Math.round(l.avgSat) : '-'}</span></div></div></div>`;
     return html;
   }
 

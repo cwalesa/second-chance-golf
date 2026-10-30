@@ -19,6 +19,13 @@ export interface Flight {
   penalty: number;
 }
 
+export interface Fx {
+  kind: 'splash' | 'sand' | 'divot' | 'cup' | 'leaf';
+  x: number;
+  y: number;
+  t0: number;
+}
+
 export interface RoundStats {
   shots: number;
   rough: number;
@@ -76,6 +83,8 @@ export interface Golfer {
   scoreFlash: { text: string; t: number } | null;
   path: Pt[] | null;
   pathGoal: Pt | null;
+  event: boolean;
+  fairFee: number | null;
 }
 
 export interface RoundResult {
@@ -87,6 +96,8 @@ export interface RoundResult {
   par: number;
   fee: number;
   stats: RoundStats;
+  event: boolean;
+  fairFee: number | null;
 }
 export interface GuestComment {
   t: number;
@@ -121,6 +132,7 @@ const newTrack = (now: number): HoleTrack => ({ strokes: 0, shots: 0, rough: 0, 
 
 export class CourseSim {
   golfers: Golfer[] = [];
+  fx: Fx[] = [];
   nextId = 1;
   now = 0;
   queues = new Map<number, number[]>();
@@ -130,6 +142,11 @@ export class CourseSim {
   private lastWearBump = 0;
 
   constructor(public world: World, public rng: Rng, public hooks: SimHooks) {}
+
+  private addFx(kind: Fx['kind'], x: number, y: number) {
+    this.fx.push({ kind, x, y, t0: this.now });
+    if (this.fx.length > 80) this.fx.shift();
+  }
 
   hole(id: number): Hole | undefined {
     return this.world.holes.find((h) => h.id === id);
@@ -165,7 +182,7 @@ export class CourseSim {
     return { x: tee.x + bx * (2.4 + i * 0.9) + px * side, y: tee.y + by * (2.4 + i * 0.9) + py * side };
   }
 
-  spawn(type: GolferType, fee: number): Golfer | null {
+  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number } = {}): Golfer | null {
     const open = this.world.holes.filter((h) => h.open);
     if (!open.length) return null;
     // start on the least busy open hole, then play the rest in order
@@ -214,6 +231,8 @@ export class CourseSim {
       scoreFlash: null,
       path: null,
       pathGoal: null,
+      event: !!opts.event,
+      fairFee: opts.fair ?? null,
     };
     this.golfers.push(g);
     return g;
@@ -425,6 +444,7 @@ export class CourseSim {
     }
     const plan = g.plan ?? planShot(world, h, g.type, g.ball);
     const shot = executeShot(world, this.rng, g.type, g.ball, plan);
+    this.addFx(lie.kind === 'bunker' ? 'sand' : 'divot', g.ball.x, g.ball.y);
     this.wearAt(g.ball.x, g.ball.y, lie.kind === 'tee' ? CFG.wear.teeShot : CFG.wear.fairwayShot);
     if (lie.kind !== 'tee' && lie.kind !== 'bunker' && lie.cond < 35) this.sayOnce(g, 'dirt', 'Playing off bare dirt out here.');
     const dist = Math.hypot(shot.air.x - g.ball.x, shot.air.y - g.ball.y);
@@ -458,16 +478,20 @@ export class CourseSim {
     } else if (sh) {
       const cup = center(h.cup);
       if (sh.kind === 'water') {
+        this.addFx('splash', sh.air.x, sh.air.y);
         g.stats.water++;
         h.stats.water++;
         this.say(g, this.rng.pick(['Splash. That is a penalty stroke.', 'Into the water. One-stroke penalty.']));
       } else if (sh.kind === 'oob') this.say(g, 'Out of bounds. Hitting again.');
       else if (sh.kind === 'tree' || sh.kind === 'treeLand') {
+        this.addFx('leaf', sh.air.x, sh.air.y);
         g.stats.tree++;
         this.say(g, 'Right into the trees.');
       } else if (sh.mishit) this.say(g, this.rng.pick(['Topped it.', 'Caught that thin.']));
-      else if (lieAt(this.world, g.ball.x, g.ball.y).kind === 'bunker') this.say(g, 'Plugged in the sand again.');
-      else {
+      else if (lieAt(this.world, g.ball.x, g.ball.y).kind === 'bunker') {
+        this.addFx('sand', g.ball.x, g.ball.y);
+        this.say(g, 'Plugged in the sand again.');
+      } else {
         const dc = Math.hypot(cup.x - g.ball.x, cup.y - g.ball.y);
         if (dc < 0.12 && lieAt(this.world, g.ball.x, g.ball.y).kind === 'green') return this.holeOut(g);
         if (dc < 0.45 && g.type !== 'beginner' && lieAt(this.world, g.ball.x, g.ball.y).kind === 'green') this.say(g, 'Nice one. That is close.');
@@ -479,6 +503,7 @@ export class CourseSim {
 
   private holeOut(g: Golfer) {
     const h = this.hole(g.holeId)!;
+    this.addFx('cup', h.cup.x + 0.5, h.cup.y + 0.5);
     g.ballVisible = false;
     g.scoreFlash = { text: scoreName(g.hs.strokes - h.par, g.hs.strokes), t: 2.2 };
     g.timer = 1.2;
@@ -495,6 +520,8 @@ export class CourseSim {
       par: g.parDone,
       fee: g.fee,
       stats: g.stats,
+      event: g.event,
+      fairFee: g.fairFee,
     });
     if (farewell) this.say(g, farewell, true);
     this.setPhase(g, 'leave');
@@ -502,6 +529,7 @@ export class CourseSim {
 
   update(dt: number) {
     this.now += dt;
+    while (this.fx.length && this.now - this.fx[0].t0 > 2.5) this.fx.shift();
     this.manageTees();
     for (const g of this.golfers) {
       g.age += dt;

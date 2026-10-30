@@ -3,6 +3,7 @@ import { Rng } from './rng';
 import { World, Hole, createStartingWorld, computeZones, holeCondition, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, arrivalsPerDay, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
+import { ActiveEvent, Booking, EVENTS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
 import { EditPlan, ToolId, applyPlan, touchedHoles } from './editing';
 
 export interface LogEntry {
@@ -64,6 +65,10 @@ export class Game {
   notices: Notice[] = [];
   onNotice: (n: Notice) => void = () => {};
   dirtySave = false;
+  bookings: Booking[] = [];
+  eventFees: Record<EventId, number> = { scramble: EVENTS.scramble.fair, outing: EVENTS.outing.fair, clinic: EVENTS.clinic.fair, league: EVENTS.league.fair };
+  activeEvent: ActiveEvent | null = null;
+  lastEvent: EventResult | null = null;
   private goalTimer = 0;
 
   constructor(world?: World, seed = 20250601) {
@@ -152,6 +157,7 @@ export class Game {
       this.hourly();
     }
     this.maybeArrive(dt);
+    this.eventArrivals();
     this.sim.update(dt);
     this.goalTimer += dt;
     if (this.goalTimer >= 0.5) {
@@ -191,7 +197,7 @@ export class Game {
   }
 
   private arrive() {
-    if (this.sim.golfers.length >= 16) return; // course is full, they drive on by
+    if (this.sim.golfers.length >= (this.activeEvent ? 34 : 16)) return; // course is full, they drive on by
     const g = this.sim.spawn(pickGolferType(this.rng), this.fee);
     if (g) {
       this.today.arrivals++;
@@ -201,7 +207,11 @@ export class Game {
   }
 
   private onRoundComplete(r: RoundResult): string {
-    const sc = scoreRound(r, r.fee, this.fair, amenityBonus(this.upgrades));
+    const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades));
+    if (r.event && this.activeEvent) {
+      this.activeEvent.rounds++;
+      this.activeEvent.satSum += sc.total;
+    }
     const spend = shopSpend(this.rng, sc.total, this.upgrades);
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
@@ -219,11 +229,86 @@ export class Game {
     const happy = sum.profit > 0 && t.rounds >= CFG.satisfaction.goalMinRounds && sum.avgSat >= CFG.satisfaction.goal;
     this.notify(sum.profit >= 0 ? 'good' : 'bad', `Day ${this.day} closed. Operating profit ${fmtMoney(sum.profit)}${t.rounds ? `, guest satisfaction ${Math.round(sum.avgSat)}` : ''}.`);
     if (happy) this.completeGoal('day');
+    this.finishEvent(sum.day);
     this.day++;
     this.clock = 0;
     this.lastHour = 0;
     this.today = emptyLedger();
+    this.startEvent();
     this.dirtySave = true;
+  }
+
+  // ---- events ----
+  eventProblemsFor(id: EventId): string[] {
+    return eventProblems(id, this.openHoles.length, this.reputation, this.avgCondition);
+  }
+  expectedGuests(id: EventId): number {
+    return eventGuests(id, this.eventFees[id], this.reputation);
+  }
+  setEventFee(id: EventId, v: number) {
+    this.eventFees[id] = Math.max(5, Math.min(200, Math.round(v)));
+    this.dirtySave = true;
+  }
+  /** Book the next free day. Nothing is charged until the event starts. */
+  bookEvent(id: EventId): boolean {
+    const p = this.eventProblemsFor(id);
+    if (p.length) {
+      this.notify('bad', `Cannot book ${EVENTS[id].name}: ${p[0]}`);
+      return false;
+    }
+    let day = this.day + 1;
+    while (this.bookings.some((b) => b.day === day)) day++;
+    if (day > this.day + 4) {
+      this.notify('bad', 'You can only book a few days ahead. Cancel one first.');
+      return false;
+    }
+    this.bookings.push({ id, day, fee: this.eventFees[id] });
+    this.bookings.sort((a, b) => a.day - b.day);
+    this.notify('good', `${EVENTS[id].name} booked for day ${day}. Setup (${fmtMoney(EVENTS[id].cost)}) is charged when it starts.`);
+    this.dirtySave = true;
+    return true;
+  }
+  cancelEvent(day: number) {
+    const i = this.bookings.findIndex((b) => b.day === day);
+    if (i < 0) return;
+    const [b] = this.bookings.splice(i, 1);
+    this.notify('info', `${EVENTS[b.id].name} on day ${day} cancelled. Nothing was charged.`);
+    this.dirtySave = true;
+  }
+  private startEvent() {
+    const i = this.bookings.findIndex((b) => b.day === this.day);
+    if (i < 0) return;
+    const [b] = this.bookings.splice(i, 1);
+    const d = EVENTS[b.id];
+    const problems = this.eventProblemsFor(b.id);
+    if (problems.length) {
+      this.notify('bad', `${d.name} was cancelled, no charge: ${problems[0]}`);
+      return;
+    }
+    const total = eventGuests(b.id, b.fee, this.reputation);
+    this.spend('maintenance', d.cost, `Event setup: ${d.name}`);
+    this.activeEvent = { id: b.id, fee: b.fee, total, spawned: 0, nextAt: 0.5, revenue: 0, rounds: 0, satSum: 0 };
+    this.notify('good', `${d.name} today: ${total} golfers expected for a shotgun start.`);
+  }
+  private eventArrivals() {
+    const e = this.activeEvent;
+    if (!e || e.spawned >= e.total || this.clock < e.nextAt) return;
+    const g = this.sim.spawn(pickEventGolfer(e.id, this.rng), e.fee, { event: true, fair: EVENTS[e.id].fair });
+    if (g) {
+      e.spawned++;
+      e.revenue += e.fee;
+      this.today.arrivals++;
+      this.earn('fees', e.fee, `Event entry, ${g.name}`);
+    }
+    e.nextAt = this.clock + 35 / Math.max(1, e.total);
+  }
+  private finishEvent(day: number) {
+    const e = this.activeEvent;
+    if (!e) return;
+    const res: EventResult = { id: e.id, day, guests: e.spawned, revenue: e.revenue, cost: EVENTS[e.id].cost, rounds: e.rounds, avgSat: e.rounds ? e.satSum / e.rounds : 0 };
+    this.lastEvent = res;
+    this.activeEvent = null;
+    this.notify(res.revenue >= res.cost ? 'good' : 'bad', `${EVENTS[res.id].name}: ${res.guests} golfers, ${fmtMoney(res.revenue)} in entries against ${fmtMoney(res.cost)} setup${res.rounds ? `, satisfaction ${Math.round(res.avgSat)}` : ''}.`);
   }
 
   completeGoal(id: string) {

@@ -18,6 +18,9 @@ export function serialize(g: Game): string {
     },
     cash: g.cash,
     cartFee: g.cartFee,
+    bookings: g.bookings,
+    eventFees: g.eventFees,
+    lastEvent: g.lastEvent,
     day: g.day,
     clock: g.clock,
     total: g.total,
@@ -61,6 +64,9 @@ export function deserialize(text: string): Game | null {
     g.fee = d.fee;
     g.upgrades = { ...noUpgrades(), ...d.upgrades };
     g.cartFee = d.cartFee ?? g.cartFee;
+    g.bookings = Array.isArray(d.bookings) ? d.bookings : [];
+    g.eventFees = { ...g.eventFees, ...(d.eventFees ?? {}) };
+    g.lastEvent = d.lastEvent ?? null;
     g.goals = d.goals;
     g.today = d.today;
     g.days = d.days;

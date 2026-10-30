@@ -31,6 +31,8 @@ Progress autosaves to the browser's localStorage. **Reset** (top right) asks for
 - **Paint tools** (Fairway, Rough, Bunker, Water, Repair, Plant/Clear tree): the footprint is outlined, tiles that will change are tinted, and the bottom pill shows tiles and cost before you commit. Drag to paint a stroke; it is charged once on release, only for tiles that change, and is one Undo step. Brush size is under the toolbar.
 - **Move tee / Move cup** act on the hole selected in the Course tab.
 - Editing any ground belonging to an open hole closes that hole (golfers on it move on). Reopen it from the Course tab once it validates.
+- **Events** (Events tab): book a charity scramble, corporate outing, junior clinic or league day for an upcoming day. You set the entry fee (higher fees shrink turnout), setup is charged only when the event starts, and a burst of paying golfers arrives at a 7 AM shotgun start. Some events need open holes, reputation or good turf.
+- **Money tab**: green fee, cart price and permanent improvements (snack bar, putting green, driving range, carts, pro shop, grounds crew), each with hourly upkeep and a visible building on the map.
 - **Goals** (Goals tab) pay one-time bonuses: repair hole 2's green, reopen hole 3, finish a profitable day with satisfaction 80+.
 
 Shortcuts: `P` pause, `[` `]` brush size, `Ctrl/Cmd+Z` undo, `Esc` back to Inspect.
@@ -44,6 +46,7 @@ Shortcuts: `P` pause, `[` `]` brush size, `Ctrl/Cmd+Z` undo, `Esc` back to Inspe
 | `editing.ts` | Tool plans (cost + affected tiles), tee/cup moves, apply/undo |
 | `physics.ts` | Lies, shot resolution (trees, water, OB, roll), shot planning, putting |
 | `sim.ts` | Golfers, tee queues, hole flow, reactions, wear |
+| `events.ts` | Event definitions, turnout and requirements |
 | `economy.ts` | Pricing, arrivals, satisfaction scoring, maintenance |
 | `game.ts` | Game state, fixed-step update, ledger, goals, day rollover, undo |
 | `save.ts` | localStorage persistence |
