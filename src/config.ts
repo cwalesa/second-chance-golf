@@ -16,7 +16,7 @@ export const CFG = {
   },
 
   economy: {
-    startCash: 1800,
+    startCash: 2400,
     fee: { default: 30, min: 5, max: 90 },
     maintenance: { perHour: 12, perOpenHole: 6, perClosedHole: 2 },
     baseGolfersPerDay: 6,

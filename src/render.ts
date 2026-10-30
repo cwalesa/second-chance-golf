@@ -1,11 +1,11 @@
+import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
+import { makeClassicTree, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer } from './sim';
 import { Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { ToolId } from './editing';
-import { EVENTS } from './events';
 import { Palette, REGIONS, RGB } from './progression';
-import { drawLogo } from './logo';
 
 export const TS = 32; // tile size in the cached terrain canvas
 
@@ -50,7 +50,7 @@ export class Renderer {
     this.base.height = this.terr.height;
     this.tctx = this.base.getContext('2d')!;
     this.tctx2 = this.terr.getContext('2d')!;
-    for (let v = 0; v < 7; v++) this.trees.push(makeTree(v));
+    for (let v = 0; v < 8; v++) this.trees.push(makeClassicTree(v));
   }
 
   resize() {
@@ -66,44 +66,46 @@ export class Renderer {
     return TS * this.cam.zoom;
   }
   toScreen(wx: number, wy: number): Pt {
-    return { x: (wx * TS - this.cam.x) * this.cam.zoom + this.cw / 2, y: (wy * TS - this.cam.y) * this.cam.zoom + this.ch / 2 };
+    const p = projectGround(wx * TS, wy * TS);
+    return { x: (p.x - this.cam.x) * this.cam.zoom + this.cw / 2, y: (p.y - this.cam.y) * this.cam.zoom + this.ch / 2 };
   }
   toWorld(sx: number, sy: number): Pt {
-    return { x: ((sx - this.cw / 2) / this.cam.zoom + this.cam.x) / TS, y: ((sy - this.ch / 2) / this.cam.zoom + this.cam.y) / TS };
+    const p = unprojectGround((sx - this.cw / 2) / this.cam.zoom + this.cam.x, (sy - this.ch / 2) / this.cam.zoom + this.cam.y);
+    return { x: p.x / TS, y: p.y / TS };
   }
   clampCam(w: World) {
-    const z = this.cam.zoom;
-    const hw = this.cw / 2 / z;
-    const hh = this.ch / 2 / z;
-    const mw = w.w * TS;
-    const mh = w.h * TS;
-    this.cam.x = mw <= hw * 2 ? mw / 2 : Math.max(hw - 60, Math.min(mw - hw + 60, this.cam.x));
-    this.cam.y = mh <= hh * 2 ? mh / 2 : Math.max(hh - 60, Math.min(mh - hh + 60, this.cam.y));
+    const p = unprojectGround(this.cam.x, this.cam.y);
+    const q = projectGround(Math.max(2 * TS, Math.min((w.w - 2) * TS, p.x)), Math.max(2 * TS, Math.min((w.h - 2) * TS, p.y)));
+    this.cam.x = q.x; this.cam.y = q.y;
   }
   zoomAt(sx: number, sy: number, factor: number, w: World) {
     const before = this.toWorld(sx, sy);
-    this.cam.zoom = Math.max(0.35, Math.min(2.6, this.cam.zoom * factor));
+    this.cam.zoom = Math.max(.22, Math.min(2.6, this.cam.zoom * factor));
     const after = this.toWorld(sx, sy);
-    this.cam.x += (before.x - after.x) * TS;
-    this.cam.y += (before.y - after.y) * TS;
+    const delta = projectGround((before.x - after.x) * TS, (before.y - after.y) * TS);
+    this.cam.x += delta.x; this.cam.y += delta.y;
     this.clampCam(w);
   }
-  /** Pixels covered by UI panels on each side; the map is centred in what remains. */
-  insets = { l: 90, r: 330, t: 46, b: 50 };
-  /** Put world point (tx,ty) in the middle of the area not covered by the panels. */
+  insets = { l: 12, r: 12, t: 70, b: 118 };
   focus(tx: number, ty: number, zoom: number, w: World) {
     this.cam.zoom = zoom;
     const sx = (this.insets.l + (this.cw - this.insets.r)) / 2;
     const sy = (this.insets.t + (this.ch - this.insets.b)) / 2;
-    this.cam.x = tx * TS - (sx - this.cw / 2) / zoom;
-    this.cam.y = ty * TS - (sy - this.ch / 2) / zoom;
+    const p = projectGround(tx * TS, ty * TS);
+    this.cam.x = p.x - (sx - this.cw / 2) / zoom;
+    this.cam.y = p.y - (sy - this.ch / 2) / zoom;
     this.clampCam(w);
   }
   fit(w: World) {
-    this.cam.zoom = Math.min(this.cw / (w.w * TS), this.ch / (w.h * TS)) * 1.02;
-    this.cam.x = (w.w * TS) / 2;
-    this.cam.y = (w.h * TS) / 2;
-    this.clampCam(w);
+    let right = 1, bottom = 1;
+    w.parcels.forEach((owned, i) => { if (owned) { right = Math.max(right, (i % CFG.land.cols + 1) * CFG.land.pw); bottom = Math.max(bottom, (Math.floor(i / CFG.land.cols) + 1) * CFG.land.ph); } });
+    const zoom = Math.max(.22, Math.min((this.cw - this.insets.l - this.insets.r - 40) / ((right + bottom) * TS * ISO_X), (this.ch - this.insets.t - this.insets.b - 40) / ((right + bottom) * TS * ISO_Y)));
+    this.focus(right / 2, bottom / 2, zoom, w);
+  }
+  private groundPolygon(x: number, y: number, width = 1, depth = 1) {
+    const points = [[x,y],[x+width,y],[x+width,y+depth],[x,y+depth]].map(([x,y]) => this.toScreen(x,y));
+    this.ctx.beginPath(); points.forEach((p,i) => i ? this.ctx.lineTo(p.x,p.y) : this.ctx.moveTo(p.x,p.y)); this.ctx.closePath();
+    return points;
   }
 
   // ---------- terrain cache ----------
@@ -210,34 +212,42 @@ export class Renderer {
     c.drawImage(this.cmaps[key], sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * TS, sy0 * TS, (sx1 - sx0) * TS, (sy1 - sy0) * TS);
     c.restore();
   }
+  // Small seamless material tiles are generated once, then stamped into the terrain cache.
+  // No per-frame noise generation, and repainting a tile preserves its grain.
+  private materials = new Map<string, CanvasPattern>();
+  private material(c: CanvasRenderingContext2D, kind: string) {
+    if (this.materials.has(kind)) return this.materials.get(kind)!;
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const g = cv.getContext('2d')!;
+    const n = kind === 'sand' ? 1800 : kind === 'rough' ? 1200 : 950;
+    for (let k = 0; k < n; k++) {
+      const x = hash2(k, 31, 708) * 128, y = hash2(k, 91, 812) * 128;
+      const light = hash2(k, 15, 73) > .5;
+      g.fillStyle = light ? 'rgba(255,252,217,.13)' : 'rgba(10,48,37,.13)';
+      const h = kind === 'rough' ? 1.5 + hash2(k, 8, 54) * 3 : kind === 'sand' ? .7 : 1.4;
+      g.fillRect(x, y, kind === 'sand' ? .8 : .9, h);
+    }
+    if (kind === 'sand') {
+      g.strokeStyle = 'rgba(144,109,64,.12)'; g.lineWidth = .8;
+      for (let y = -128; y < 256; y += 6) {
+        g.beginPath();
+        for (let x = 0; x <= 128; x += 4) {
+          const py = y + Math.sin(x / 128 * Math.PI * 2) * 4;
+          if (x === 0) g.moveTo(x, py); else g.lineTo(x, py);
+        }
+        g.stroke();
+      }
+    }
+    const pat = c.createPattern(cv, 'repeat')!; this.materials.set(kind, pat); return pat;
+  }
   private stripePattern: CanvasPattern | null = null;
   private getStripes(c: CanvasRenderingContext2D): CanvasPattern {
     if (this.stripePattern) return this.stripePattern;
     const p = document.createElement('canvas');
     p.width = p.height = 2 * TS;
     const g = p.getContext('2d')!;
-    const S = TS;
-    g.fillStyle = 'rgba(255,255,255,0.07)';
-    g.beginPath();
-    g.moveTo(0, 0);
-    g.lineTo(S, 0);
-    g.lineTo(0, S);
-    g.closePath();
-    g.moveTo(2 * S, 0);
-    g.lineTo(2 * S, S);
-    g.lineTo(S, 2 * S);
-    g.lineTo(0, 2 * S);
-    g.closePath();
-    g.fill();
-    g.fillStyle = 'rgba(0,30,10,0.05)';
-    g.beginPath();
-    g.moveTo(S, 0);
-    g.lineTo(2 * S, 0);
-    g.lineTo(2 * S, S);
-    g.lineTo(0, 2 * S);
-    g.lineTo(0, S);
-    g.closePath();
-    g.fill();
+    g.fillStyle='rgba(225,255,204,.12)';g.fillRect(0,0,TS,TS*2);
+    g.fillStyle='rgba(9,77,48,.08)';g.fillRect(TS,0,TS,TS*2);
     this.stripePattern = c.createPattern(p, 'repeat')!;
     return this.stripePattern;
   }
@@ -322,6 +332,7 @@ export class Renderer {
     const t = this.tctx2;
     t.globalCompositeOperation = 'source-over';
     this.drawSmooth(t, 'rough', tx0, ty0, tx1, ty1, w);
+    t.fillStyle = this.material(t, 'rough'); t.fillRect(X, Y, CW, CHH);
     t.drawImage(this.base, X, Y, CW, CHH, X, Y, CW, CHH);
     const lc = this.layerCv.getContext('2d')!;
     // work in a chunk-sized scratch canvas: full-size scratch copies make software canvases crawl
@@ -342,6 +353,7 @@ export class Renderer {
     };
     const tex = (cmap: string, types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
       this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w);
+      if (cmap !== 'water') { c.fillStyle = this.material(c, cmap === 'sand' ? 'sand' : 'turf'); c.fillRect(X, Y, CW, CHH); }
       for (let y = ty0; y < ty1; y++)
         for (let x = tx0; x < tx1; x++) {
           const i = y * w.w + x;
@@ -361,23 +373,17 @@ export class Renderer {
     stamp(tex('tee', [T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.teeGood, COL.fairWorn, 3)), m('tee')[0]);
     // sand
     stamp(flat('rgba(150,118,70,0.8)'), m('bunker')[1]);
-    stamp(
-      tex('sand', [T.BUNKER], (c, x, y) => {
-        const px = x * TS;
-        const py = y * TS;
-        c.fillStyle = 'rgba(150,120,74,0.4)';
-        for (let q = 0; q < 7; q++) c.fillRect(px + hash2(x, y, 190 + q) * (TS - 1), py + hash2(x, y, 200 + q) * (TS - 1), 1.4, 1.4);
-        c.strokeStyle = 'rgba(170,140,90,0.25)';
-        c.lineWidth = 1;
-        c.beginPath();
-        c.arc(px + TS / 2, py + TS * 1.2, TS * 0.9, Math.PI * 1.15, Math.PI * 1.85);
-        c.stroke();
-      }),
-      m('bunker')[0],
-    );
+    stamp(tex('sand', [], () => {}), m('bunker')[0]);
     // water: shore ring, body, deeper centre
     stamp(flat('rgba(188,222,206,0.7)'), m('water')[1]);
-    stamp(tex('water', [], () => {}), m('water')[0]);
+    stamp(tex('water', [T.WATER], (c, x, y) => {
+      c.strokeStyle = 'rgba(190,255,244,.19)'; c.lineWidth = .8;
+      for (let q = 0; q < 3; q++) {
+        const px = x * TS + hash2(x, y, 601 + q) * 19;
+        const py = y * TS + hash2(x, y, 611 + q) * TS;
+        c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + 5, py - 1.5, px + 11, py); c.stroke();
+      }
+    }), m('water')[0]);
     stamp(flat('rgba(20,80,140,0.45)'), m('water')[2]);
   }
 
@@ -423,11 +429,11 @@ export class Renderer {
     c.clearRect(px, py, TS, TS);
     if (t === T.ROUGH) {
       const tall = cond < 45;
-      const n = tall ? 8 : 4;
+      const n = tall ? 4 : 2;
       for (let k = 0; k < n; k++) {
         const bx = px + hash2(x, y, 140 + k) * TS;
         const by = py + 4 + hash2(x, y, 150 + k) * (TS - 4);
-        c.strokeStyle = tall ? (k % 2 ? 'rgba(180,172,90,0.85)' : 'rgba(110,126,52,0.85)') : k % 2 ? 'rgba(96,166,80,0.7)' : 'rgba(36,98,44,0.6)';
+        c.strokeStyle = tall ? (k % 2 ? 'rgba(151,164,96,0.42)' : 'rgba(85,120,65,0.4)') : k % 2 ? 'rgba(96,166,80,0.7)' : 'rgba(36,98,44,0.6)';
         c.lineWidth = 1.2;
         c.beginPath();
         c.moveTo(bx, by);
@@ -443,7 +449,15 @@ export class Renderer {
     } else if (t === T.PATH || t === T.BUILDING) {
       c.fillStyle = css(COL.path, jit);
       c.fillRect(px, py, TS, TS);
-      c.fillStyle = 'rgba(110,100,86,0.4)';
+      c.strokeStyle = 'rgba(83,92,84,.19)'; c.lineWidth = .8;
+      for (let row = 0; row < 4; row++) {
+        const yy = py + row * 8; c.beginPath(); c.moveTo(px, yy); c.lineTo(px + TS, yy); c.stroke();
+        for (let col = 0; col < 3; col++) {
+          const xx = px + col * 16 + (row % 2 ? 8 : 0);
+          if (xx < px + TS) { c.beginPath(); c.moveTo(xx, yy); c.lineTo(xx, yy + 8); c.stroke(); }
+        }
+      }
+      c.fillStyle = 'rgba(110,100,86,0.25)';
       for (let k = 0; k < 6; k++) c.fillRect(px + hash2(x, y, 230 + k) * (TS - 1), py + hash2(x, y, 240 + k) * (TS - 1), 1.5, 1.5);
       if (hash2(x, y, 250) < 0.35) {
         c.strokeStyle = 'rgba(70,64,52,0.55)';
@@ -479,21 +493,14 @@ export class Renderer {
     const z = this.cam.zoom;
     const o = this.toScreen(0, 0);
     ctx.imageSmoothingEnabled = true;
-    // blit only the visible part of the cached terrain
-    {
-      const sx = Math.max(0, Math.floor(-o.x / z));
-      const sy = Math.max(0, Math.floor(-o.y / z));
-      const sw = Math.min(this.terr.width - sx, Math.ceil(this.cw / z) + 2);
-      const sh = Math.min(this.terr.height - sy, Math.ceil(this.ch / z) + 2);
-      if (sw > 0 && sh > 0) ctx.drawImage(this.terr, sx, sy, sw, sh, o.x + sx * z, o.y + sy * z, sw * z, sh * z);
-    }
+    // Only the ground is projected. Trees, people, roofs and signs stay upright.
+    ctx.save(); ctx.transform(ISO_X * z, ISO_Y * z, -ISO_X * z, ISO_Y * z, o.x, o.y); ctx.drawImage(this.terr, 0, 0); ctx.restore();
     const ts = this.ts;
-    const tl = this.toWorld(0, 0);
-    const br = this.toWorld(this.cw, this.ch);
-    const x0 = Math.max(0, Math.floor(tl.x) - 1);
-    const y0 = Math.max(0, Math.floor(tl.y) - 1);
-    const x1 = Math.min(w.w - 1, Math.ceil(br.x) + 1);
-    const y1 = Math.min(w.h - 1, Math.ceil(br.y) + 2);
+    const corners = [[0,0],[this.cw,0],[0,this.ch],[this.cw,this.ch]].map(([x,y]) => this.toWorld(x,y));
+    const x0 = Math.max(0, Math.floor(Math.min(...corners.map(p => p.x))) - 5);
+    const y0 = Math.max(0, Math.floor(Math.min(...corners.map(p => p.y))) - 5);
+    const x1 = Math.min(w.w - 1, Math.ceil(Math.max(...corners.map(p => p.x))) + 5);
+    const y1 = Math.min(w.h - 1, Math.ceil(Math.max(...corners.map(p => p.y))) + 5);
 
     // water shimmer
     ctx.strokeStyle = 'rgba(255,255,255,0.32)';
@@ -518,25 +525,23 @@ export class Renderer {
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = x0; x <= x1 + 1; x++) {
-        const p = this.toScreen(x, 0);
-        ctx.moveTo(Math.round(p.x) + 0.5, 0);
-        ctx.lineTo(Math.round(p.x) + 0.5, this.ch);
+        const a = this.toScreen(x,y0), b = this.toScreen(x,y1+1);ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
       }
       for (let y = y0; y <= y1 + 1; y++) {
-        const p = this.toScreen(0, y);
-        ctx.moveTo(0, Math.round(p.y) + 0.5);
-        ctx.lineTo(this.cw, Math.round(p.y) + 0.5);
+        const a = this.toScreen(x0,y), b = this.toScreen(x1+1,y);ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
       }
       ctx.stroke();
     }
 
     this.drawHoleMarkers(game, time);
-    this.drawBuilding(game, time);
-    this.drawStructures(game, time);
+    this.drawClubEnhancements(game, time);
 
     // y-sorted: trees + golfers
     type Item = { y: number; draw: () => void };
-    const items: Item[] = [];
+    const items: Item[] = [
+      { y: 54, draw: () => this.drawBuilding(game, time) },
+      { y: 58, draw: () => this.drawStructures(game, time) },
+    ];
     const wts = REGIONS[w.region].trees;
     const wsum = wts.reduce((a, b) => a + b, 0) || 1;
     for (let y = y0; y <= y1; y++)
@@ -550,9 +555,10 @@ export class Renderer {
           let r = hash2(x, y, 401) * wsum;
           for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { variant = k; break; }
         }
-        items.push({ y: y + 0.95, draw: () => this.drawTree(x, y, variant, hh) });
+        if (variant === 0 && hh > .78 && game.region !== 'desert') variant = 7;
+        items.push({ y: x + y + 1, draw: () => this.drawTree(x, y, variant, hh) });
       }
-    for (const g of game.sim.golfers) items.push({ y: g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
+    for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
 
@@ -567,20 +573,72 @@ export class Renderer {
     this.drawOverlay(game, ov, time);
     this.drawAtmosphere(time, game.season.index, game.region);
 
+    this.drawStudio(game);
+
     // time-of-day light
     const frac = game.clock / CFG.day.seconds;
     const warm = frac < 0.12 ? (0.12 - frac) / 0.12 : frac > 0.78 ? (frac - 0.78) / 0.22 : 0;
     if (warm > 0) {
-      ctx.fillStyle = `rgba(255,150,60,${0.14 * warm})`;
+      ctx.fillStyle = `rgba(255,150,60,${0.045 * warm})`;
       ctx.fillRect(0, 0, this.cw, this.ch);
     }
+  }
+
+  private drawClubEnhancements(game: Game, time: number) {
+    if (!game.experience.site.irrigation || game.clock % game.hourLen >= 5) return;
+    const ctx = this.ctx, ts = this.ts, w = game.world;
+    ctx.strokeStyle='rgba(191,226,224,.5)';ctx.lineWidth=Math.max(.7,ts*.035);
+    for(let i=0;i<w.terrain.length;i+=47){
+      if(w.terrain[i]!==T.FAIRWAY || !w.zone[i])continue;
+      const p=this.toScreen(i%w.w+.5,Math.floor(i/w.w)+.5), phase=(time*.6+i*.03)%1;
+      ctx.beginPath();ctx.ellipse(p.x,p.y,ts*(.3+phase),ts*(.1+phase*.35),0,Math.PI,Math.PI*2);ctx.stroke();
+    }
+  }
+
+  private drawStudio(game: Game) {
+    const ctx = this.ctx, ts = this.ts;
+    ctx.save();
+    if (game.heatmap) {
+      for (const dot of game.landings) {
+        if (dot.hole !== game.selectedHole) continue;
+        const p = this.toScreen(dot.x, dot.y);
+        ctx.fillStyle = dot.bad ? 'rgba(246,111,78,.65)' : 'rgba(250,221,139,.4)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, ts * .35), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    if (game.settings.tool === 'bend' || game.heatmap) {
+      const h = game.hole(game.selectedHole);
+      if (h) {
+        const pts = [h.tee, h.bend, h.cup].map(p => this.toScreen(p.x + .5, p.y + .5));
+        ctx.strokeStyle = '#fff1b8'; ctx.lineWidth = 2; ctx.setLineDash([7, 5]);
+        ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = '#e5b958'; ctx.beginPath(); ctx.arc(pts[1].x, pts[1].y, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    const owner = game.owner;
+    if (owner.active) {
+      const f = owner.flight, ball = f ? { x: f.from.x + (f.shot.air.x - f.from.x) * f.t, y: f.from.y + (f.shot.air.y - f.from.y) * f.t } : owner.ball;
+      const p = this.toScreen(ball.x, ball.y);
+      if (owner.aim && !f && !owner.completed) {
+        const d = owner.distance, range = owner.reach(game), scale = Math.min(1, range / Math.max(.01, d));
+        const aim = this.toScreen(owner.ball.x + (owner.aim.x - owner.ball.x) * scale, owner.ball.y + (owner.aim.y - owner.ball.y) * scale);
+        ctx.strokeStyle = '#fff0b1'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(aim.x, aim.y); ctx.stroke(); ctx.setLineDash([]);
+        ctx.strokeStyle = '#fff6d6'; ctx.beginPath(); ctx.ellipse(aim.x, aim.y, Math.max(5, ts * .8), Math.max(4, ts * .5), 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#102d22e6'; ctx.fillRect(aim.x - 39, aim.y - 33, 78, 22); ctx.fillStyle = '#fff2d1'; ctx.font = 'bold 11px system-ui'; ctx.textAlign = 'center'; ctx.fillText(Math.round(Math.min(d, range) * 10) + ' yards', aim.x, aim.y - 18);
+      }
+      const z = f && !f.putt ? Math.sin(f.t * Math.PI) * ts * 3 : 0;
+      ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#d4ae5c'; ctx.lineWidth = 2; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y - z, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (!f) { ctx.strokeStyle = '#f8e1a1'; ctx.beginPath(); ctx.arc(p.x, p.y, 12 + Math.sin(this.time * 3) * 2, 0, Math.PI * 2); ctx.stroke(); }
+    }
+    ctx.restore();
   }
 
   private drawTree(x: number, y: number, v: number, hh: number) {
     const ctx = this.ctx;
     const ts = this.ts;
-    const p = this.toScreen(x + 0.5, y + 0.95);
-    const size = ts * (1.55 + hh * 0.45);
+    const p = this.toScreen(x + 0.5, y + 0.5);
+    const size = ts * (1.5 + hh * .55);
     ctx.fillStyle = 'rgba(10,30,15,0.22)';
     ctx.beginPath();
     ctx.ellipse(p.x + size * 0.22, p.y - size * 0.02, size * 0.34, size * 0.12, 0, 0, Math.PI * 2);
@@ -589,13 +647,13 @@ export class Renderer {
     ctx.save();
     ctx.translate(p.x, p.y);
     if (v !== 3) ctx.rotate(Math.sin(this.time * 1.1 + hh * 40) * 0.018);
-    ctx.drawImage(spr, -size / 2, -size * 1.12, size, size * 1.17);
+    ctx.drawImage(spr, -size / 2, -size * 1.5, size, size * 1.55);
     ctx.restore();
   }
 
   private drawGolfer(g: Golfer, selected: boolean, time: number) {
     const ctx = this.ctx;
-    const u = Math.max(this.ts, 28);
+    const u = Math.max(this.ts, 16);
     const p = this.toScreen(g.rx, g.ry);
     const gt = CFG.golfers.types[g.type];
     const walking = g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave';
@@ -884,383 +942,8 @@ export class Renderer {
     }
   }
 
-  private drawBuilding(game: Game, time: number) {
-    const ctx = this.ctx;
-    const a = this.toScreen(3, 41);
-    const u = this.ts;
-    const w = 7 * u;
-    const h = 5 * u;
-    const owned = Object.values(game.upgrades).filter(Boolean).length + game.goals.filter((g) => g.done).length;
-    const lvl = game.clubLevel;
-    const tidy = owned >= 2 || lvl >= 1;
-    // ground shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.roundRect(a.x + u * 0.35, a.y + u * 0.45, w + u * 0.2, h, 6);
-    ctx.fill();
-    // walls visible under the eaves
-    ctx.fillStyle = tidy ? '#efe3c6' : '#d6c6a0';
-    ctx.fillRect(a.x, a.y + u * 0.1, w, h - u * 0.2);
-    // roof with two slopes and a ridge
-    const roofTop = a.y + u * 0.15;
-    const roofH = h - u * 0.55;
-    const g1 = ctx.createLinearGradient(0, roofTop, 0, roofTop + roofH);
-    g1.addColorStop(0, tidy ? '#c4604a' : '#b4533d');
-    g1.addColorStop(0.5, tidy ? '#b4533d' : '#a04a37');
-    g1.addColorStop(0.5, tidy ? '#98402f' : '#863a2c');
-    g1.addColorStop(1, tidy ? '#823626' : '#703024');
-    ctx.fillStyle = g1;
-    ctx.beginPath();
-    ctx.roundRect(a.x - u * 0.25, roofTop, w + u * 0.5, roofH, 5);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-    ctx.lineWidth = 1;
-    for (let k = 1; k < 10; k++) {
-      const yy = roofTop + (roofH / 10) * k;
-      ctx.beginPath();
-      ctx.moveTo(a.x - u * 0.25, yy);
-      ctx.lineTo(a.x + w + u * 0.25, yy);
-      ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(a.x - u * 0.25, roofTop + roofH / 2 - 1.5, w + u * 0.5, 3);
-    if (!tidy) {
-      ctx.fillStyle = '#5e2f24';
-      ctx.fillRect(a.x + u * 1.2, roofTop + u * 0.5, u * 0.9, u * 0.45);
-      ctx.fillRect(a.x + u * 4.8, roofTop + u * 2.0, u * 0.7, u * 0.4);
-    }
-    // chimney and smoke
-    ctx.fillStyle = '#7b6e66';
-    ctx.fillRect(a.x + u * 5.6, roofTop + u * 0.3, u * 0.55, u * 0.7);
-    for (let k = 0; k < 3; k++) {
-      const t = (time * 0.35 + k / 3) % 1;
-      ctx.fillStyle = `rgba(230,230,230,${0.35 * (1 - t)})`;
-      ctx.beginPath();
-      ctx.arc(a.x + u * 5.88 + t * u * 0.6, roofTop + u * 0.2 - t * u * 1.1, u * (0.12 + t * 0.18), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // porch, awning and door facing the course
-    ctx.fillStyle = '#b9a67e';
-    ctx.fillRect(a.x + u * 2.3, a.y - u * 0.45, u * 2.4, u * 0.7);
-    for (let k = 0; k < 8; k++) {
-      ctx.fillStyle = k % 2 ? '#f1ead6' : '#3f7a58';
-      ctx.fillRect(a.x + u * 2.3 + (u * 2.4 * k) / 8, a.y - u * 0.5, (u * 2.4) / 8, u * 0.3);
-    }
-    ctx.fillStyle = '#5b3d28';
-    ctx.fillRect(a.x + u * 3.25, a.y - u * 0.25, u * 0.5, u * 0.5);
-    ctx.fillStyle = '#e6b44c';
-    ctx.fillRect(a.x + u * 3.6, a.y - u * 0.02, 2, 2);
-    // flower boxes
-    for (const fx of [2.5, 4.2]) {
-      ctx.fillStyle = '#6b4a2f';
-      ctx.fillRect(a.x + u * fx, a.y + u * 0.2, u * 0.35, u * 0.12);
-      for (let k = 0; k < 3; k++) {
-        ctx.fillStyle = ['#e46f5a', '#f2cf4f', '#d9a0e6'][k];
-        ctx.beginPath();
-        ctx.arc(a.x + u * (fx + 0.07 + k * 0.1), a.y + u * 0.17, u * 0.05, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    // sign board with the club's logo and name
-    ctx.save();
-    ctx.translate(a.x + u * 3.5, a.y + u * 2.7);
-    ctx.rotate(tidy ? 0 : -0.045);
-    ctx.fillStyle = '#efe4c4';
-    ctx.strokeStyle = '#4a3320';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-u * 2.2, -u * 0.5, u * 4.4, u * 1.0, 5);
-    ctx.fill();
-    ctx.stroke();
-    drawLogo(ctx, -u * 1.55, 0, u * 0.82, game.logo);
-    ctx.fillStyle = '#2d4a33';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    let fs = Math.max(8, u * 0.3);
-    ctx.font = `700 ${fs}px Georgia, serif`;
-    const nm = game.name.toUpperCase();
-    while (ctx.measureText(nm).width > u * 2.9 && fs > 6) {
-      fs -= 0.5;
-      ctx.font = `700 ${fs}px Georgia, serif`;
-    }
-    ctx.fillText(nm, -u * 1.0, -u * 0.12);
-    ctx.font = `italic ${Math.max(7, u * 0.2)}px Georgia, serif`;
-    ctx.fillStyle = '#6b5a3c';
-    ctx.fillText(tidy ? 'open for play' : 'under new management', -u * 1.0, u * 0.2);
-    ctx.restore();
-    ctx.textAlign = 'left';
-    // tier extras: terrace, clock tower, columns, resort flags
-    if (lvl >= 1) {
-      for (let k = 0; k < 4; k++) {
-        const ux = a.x + u * (0.6 + k * 1.9);
-        const uy = a.y - u * 0.55;
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
-        ctx.beginPath();
-        ctx.ellipse(ux + 3, uy + 4, u * 0.38, u * 0.14, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = ['#d65a3f', '#f1ead6', '#4aa3d8', '#e6b44c'][k];
-        ctx.beginPath();
-        ctx.arc(ux, uy, u * 0.34, Math.PI, 0);
-        ctx.fill();
-        ctx.strokeStyle = '#5b4630';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(ux, uy);
-        ctx.lineTo(ux, uy + u * 0.25);
-        ctx.stroke();
-      }
-    }
-    if (lvl >= 2) {
-      const tx = a.x + u * 0.3;
-      const ty = roofTop - u * 1.0;
-      ctx.fillStyle = '#e9dfc4';
-      ctx.fillRect(tx, ty, u * 0.9, u * 1.5);
-      ctx.fillStyle = '#7a3a2c';
-      ctx.beginPath();
-      ctx.moveTo(tx - u * 0.1, ty);
-      ctx.lineTo(tx + u * 0.45, ty - u * 0.55);
-      ctx.lineTo(tx + u * 1.0, ty);
-      ctx.fill();
-      ctx.fillStyle = '#fffdf2';
-      ctx.beginPath();
-      ctx.arc(tx + u * 0.45, ty + u * 0.45, u * 0.28, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(tx + u * 0.45, ty + u * 0.45);
-      ctx.lineTo(tx + u * 0.45, ty + u * 0.25);
-      ctx.moveTo(tx + u * 0.45, ty + u * 0.45);
-      ctx.lineTo(tx + u * 0.6, ty + u * 0.5);
-      ctx.stroke();
-    }
-    if (lvl >= 3) {
-      for (let k = 0; k < 4; k++) {
-        ctx.fillStyle = '#f6f0e0';
-        ctx.fillRect(a.x + u * (2.35 + k * 0.62), a.y - u * 0.35, u * 0.14, u * 0.62);
-      }
-      ctx.fillStyle = tintOf(game.logo.primary);
-      ctx.fillRect(a.x + u * 6.2, a.y + u * 0.2, u * 0.5, u * 1.6);
-      ctx.fillStyle = game.logo.secondary;
-      ctx.fillRect(a.x + u * 6.2, a.y + u * 1.4, u * 0.5, u * 0.4);
-    }
-    if (lvl >= 4) {
-      ctx.fillStyle = 'rgba(140,200,230,0.55)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(a.x + u * 4.9, a.y + u * 3.5, u * 2.4, u * 1.1, 6);
-      ctx.fill();
-      ctx.stroke();
-      for (const fx of [0.3, 6.9]) {
-        const fp2 = { x: a.x + u * fx, y: a.y + u * 4.8 };
-        ctx.strokeStyle = '#e8e8e2';
-        ctx.lineWidth = Math.max(1.5, u * 0.05);
-        ctx.beginPath();
-        ctx.moveTo(fp2.x, fp2.y);
-        ctx.lineTo(fp2.x, fp2.y - u * 2.0);
-        ctx.stroke();
-        ctx.fillStyle = game.logo.secondary;
-        ctx.beginPath();
-        ctx.moveTo(fp2.x, fp2.y - u * 2.0);
-        ctx.lineTo(fp2.x + u * 0.7, fp2.y - u * 1.8 + Math.sin(time * 3 + fx) * u * 0.05);
-        ctx.lineTo(fp2.x, fp2.y - u * 1.5);
-        ctx.fill();
-      }
-    }
-    // flag pole by the entrance
-    const fp = this.toScreen(9.4, 40.4);
-    ctx.strokeStyle = '#d9d9d2';
-    ctx.lineWidth = Math.max(1.5, u * 0.05);
-    ctx.beginPath();
-    ctx.moveTo(fp.x, fp.y);
-    ctx.lineTo(fp.x, fp.y - u * 2.2);
-    ctx.stroke();
-    ctx.fillStyle = '#2f7a4d';
-    ctx.beginPath();
-    ctx.moveTo(fp.x, fp.y - u * 2.2);
-    ctx.lineTo(fp.x + u * 0.8, fp.y - u * 2.0 + Math.sin(time * 3) * u * 0.06);
-    ctx.lineTo(fp.x, fp.y - u * 1.7);
-    ctx.fill();
-    // cars
-    const cars: [number, number, string][] = [[12, 43, '#6f8fa8'], [15.2, 45, '#a35a4a'], [17.5, 43.2, '#8d8f86']];
-    for (const [cx, cy, col] of cars) {
-      const p = this.toScreen(cx, cy);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath();
-      ctx.roundRect(p.x + 3, p.y + 4, u * 1.5, u * 0.8, 5);
-      ctx.fill();
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.roundRect(p.x, p.y, u * 1.5, u * 0.8, 5);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(25,35,45,0.6)';
-      ctx.beginPath();
-      ctx.roundRect(p.x + u * 0.35, p.y + u * 0.08, u * 0.65, u * 0.64, 3);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.25)';
-      ctx.fillRect(p.x + u * 0.05, p.y + u * 0.05, u * 0.25, u * 0.12);
-    }
-    // entrance gate
-    const gate = this.toScreen(0, 46.8);
-    ctx.fillStyle = '#6b4a2f';
-    ctx.fillRect(gate.x, gate.y - u * 0.4, u * 0.2, u * 1.9);
-    ctx.fillRect(gate.x + u * 2.4, gate.y - u * 0.4, u * 0.2, u * 1.9);
-    ctx.fillRect(gate.x, gate.y - u * 0.4, u * 2.6, u * 0.15);
-  }
-
-  /** Visible results of the improvements the owner has bought, plus event-day set dressing. */
-  private drawStructures(game: Game, time: number) {
-    const ctx = this.ctx;
-    const u = this.ts;
-    const up = game.upgrades;
-    if (up.snackBar) {
-      const p = this.toScreen(10.3, 38.4);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.fillRect(p.x + 4, p.y + 5, u * 2.6, u * 1.4);
-      ctx.fillStyle = '#d8c394';
-      ctx.fillRect(p.x, p.y + u * 0.35, u * 2.6, u * 1.0);
-      for (let k = 0; k < 8; k++) {
-        ctx.fillStyle = k % 2 ? '#f4efe0' : '#d2542f';
-        ctx.fillRect(p.x - u * 0.1 + (u * 2.8 * k) / 8, p.y, (u * 2.8) / 8, u * 0.45);
-      }
-      ctx.fillStyle = '#3a2d22';
-      ctx.fillRect(p.x + u * 0.35, p.y + u * 0.6, u * 1.9, u * 0.4);
-      ctx.fillStyle = '#f4efe0';
-      ctx.font = `700 ${Math.max(7, u * 0.2)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('SNACKS', p.x + u * 1.3, p.y + u * 0.8);
-      ctx.textAlign = 'left';
-    }
-    if (up.puttingGreen) {
-      const p = this.toScreen(16.5, 38.8);
-      const g = ctx.createRadialGradient(p.x, p.y, u * 0.2, p.x, p.y, u * 2.3);
-      g.addColorStop(0, '#6fc27a');
-      g.addColorStop(0.85, '#5fb06e');
-      g.addColorStop(1, 'rgba(95,176,110,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, u * 2.3, u * 1.4, 0, 0, Math.PI * 2);
-      ctx.fill();
-      for (const [dx, dy] of [[-0.8, 0.1], [0.7, -0.2], [0.1, 0.5]]) {
-        ctx.fillStyle = '#1b2a1b';
-        ctx.beginPath();
-        ctx.ellipse(p.x + u * dx, p.y + u * dy, u * 0.07, u * 0.035, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#f2f2ee';
-      ctx.lineWidth = Math.max(1, u * 0.04);
-      ctx.beginPath();
-      ctx.moveTo(p.x + u * 0.7, p.y - u * 0.2);
-      ctx.lineTo(p.x + u * 0.7, p.y - u * 0.9);
-      ctx.stroke();
-      ctx.fillStyle = '#e4c13a';
-      ctx.beginPath();
-      ctx.moveTo(p.x + u * 0.7, p.y - u * 0.9);
-      ctx.lineTo(p.x + u * 1.05, p.y - u * 0.8 + Math.sin(time * 4) * u * 0.03);
-      ctx.lineTo(p.x + u * 0.7, p.y - u * 0.68);
-      ctx.fill();
-    }
-    if (up.range) {
-      // hitting bays with mats, a net, and yardage flags
-      const p = this.toScreen(11, 36.2);
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
-      ctx.fillRect(p.x, p.y - u * 0.1, u * 8.2, u * 0.7);
-      for (let k = 0; k < 4; k++) {
-        ctx.fillStyle = '#2f6b45';
-        ctx.fillRect(p.x + u * (0.3 + k * 2), p.y + u * 0.1, u * 1.2, u * 0.45);
-        ctx.fillStyle = '#f5f5ef';
-        ctx.beginPath();
-        ctx.arc(p.x + u * (0.7 + k * 2), p.y + u * 0.3, Math.max(1.5, u * 0.05), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = 'rgba(240,240,230,0.5)';
-      ctx.lineWidth = 1;
-      for (let k = 0; k <= 8; k++) {
-        ctx.beginPath();
-        ctx.moveTo(p.x + u * k, p.y + u * 0.65);
-        ctx.lineTo(p.x + u * k, p.y + u * 1.4);
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y + u * 0.9);
-      ctx.lineTo(p.x + u * 8, p.y + u * 0.9);
-      ctx.stroke();
-      ctx.fillStyle = '#f4efe0';
-      ctx.font = `700 ${Math.max(7, u * 0.2)}px system-ui, sans-serif`;
-      ctx.fillText('RANGE', p.x + u * 3.2, p.y - u * 0.25);
-    }
-    if (up.carts) {
-      for (let k = 0; k < 3; k++) {
-        const p = this.toScreen(11 + k * 1.9, 46.3);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(p.x + 2, p.y + 3, u * 1.4, u * 0.7);
-        ctx.fillStyle = '#f2f0e6';
-        ctx.beginPath();
-        ctx.roundRect(p.x, p.y, u * 1.4, u * 0.7, 4);
-        ctx.fill();
-        ctx.fillStyle = '#2f7a4d';
-        ctx.fillRect(p.x + u * 0.1, p.y - u * 0.18, u * 1.2, u * 0.12);
-        ctx.fillStyle = '#2b2b2b';
-        ctx.fillRect(p.x + u * 0.15, p.y + u * 0.55, u * 0.22, u * 0.2);
-        ctx.fillRect(p.x + u * 1.0, p.y + u * 0.55, u * 0.22, u * 0.2);
-      }
-    }
-    if (game.activeEvent) {
-      const p = this.toScreen(19.2, 43.6);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath();
-      ctx.ellipse(p.x + u * 1.7, p.y + u * 1.7, u * 2.1, u * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#f4efe0';
-      ctx.fillRect(p.x, p.y + u * 0.6, u * 3.4, u * 1.0);
-      for (let k = 0; k < 8; k++) {
-        ctx.fillStyle = k % 2 ? '#f4efe0' : '#c2452f';
-        ctx.beginPath();
-        ctx.moveTo(p.x + (u * 3.4 * k) / 8, p.y + u * 0.7);
-        ctx.lineTo(p.x + (u * 3.4 * (k + 1)) / 8, p.y + u * 0.7);
-        ctx.lineTo(p.x + u * 1.7, p.y - u * 0.5);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#6b4a2f';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(p.x + u * 1.7, p.y - u * 0.5);
-      ctx.lineTo(p.x + u * 1.7, p.y - u * 1.1);
-      ctx.stroke();
-      ctx.fillStyle = '#f2c53d';
-      ctx.beginPath();
-      ctx.moveTo(p.x + u * 1.7, p.y - u * 1.1);
-      ctx.lineTo(p.x + u * 2.3, p.y - u * 0.95 + Math.sin(time * 4) * u * 0.05);
-      ctx.lineTo(p.x + u * 1.7, p.y - u * 0.8);
-      ctx.fill();
-      // bunting
-      ctx.strokeStyle = 'rgba(60,50,40,0.6)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(p.x - u * 0.4, p.y + u * 0.2);
-      ctx.quadraticCurveTo(p.x + u * 1.7, p.y + u * 1.4, p.x + u * 3.8, p.y + u * 0.2);
-      ctx.stroke();
-      for (let k = 0; k < 9; k++) {
-        const t = k / 8;
-        const bx = p.x - u * 0.4 + t * u * 4.2;
-        const by = p.y + u * 0.2 + Math.sin(t * Math.PI) * u * 0.6 * 0.95;
-        ctx.fillStyle = ['#e0533b', '#f2c53d', '#4aa3d8', '#7fc47a'][k % 4];
-        ctx.beginPath();
-        ctx.moveTo(bx - u * 0.1, by);
-        ctx.lineTo(bx + u * 0.1, by);
-        ctx.lineTo(bx, by + u * 0.2);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#2a2a22';
-      ctx.font = `700 ${Math.max(7, u * 0.2)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(EVENTS[game.activeEvent.id].name.toUpperCase(), p.x + u * 1.7, p.y + u * 1.15);
-      ctx.textAlign = 'left';
-    }
-  }
+  private drawBuilding(game: Game, time: number) { drawCountryClub(this, game, time); }
+  private drawStructures(game: Game, time: number) { drawVillageAmenities(this, game); void time; }
 
   private drawFx(game: Game) {
     const ctx = this.ctx;
@@ -1326,55 +1009,20 @@ export class Renderer {
   private vigSize = '';
   /** Locked land is dimmed and hatched; the Land tool shows prices. */
   private drawParcels(game: Game, ov: Overlay) {
-    const ctx = this.ctx;
-    const L = CFG.land;
-    const pw = L.pw * this.ts;
-    const ph = L.ph * this.ts;
-    for (let row = 0; row < L.rows; row++)
-      for (let col = 0; col < L.cols; col++) {
-        const owned = game.isParcelOwned(col, row);
-        const p = this.toScreen(col * L.pw, row * L.ph);
-        if (p.x > this.cw || p.y > this.ch || p.x + pw < 0 || p.y + ph < 0) continue;
-        const sel = ov.parcel && ov.parcel.col === col && ov.parcel.row === row;
-        if (!owned) {
-          ctx.fillStyle = sel ? 'rgba(20,30,40,0.35)' : 'rgba(12,22,18,0.5)';
-          ctx.fillRect(p.x, p.y, pw, ph);
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(p.x, p.y, pw, ph);
-          ctx.clip();
-          ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-          ctx.lineWidth = 2;
-          for (let k = -ph; k < pw; k += 26) {
-            ctx.beginPath();
-            ctx.moveTo(p.x + k, p.y + ph);
-            ctx.lineTo(p.x + k + ph, p.y);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-        if (!owned || (ov.tool === 'land' && sel)) {
-          ctx.setLineDash([10, 8]);
-          ctx.strokeStyle = sel ? '#ffe27a' : 'rgba(255,255,255,0.28)';
-          ctx.lineWidth = sel ? 3 : 1.5;
-          ctx.strokeRect(p.x + 1, p.y + 1, pw - 2, ph - 2);
-          ctx.setLineDash([]);
-        }
-        if (!owned && (ov.tool === 'land' || sel)) {
-          const label = `For sale  ${fmtMoneyShort(game.parcelPrice)}`;
-          ctx.font = '700 14px system-ui, sans-serif';
-          const wpx = ctx.measureText(label).width + 20;
-          ctx.fillStyle = sel ? '#e6b44c' : 'rgba(20,30,24,0.85)';
-          ctx.beginPath();
-          ctx.roundRect(p.x + pw / 2 - wpx / 2, p.y + ph / 2 - 14, wpx, 28, 14);
-          ctx.fill();
-          ctx.fillStyle = sel ? '#2a2110' : '#f1ead6';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, p.x + pw / 2, p.y + ph / 2 + 1);
-          ctx.textAlign = 'left';
-        }
+    const ctx = this.ctx, L = CFG.land;
+    for(let row=0;row<L.rows;row++)for(let col=0;col<L.cols;col++){
+      const owned=game.isParcelOwned(col,row), sel=!!ov.parcel && ov.parcel.col===col && ov.parcel.row===row;
+      if(owned && !(ov.tool==='land' && sel))continue;
+      this.groundPolygon(col*L.pw,row*L.ph,L.pw,L.ph);
+      if(!owned){ctx.fillStyle=sel?'rgba(25,45,35,.2)':'rgba(16,32,20,.3)';ctx.fill();}
+      ctx.strokeStyle=sel?'#f2dc93':'rgba(232,233,191,.28)';ctx.lineWidth=sel?2:1;ctx.setLineDash([6,5]);ctx.stroke();ctx.setLineDash([]);
+      if(!owned && (ov.tool==='land'||sel)){
+        const p=this.toScreen((col+.5)*L.pw,(row+.5)*L.ph),label=`For sale ${fmtMoneyShort(game.parcelPrice)}`;
+        ctx.font='bold 12px Georgia';const width=ctx.measureText(label).width+18;
+        ctx.fillStyle=sel?'#e0c987':'#324632';ctx.beginPath();ctx.roundRect(p.x-width/2,p.y-12,width,25,4);ctx.fill();
+        ctx.fillStyle=sel?'#30422e':'#f0e5bf';ctx.textAlign='center';ctx.fillText(label,p.x,p.y+4);ctx.textAlign='left';
       }
+    }
   }
 
   private drawAtmosphere(time: number, season: number, region: string) {
@@ -1409,7 +1057,7 @@ export class Renderer {
     if (!this.vignette || this.vigSize !== key) {
       const g = ctx.createRadialGradient(this.cw / 2, this.ch / 2, Math.min(this.cw, this.ch) * 0.45, this.cw / 2, this.ch / 2, Math.max(this.cw, this.ch) * 0.75);
       g.addColorStop(0, 'rgba(0,0,0,0)');
-      g.addColorStop(1, 'rgba(5,15,10,0.35)');
+      g.addColorStop(1, 'rgba(5,15,10,0.16)');
       this.vignette = g;
       this.vigSize = key;
     }
@@ -1421,39 +1069,15 @@ export class Renderer {
     const ctx = this.ctx;
     const w = game.world;
     const ts = this.ts;
-    const tileRect = (i: number) => {
-      const x = i % w.w;
-      const y = (i - x) / w.w;
-      const p = this.toScreen(x, y);
-      return { x: p.x, y: p.y };
+    const col = ({ fairway:'110,200,80', green:'180,220,130', path:'210,200,160', rough:'70,140,60', bunker:'240,214,140', water:'70,150,230', treeAdd:'40,120,50', treeDel:'230,140,60', repair:'120,230,160' } as Record<string,string>)[ov.tool] ?? '255,255,255';
+    const tile = (i:number,staged=false) => {
+      this.groundPolygon(i%w.w,Math.floor(i/w.w));
+      const blocked=ov.blocked.has(i),changed=ov.changed.has(i)||staged;
+      if(blocked||changed){ctx.fillStyle=blocked||ov.tooExpensive?'rgba(220,70,50,.45)':`rgba(${col},.48)`;ctx.fill();}
+      ctx.strokeStyle=blocked?'#e08e70':changed?'rgba(250,245,213,.9)':'rgba(244,241,211,.4)';ctx.lineWidth=changed?1.3:.7;ctx.stroke();
     };
-    const toolColor: Record<string, string> = { fairway: '110,200,80', rough: '70,140,60', bunker: '240,214,140', water: '70,150,230', treeAdd: '40,120,50', treeDel: '230,140,60', repair: '120,230,160', tee: '255,255,255', cup: '255,255,255' };
-    const col = toolColor[ov.tool] ?? '255,255,255';
-    for (const i of ov.hoverTiles) {
-      const r = tileRect(i);
-      if (ov.blocked.has(i)) {
-        ctx.fillStyle = 'rgba(220,60,50,0.35)';
-        ctx.fillRect(r.x, r.y, ts, ts);
-      } else if (ov.changed.has(i)) {
-        ctx.fillStyle = ov.tooExpensive ? 'rgba(220,60,50,0.45)' : `rgba(${col},0.5)`;
-        ctx.fillRect(r.x, r.y, ts, ts);
-        ctx.strokeStyle = ov.tooExpensive ? 'rgba(255,120,100,1)' : 'rgba(255,255,255,0.95)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(r.x + 0.75, r.y + 0.75, ts - 1.5, ts - 1.5);
-      } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(r.x + 0.5, r.y + 0.5, ts - 1, ts - 1);
-      }
-    }
-    for (const i of ov.staged) {
-      const r = tileRect(i);
-      ctx.fillStyle = `rgba(${col},0.55)`;
-      ctx.fillRect(r.x, r.y, ts, ts);
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(r.x + 0.75, r.y + 0.75, ts - 1.5, ts - 1.5);
-    }
+    for(const i of ov.hoverTiles)tile(i);
+    for(const i of ov.staged)tile(i,true);
 
     // new-hole placement guide
     if (ov.buildLine) {
@@ -1533,108 +1157,4 @@ export class Renderer {
 
 const fmtMoneyShort = (n: number) => (n >= 10000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toLocaleString('en-US')}`);
 
-const tintOf = (hex: string) => hex;
 
-function makeTree(v: number): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = 96;
-  c.height = 112;
-  const g = c.getContext('2d')!;
-  const trunk = (col: string, w = 8) => {
-    g.fillStyle = col;
-    g.fillRect(48 - w / 2, 70, w, 38);
-  };
-  const blob = (x: number, y: number, r: number, c1: string, c2: string) => {
-    const gr = g.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
-    gr.addColorStop(0, c1);
-    gr.addColorStop(1, c2);
-    g.fillStyle = gr;
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
-  };
-  if (v === 5) {
-    g.strokeStyle = '#7a5a3a';
-    g.lineWidth = 7;
-    g.lineCap = 'round';
-    g.beginPath();
-    g.moveTo(46, 108);
-    g.quadraticCurveTo(54, 70, 48, 40);
-    g.stroke();
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
-      g.strokeStyle = k % 2 ? '#3f9a4f' : '#2e7f43';
-      g.lineWidth = 5;
-      g.beginPath();
-      g.moveTo(48, 40);
-      g.quadraticCurveTo(48 + Math.cos(a) * 20, 28 + Math.sin(a) * 6 - 8, 48 + Math.cos(a) * 34, 40 + Math.sin(a) * 14 + 8);
-      g.stroke();
-    }
-  } else if (v === 6) {
-    const bush = (x: number, y: number, r: number, c1: string, c2: string) => blob(x, y, r, c1, c2);
-    bush(34, 92, 18, '#a9b27a', '#6f7a4a');
-    bush(60, 90, 20, '#9fae72', '#66744a');
-    bush(48, 80, 20, '#b6bf86', '#788456');
-    g.fillStyle = 'rgba(80,60,30,0.5)';
-    g.fillRect(46, 96, 4, 12);
-  } else if (v === 2) {
-    trunk('#5b3d28', 6);
-    const tier = (y: number, w: number, h: number, a: string, b: string) => {
-      const gr = g.createLinearGradient(48 - w, y, 48 + w, y);
-      gr.addColorStop(0, a);
-      gr.addColorStop(1, b);
-      g.fillStyle = gr;
-      g.beginPath();
-      g.moveTo(48, y - h);
-      g.lineTo(48 + w, y);
-      g.lineTo(48 - w, y);
-      g.fill();
-    };
-    tier(95, 30, 40, '#2c6a46', '#1d4a33');
-    tier(72, 25, 38, '#327650', '#215338');
-    tier(50, 19, 34, '#3a8359', '#265c3d');
-    tier(30, 13, 28, '#43916a', '#2d6a49');
-  } else if (v === 3) {
-    trunk('#6f5a46', 9);
-    g.strokeStyle = '#6f5a46';
-    g.lineCap = 'round';
-    g.lineWidth = 5;
-    const br = (x1: number, y1: number, x2: number, y2: number, w: number) => {
-      g.lineWidth = w;
-      g.beginPath();
-      g.moveTo(x1, y1);
-      g.lineTo(x2, y2);
-      g.stroke();
-    };
-    br(48, 74, 30, 44, 4);
-    br(48, 70, 66, 38, 4);
-    br(34, 50, 22, 36, 2.5);
-    br(60, 46, 74, 34, 2.5);
-    br(48, 66, 50, 30, 3);
-  } else if (v === 4) {
-    trunk('#5b4630', 8);
-    blob(34, 56, 22, '#a7a64e', '#6c7632');
-    blob(62, 52, 24, '#98a049', '#5e6c2e');
-    blob(48, 34, 24, '#b1ae56', '#75803a');
-  } else {
-    trunk('#59402a', 8);
-    const pal = v === 0 ? ['#6fc26a', '#2f7a3a', '#58b05e', '#277036'] : ['#4f9f5a', '#25633a', '#3f8a4e', '#1e5731'];
-    blob(32, 58, 22, pal[0], pal[1]);
-    blob(64, 56, 23, pal[0], pal[1]);
-    blob(48, 40, 28, pal[2], pal[3]);
-    blob(38, 30, 18, pal[0], pal[1]);
-    blob(60, 28, 17, pal[2], pal[3]);
-    // leaf speckle and a soft underside shade
-    for (let k = 0; k < 90; k++) {
-      const a = hash2(k, v, 501) * Math.PI * 2;
-      const r = Math.sqrt(hash2(k, v, 502)) * 32;
-      const x = 48 + Math.cos(a) * r;
-      const y = 44 + Math.sin(a) * r * 0.85;
-      g.fillStyle = hash2(k, v, 503) < 0.5 ? 'rgba(190,235,150,0.35)' : 'rgba(20,70,35,0.3)';
-      g.beginPath();
-      g.arc(x, y, 1.6 + hash2(k, v, 504) * 1.8, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-  return c;
-}

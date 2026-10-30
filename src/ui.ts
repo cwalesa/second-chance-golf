@@ -1,7 +1,13 @@
+import { paintToolTile } from './classic-art';
+import { journalPanel, JournalView, drawJournalArchives, paintArchive } from './journal';
+import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
+import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
+import { activeLocation, stageComplete } from './campaign';
+import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
 import { Editor, terrainLabel } from './input';
-import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId } from './editing';
+import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint } from './editing';
 import { EVENTS, EVENT_IDS, EventId } from './events';
 import { holeCondition, holeStraightTiles, idx } from './terrain';
 import { BANDS, CLUB_LEVELS, REGIONS } from './progression';
@@ -9,9 +15,10 @@ import { MILESTONES } from './goals';
 import { logoDesigner, paintLogo } from './start';
 import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } from './economy';
 
-type Tab = 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
-const TAB_LABEL: Record<string, string> = { build: 'Build', course: 'Course', guests: 'Guests', money: 'Money', events: 'Events', club: 'Club' };
+type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
+const TAB_LABEL: Record<string, string> = { journey: 'Journey', build: 'Build', course: 'Course', guests: 'Guests', money: 'Money', events: 'Events', club: 'Club' };
 const TAB_ICON: Record<string, string> = {
+  journey: '<path d="M4 18l5-12 6 12 5-12M4 18h.01M20 6h.01"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/>',
   build: '<path d="M4 20l6-6M14 4l6 6-8 8-6-6z" />',
   course: '<path d="M12 21V4M12 4l7 3-7 3" /><ellipse cx="12" cy="21" rx="6" ry="1.6" />',
   guests: '<circle cx="12" cy="8" r="3.5" /><path d="M5 20c1-4 4-6 7-6s6 2 7 6" />',
@@ -22,6 +29,9 @@ const TAB_ICON: Record<string, string> = {
 const stars = (n: number) => `${'★'.repeat(Math.floor(n))}${n % 1 ? '½' : ''}${'☆'.repeat(5 - Math.ceil(n))}`;
 
 const ICON: Record<string, string> = {
+  bend: '<path d="M4 20L10 8l10-4M10 8l4 1M10 8l-1 4"/>',
+  green: '<ellipse cx="12" cy="14" rx="9" ry="6" fill="#87be78"/><path d="M12 16V4l5 2-5 2"/>',
+  path: '<path d="M7 22c12-10-6-12 10-20M3 22C15 12-3 10 13 2" stroke="#d7c9ad"/>',
   inspect: '<circle cx="10.5" cy="10.5" r="6" /><path d="M15 15l6 6" />',
   pan: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />',
   fairway: '<rect x="4" y="5" width="16" height="14" rx="5" fill="#6ab24a" stroke="none" /><path d="M8 7v10M12 7v10M16 7v10" stroke="#8fd06a" />',
@@ -45,7 +55,10 @@ const bar = (v: number) => `<div class="bar"><i style="width:${Math.max(2, Math.
 const money = (n: number) => `<span class="${n < 0 ? 'neg' : n > 0 ? 'pos' : ''}">${n > 0 ? '+' : ''}${fmtMoney(n)}</span>`;
 
 export class UI {
-  tab: Tab = 'course';
+  tab: Tab = 'none';
+  journalView: JournalView = 'progress';
+  get modalOpen() { return !this.$('modal').hidden; }
+  get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
   onInsets: () => void = () => {};
   private busy = false;
@@ -54,6 +67,8 @@ export class UI {
   private repeat: number | null = null;
   onReset: () => void = () => {};
   onSaveNow: () => void = () => {};
+  onExport: () => void = () => {};
+  onImport: () => void = () => {};
   onNewLook: () => void = () => {};
 
   constructor(private game: Game, private editor: Editor) {
@@ -84,15 +99,16 @@ export class UI {
   }
 
   private buildTools() {
-    const mk = (id: ToolId, label?: string) => `<button class="tool" data-tool="${id}" title="${TOOL_INFO[id].label}: ${TOOL_INFO[id].hint}">${svg(id)}<span>${label ?? TOOL_INFO[id].label}</span></button>`;
+    const mk = (id: ToolId, label?: string) => `<button class="tool" data-tool="${id}" title="${TOOL_INFO[id].label}: ${TOOL_INFO[id].hint}">${id === 'inspect' || id === 'pan' || id === 'bend' ? svg(id) : `<canvas class="terrain-thumb" data-thumbnail="${id}" width="112" height="74"></canvas>`}<span>${label ?? TOOL_INFO[id].label}</span></button>`;
     this.$('tools').innerHTML = `
       <div class="grp">${mk('inspect')}${mk('pan')}</div>
-      <div class="grp"><div class="cap">Paint</div>${mk('fairway')}${mk('rough')}${mk('bunker')}${mk('water')}${mk('repair', 'Repair')}</div>
+      <div class="grp"><div class="cap">Paint</div>${mk('fairway')}${mk('green')}${mk('rough')}${mk('path')}${mk('bunker')}${mk('water')}${mk('repair', 'Repair')}</div>
       <div class="grp"><div class="cap">Trees</div>${mk('treeAdd', 'Plant')}${mk('treeDel', 'Clear')}</div>
-      <div class="grp"><div class="cap">Hole</div>${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('build', 'New hole')}</div>
+      <div class="grp"><div class="cap">Hole</div>${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>
       <div class="grp"><div class="cap">Land</div>${mk('land', 'Land')}</div>
       <div class="grp"><div class="cap">Brush</div><div class="brushes">${BRUSH_RADII.map((_, i) => `<button data-brush="${i}" title="Brush size ${i + 1}"><i style="width:${5 + i * 4}px;height:${5 + i * 4}px"></i></button>`).join('')}</div></div>
       <div class="grp"><button class="tool" data-act="undo" id="undoBtn">${svg('undo')}<span>Undo</span></button></div>`;
+    this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
     this.$('tools').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
@@ -154,7 +170,8 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${(['course', 'guests', 'money', 'events', 'club'] as Tab[]).map((t) => `<button data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div><div class="body" id="sidebody"></div>`;
+    this.$('side').innerHTML = `<div class="tabs">${(['journey', 'course', 'guests', 'money', 'events', 'club'] as Tab[]).map((t) => `<button data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div><div class="sheet-heading"><span id="sheetTitle">Your course</span><button id="sheetClose" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    this.$('sheetClose').onclick = () => { this.tab = 'none'; this.refresh(true); this.onInsets(); };
     this.$('side').addEventListener('click', (e) => {
       const el = (e.target as HTMLElement).closest('[data-tab],[data-act],[data-hole]') as HTMLElement | null;
       if (!el) return;
@@ -165,7 +182,27 @@ export class UI {
         this.game.selectedHole = Number(el.dataset.hole);
       } else if (el.dataset.act) {
         const id = Number(el.dataset.id);
-        if (el.dataset.act === 'open') this.game.openHole(id);
+        if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
+        else if (el.dataset.act === 'suggest') {
+          if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
+        }
+        else if (el.dataset.act === 'project') this.projectModal(el.dataset.id!);
+        else if (el.dataset.act === 'archive') this.archiveModal(el.dataset.id!);
+        else if (el.dataset.act === 'reserve') useOperatingReserve(this.game);
+        else if (el.dataset.act === 'claim') this.game.claimObjective(el.dataset.id!);
+        else if (el.dataset.act === 'travel') this.travelModal();
+        else if (el.dataset.act === 'hire') this.game.hire(el.dataset.id as StaffId);
+        else if (el.dataset.act === 'dismiss') this.game.dismiss(el.dataset.id as StaffId);
+        else if (el.dataset.act === 'repairgreen') this.repairGreenModal();
+        else if (el.dataset.act === 'heat') this.game.heatmap = !this.game.heatmap;
+        else if (el.dataset.act === 'routing') { this.editor.setTool('bend'); if (this.mobile) this.tab = 'none'; }
+        else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
+        else if (el.dataset.act === 'practice' || el.dataset.act === 'playround') {
+          this.game.designMode = false; this.editor.setTool('inspect'); this.game.owner.start(this.game, el.dataset.act === 'playround');
+          this.game.setSpeed(0); this.editor.focusHole(); if (this.mobile) this.tab = 'none';
+        }
+        else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
+        else if (el.dataset.act === 'open') this.game.openHole(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
         else if (el.dataset.act === 'buy') this.game.buyUpgrade(el.dataset.id as UpgradeId);
         else if (el.dataset.act === 'book') this.game.bookEvent(el.dataset.id as EventId);
@@ -189,16 +226,18 @@ export class UI {
         else if (el.dataset.act === 'renameclub') this.nameModal();
       }
       this.refresh(true);
+      this.onInsets();
+      if (el.dataset.act === 'focus') this.editor.focusHole();
     });
     this.$('goalbar').addEventListener('click', () => {
-      this.tab = 'club';
+      this.tab = 'journey';
       this.refresh(true);
     });
   }
 
   private buildNav() {
-    const tabs = ['build', 'course', 'guests', 'money', 'events', 'club'];
-    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
+    const tabs = ['journey', 'build', 'course', 'guests', 'money', 'events', 'club'];
+    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
     this.$('nav').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
@@ -215,20 +254,27 @@ export class UI {
     this.mobile = m;
     document.body.classList.toggle('mobile', m);
     if (m && this.tab === 'course') this.tab = 'none';
-    if (!m && (this.tab === 'none' || this.tab === 'build')) this.tab = 'course';
+    if (!m && this.tab === 'build') this.tab = 'none';
     this.cache.delete('side');
     this.onInsets();
   }
+
+  get landscape() { return this.mobile && window.innerWidth > window.innerHeight && window.innerHeight <= 600; }
 
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
     const r = (id: string) => (document.getElementById(id) as HTMLElement).getBoundingClientRect();
     if (this.mobile) {
       const nav = r('nav');
+      if (this.landscape) {
+        const side = this.tab !== 'none' && this.tab !== 'build' ? r('side') : null;
+        return { l: nav.right + 10, r: side ? window.innerWidth - side.left + 10 : 12,
+          t: r('top').bottom + 10, b: this.tab === 'build' ? window.innerHeight - r('tools').top + 10 : 12 };
+      }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
-      return { l: 0, r: 0, t: r('top').height, b: nav.height + sheet };
+      return { l: 0, r: 0, t: r('top').bottom + 8, b: nav.height + sheet };
     }
-    return { l: r('tools').right, r: window.innerWidth - r('side').left, t: r('top').height, b: 50 };
+    return { l: 12, r: this.tab !== 'none' && this.tab !== 'build' ? r('side').width + 24 : 12, t: r('top').bottom + 12, b: r('tools').height + 24 };
   }
 
   private updateConfirm() {
@@ -257,13 +303,16 @@ export class UI {
   }
   openMenu() {
     const g = this.game;
-    const m = this.modal(`<h2>${g.name}</h2><div class="menu-list">
+    const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdSave">Save now</button>
+      <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
+    (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
+    (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
+    (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
     (m.querySelector('#mdName') as HTMLElement).onclick = () => this.nameModal();
     (m.querySelector('#mdLogo') as HTMLElement).onclick = () => this.logoModal();
     (m.querySelector('#mdSave') as HTMLElement).onclick = () => {
@@ -306,7 +355,7 @@ export class UI {
   }
   removeModal(id: number) {
     const h = this.game.hole(id);
-    const m = this.modal(`<h2>Remove hole ${id}?</h2><p>${h.name} will be taken off the scorecard. Its fairway and green stay as they are. This cannot be undone.</p><div class="actions"><button class="btn" id="rmNo">Keep it</button><button class="btn danger" id="rmOk">Remove hole</button></div>`);
+    const m = this.modal(`<h2>Remove hole ${id}?</h2><p>${escapeHtml(h.name)} will be taken off the scorecard. Its fairway and green stay as they are. This cannot be undone.</p><div class="actions"><button class="btn" id="rmNo">Keep it</button><button class="btn danger" id="rmOk">Remove hole</button></div>`);
     (m.querySelector('#rmNo') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#rmOk') as HTMLElement).onclick = () => {
       this.game.removeHole(id);
@@ -315,13 +364,71 @@ export class UI {
     };
   }
 
+  private projectModal(id: string) {
+    const offer = projectOffers(this.game).find(p => p.id === id); if (!offer || offer.locked) return;
+    const m = this.modal(`<div class="eyebrow">RESTORATION PROJECT</div><h2>${offer.title}</h2><p class="dim">${offer.description}</p><div class="project-quote"><span>Construction quote</span><strong>${fmtMoney(offer.cost)}</strong></div><p class="dim">${offer.plan ? `${offer.plan.tiles.length} tiles in this plan. ` : ''}${offer.xp ? '+' + offer.xp + ' career XP for the first completion at this property.' : 'Career XP for this type of restoration has already been collected.'}</p><div class="actions"><button class="btn" id="projectNo">Keep planning</button><button class="btn primary" id="projectYes" ${this.game.cash < offer.cost ? 'disabled' : ''}>Build · ${fmtMoney(offer.cost)}</button></div>`);
+    (m.querySelector('#projectNo') as HTMLElement).onclick = () => this.closeModal();
+    (m.querySelector('#projectYes') as HTMLElement).onclick = () => {
+      if (!commissionProject(this.game, id)) this.toast('This project is not available at the current budget.', 'bad');
+      this.closeModal(); this.refresh(true);
+    };
+  }
+  private archiveModal(id: string) {
+    const a = this.game.experience.archives.find(a => a.id === id); if (!a) return;
+    const m = this.modal(`<span class="eyebrow">YOUR RESTORATION COLLECTION</span><h2>${escapeHtml(a.name)}</h2><canvas id="archiveMap" width="720" height="480" aria-label="Preserved course plan"></canvas><div class="archive-summary"><div><b>${a.holes}</b><small>Open holes</small></div><div><b>${a.design}</b><small>Design rating</small></div><div><b>${a.members}</b><small>Members</small></div></div><p class="dim">Preserved on day ${a.day} · ${a.rounds} rounds · ${fmtMoney(a.profit)} operating profit.</p><p class="dim">This is a record of your completed course. Your active property stays unchanged.</p><div class="actions"><button class="btn primary" id="archiveClose">Back to portfolio</button></div>`);
+    paintArchive(m.querySelector('#archiveMap') as HTMLCanvasElement, a);
+    (m.querySelector('#archiveClose') as HTMLElement).onclick = () => this.closeModal();
+  }
+  private settingsModal() {
+    const prefs = this.game.preferences;
+    const m = this.modal(`<span class="eyebrow">PLAY YOUR WAY</span><h2>Game settings</h2><div class="preference-list">${([['sound','Sound effects','Subtle swing, build, and reward cues.'],['haptics','Touch feedback','Brief vibration where supported by your device.'],['dailyReports','End-of-day reports','Pause at closing time to review the day.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { this.game.preferences[input.dataset.pref as keyof typeof prefs] = input.checked; this.game.dirtySave = true; }; });
+    (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
+  }
+  private showRecap() {
+    const g = this.game, d = g.pendingRecap; if (!d) return;
+    const history = g.days.slice(-7), max = Math.max(1, ...history.map(d => Math.abs(d.profit)));
+    const suggestion = nextSuggestion(g);
+    const m = this.modal(`<div class="day-report"><span class="eyebrow">THE CLUBHOUSE LEDGER · DAY ${d.day}</span><h2>A day on your course.</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>OPERATING PROFIT</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>ROUNDS PLAYED</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>GUEST HAPPINESS</small></div><div><b>${g.members.length}</b><small>CLUB MEMBERS</small></div></div><div class="ledger-rows"><div><span>Green fees & clubhouse sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance & staff wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction, tracked separately</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
+    const finish = () => { g.pendingRecap = null; g.dirtySave = true; this.closeModal(); };
+    (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
+    (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
+      finish(); this.tab = 'journey'; this.journalView = 'projects';
+      if (!g.designMode) g.toggleDesignMode(); this.refresh(true); this.onInsets();
+    };
+  }
+
+  private greenPlan() {
+    const g = this.game, h = g.hole(g.selectedHole), w = g.world;
+    const tiles: number[] = [];
+    for (let i = 0; i < w.terrain.length; i++) if (w.terrain[i] === 2 && Math.hypot(i % w.w - h.cup.x, Math.floor(i / w.w) - h.cup.y) <= 4.5) tiles.push(i);
+    return planPaint(w, 'repair', tiles);
+  }
+  private repairGreenModal() {
+    const plan = this.greenPlan();
+    if (!plan.tiles.length) return;
+    const m = this.modal(`<h2>Repair this green?</h2><p>Reseed ${plan.tiles.length} worn tiles for ${fmtMoney(plan.cost)}. The hole closes for construction. Reopen it from Course when ready.</p><div class="actions"><button class="btn" id="repairNo">Cancel</button><button class="btn primary" id="repairYes">Repair · ${fmtMoney(plan.cost)}</button></div>`);
+    (m.querySelector('#repairNo') as HTMLElement).onclick = () => this.closeModal();
+    (m.querySelector('#repairYes') as HTMLElement).onclick = () => { this.game.commitEdit(plan); this.closeModal(); this.refresh(true); };
+  }
+
+  private travelModal() {
+    if (!stageComplete(this.game)) return;
+    const m = this.modal(`<h2>Start the next restoration?</h2><p>Your portfolio and medals carry forward. The next course starts with a fresh budget. The completed course plan and results will be preserved in your portfolio. The next property starts with its own budget, staff, and local members.</p><div class="actions"><button class="btn" id="travelCancel">Keep playing here</button><button class="btn primary" id="travelOk">Start next course</button></div>`);
+    (m.querySelector('#travelCancel') as HTMLElement).onclick = () => this.closeModal();
+    (m.querySelector('#travelOk') as HTMLElement).onclick = () => {
+      this.editor.setTool('inspect'); this.editor.cancelBuild();
+      this.game.travel(); this.closeModal(); this.tab = 'journey'; this.editor.focusHole(); this.refresh(true);
+    };
+  }
+
   private buildIntro() {
     if (this.game.settings.introSeen) return;
-    this.$('intro').innerHTML = `<div class="card"><h2>A second chance</h2>
-      <div>You bought a struggling public course. Two holes are playable, one is closed, and your cash is tight.</div>
+    this.$('intro').innerHTML = `<div class="card"><h2>Your first restoration</h2>
+      <div>Start with the Journey tab. Each restoration has four objectives with cash rewards. Complete them to unlock the next location.</div>
       <ol><li>Watch the golfers. Their comments and the Guests tab show what is going wrong.</li>
       <li>Hole 2 has a worn green: pick <b>Repair</b>, drag over the green, then reopen the hole.</li>
-      <li>Restore hole 3 by connecting its fairway, then open it.</li></ol>
+      <li>Restore hole 3 by connecting its fairway, then open it. Use Design mode to pause while building.</li><li>Play your own holes from the Course tab. Hire specialists from Club.</li></ol>
       <button class="btn primary" id="introOk">Got it</button></div>`;
     this.$('introOk').addEventListener('click', () => {
       this.game.settings.introSeen = true;
@@ -344,7 +451,7 @@ export class UI {
     t.textContent = text;
     const box = this.$('toasts');
     box.appendChild(t);
-    while (box.children.length > 3) box.firstChild!.remove();
+    while (box.children.length > 1) box.firstChild!.remove();
     window.setTimeout(() => t.remove(), kind === 'bad' ? 6000 : 4500);
     if (kind === 'bad' && /need|cash/i.test(text)) {
       const c = this.$('cash');
@@ -361,6 +468,7 @@ export class UI {
   // ---------- dynamic ----------
   refresh(force = false) {
     const g = this.game;
+    if (g.pendingRecap && this.$('modal').hidden) this.showRecap();
     const set = (id: string, v: string) => {
       if (this.cache.get(id) !== v) {
         this.cache.set(id, v);
@@ -408,7 +516,9 @@ export class UI {
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
-    const sideOpen = !this.mobile || (this.tab !== 'none' && this.tab !== 'build');
+    document.body.dataset.journalView = this.journalView;
+    this.$('sheetTitle').textContent = this.tab === 'journey' ? 'Your restoration' : this.tab[0].toUpperCase() + this.tab.slice(1);
+    const sideOpen = this.tab !== 'none' && this.tab !== 'build';
     this.$('side').style.display = sideOpen ? '' : 'none';
     this.$('tools').style.display = !this.mobile || this.tab === 'build' ? '' : 'none';
     this.updateConfirm();
@@ -426,6 +536,7 @@ export class UI {
       this.cache.set('side', html);
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
+      drawJournalArchives(body, g);
     }
   }
 
@@ -471,8 +582,9 @@ export class UI {
   }
   private renderGoalBar() {
     const g = this.game;
-    const next = this.allGoals().find((d) => !g.goalDone(d.id));
-    const html = next ? `<div class="k">Next goal · +${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${this.goalProgress(next.id)}</div>` : `<div class="k">All goals complete</div><div class="p">Keep improving the course and the books.</div>`;
+    const loc = activeLocation(g);
+    const next = loc.objectives.find(o => !g.campaign.claimed.includes(o.id));
+    const html = next ? `<div class="k">${loc.name} · +${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap to view journey</div>` : `<div class="k">Restoration complete</div><div>${loc.name}</div><div class="p">Your next course is ready.</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
@@ -504,6 +616,7 @@ export class UI {
 
   private sideHtml(): string {
     switch (this.tab) {
+      case 'journey': return journalPanel(this.game, this.journalView);
       case 'course': return this.courseHtml();
       case 'guests': return this.guestsHtml();
       case 'money': return this.moneyHtml();
@@ -539,14 +652,15 @@ export class UI {
     const queued = g.sim.queueFor(h.id).length;
     const playing = g.sim.onHole(h.id);
     const st = h.stats;
+    const repair = this.greenPlan();
     let html = `<div class="sec"><h3>Tool</h3><div class="card"><div class="t">${info.label}</div><div class="dim">${info.hint}</div>${costLine[tool] ? `<div style="margin-top:4px">${costLine[tool]}</div>` : ''}${tool === 'tee' || tool === 'cup' ? `<div style="margin-top:4px" class="note warn">Editing hole ${h.id}. Tap a tile on the map to place it.</div>` : ''}${tool === 'land' ? this.landCard() : ''}</div></div>`;
-    html += `<div class="sec"><h3>Holes</h3><div class="chips">${w.holes.map((x) => `<button class="chip ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="st ${x.open ? 'open' : ''}"></span>${x.id} ${x.name}</button>`).join('')}</div>`;
-    html += `<div class="card"><div class="row"><span class="t">Hole ${h.id}, ${h.name}</span><span class="badge ${h.open ? 'open' : 'closed'}">${h.open ? 'OPEN' : 'CLOSED'}</span></div>
+    html += `<div class="sec"><h3>Holes</h3><div class="chips">${w.holes.map((x) => `<button class="chip ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="st ${x.open ? 'open' : ''}"></span>${x.id} ${escapeHtml(x.name)}</button>`).join('')}</div>`;
+    html += `<div class="card"><div class="row"><span class="t">Hole ${h.id}, ${escapeHtml(h.name)}</span><span class="badge ${h.open ? 'open' : 'closed'}">${h.open ? 'OPEN' : 'CLOSED'}</span></div>
       <div class="row"><span class="k">Par ${h.par}</span><span>${lenYd} yards</span></div>
       <div class="barrow"><span>Fairway</span>${bar(cond.fairway)}<span class="n">${Math.round(cond.fairway)}</span></div>
       <div class="barrow"><span>Green</span>${bar(cond.green)}<span class="n">${Math.round(cond.green)}</span></div>
       <div class="barrow"><span>Tee box</span>${bar(cond.tee)}<span class="n">${Math.round(cond.tee)}</span></div>
-      <div class="dim" style="margin-top:2px">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>`;
+      <div class="dim" style="margin-top:2px">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn primary" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}`;
     if (!h.open) {
       for (const p of v.problems) html += `<div class="note bad">${p}</div>`;
       for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
@@ -567,7 +681,7 @@ export class UI {
       const t = w.terrain[i];
       html += `<div class="sec"><h3>Tile (${it.x}, ${it.y})</h3><div class="row"><span class="k">Ground</span><span>${terrainLabel(t)}${w.tree[i] ? ' with tree' : ''}</span></div>${t <= 3 ? `<div class="row"><span class="k">Condition</span><span>${Math.round(w.cond[i])}</span></div>${bar(w.cond[i])}<div class="dim" style="margin-top:4px">${t === 0 ? (w.cond[i] < 45 ? 'Overgrown: bad lies and slow shots.' : 'Maintained rough.') : w.cond[i] < CFG.turf.wornBelow ? 'Worn: shorter, wilder shots from here.' : 'Healthy turf.'}</div>` : ''}<div class="row"><span class="k">Belongs to</span><span>${w.zone[i] ? `Hole ${w.zone[i]}` : 'No hole'}</span></div></div>`;
     }
-    return html;
+    return `<div class="course-heading"><span class="eyebrow">COURSE ARCHITECT</span><h2>Shape the next great hole.</h2><div class="btnrow"><button class="btn" data-act="focus">Find hole</button><button class="btn primary" data-act="practice">Play this hole</button><button class="btn" data-act="playround">Play course</button></div></div>` + designPanel(g, h) + html + (g.ownerRecords.length ? `<div class="sec"><h3>Your practice scorecards</h3>${g.ownerRecords.slice(-4).reverse().map(r => `<div class="card"><div class="row"><b>Day ${r.day}</b><span>${r.scores.reduce((s,x) => s + x.strokes, 0)} strokes · par ${r.scores.reduce((s,x) => s + x.par, 0)}</span></div><div class="owner-scorecard">${r.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div></div>`).join('')}</div>` : '');
   }
 
   private guestsHtml(): string {
@@ -613,6 +727,10 @@ export class UI {
         <div class="row"><span class="k">Rough / sand / water</span><span>${sg.stats.rough} / ${sg.stats.bunker} / ${sg.stats.water}</span></div>
         <div class="row"><span class="k">Waited</span><span>${Math.round(sg.stats.wait)}s</span></div><div style="margin-top:6px"><button class="btn" data-act="clear-golfer">Deselect</button></div></div></div>`;
     }
+    const selected = g.sim.golfers.find(x => x.id === g.selectedGolfer);
+    if (selected?.scorecard.length) html += `<div class="card"><div class="t">${escapeHtml(selected.name)} · scorecard</div>${selected.scorecard.map(x => `<div class="row"><span>Hole ${x.hole} · par ${x.par}</span><b>${x.strokes}</b></div>`).join('')}</div>`;
+    html += membersPanel(g);
+    html += `<div class="sec"><h3>Watch a golfer</h3><div class="golfer-list">${g.sim.golfers.slice(0, 12).map(x => `<button class="golfer-row" data-act="watch" data-id="${x.id}"><span class="avatar" style="background:${CFG.golfers.types[x.type].shirt}">${escapeHtml(x.name[0])}</span><span><b>${escapeHtml(x.name)}</b><small>${x.type} · ${x.holeId ? 'Hole ' + x.holeId : 'At the clubhouse'}</small></span><span>Follow →</span></button>`).join('') || '<p class="dim">The next guests will arrive shortly.</p>'}</div></div>`;
     html += `<div class="sec"><h3>Recent comments</h3><div class="feed">${g.comments.length ? g.comments.slice(-9).reverse().map((c) => `<div><b>${c.name}</b> <span class="dim">${CFG.golfers.types[c.type].label}${c.hole ? `, hole ${c.hole}` : ''}</span><br>${c.text}</div>`).join('') : '<div class="dim">Quiet so far. Golfers react to what happens to them.</div>'}</div></div>`;
     return html;
   }
@@ -688,7 +806,7 @@ export class UI {
     const r = REGIONS[g.region];
     const si = g.season.index;
     const nextSeason = (si + 1) % 4;
-    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="96" height="96"></canvas><div><div class="t big">${g.name}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
+    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="96" height="96"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
       <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${club.holes}</span></div>`;
@@ -703,6 +821,7 @@ export class UI {
     html += `<div class="sec"><h3>Goals · ${done} of ${goals.length} done</h3>`;
     for (const d of open.slice(0, 4)) html += `<div class="goal"><div class="check"></div><div><div class="t">${d.title}</div><div class="dim">${d.detail}</div><div style="margin-top:3px">${this.goalProgress(d.id)} · <span class="reward">Bonus ${fmtMoney(d.reward)}</span></div></div></div>`;
     if (!open.length) html += '<div class="dim">Every goal is done. Legend.</div>';
+    html += staffPanel(g);
     html += `</div><div class="sec"><h3>Career</h3><div class="row"><span class="k">Rounds played</span><span>${g.stats.rounds.toLocaleString('en-US')}</span></div><div class="row"><span class="k">Lifetime revenue</span><span>${fmtMoney(g.stats.revenue)}</span></div><div class="row"><span class="k">Best day</span><span>${fmtMoney(g.stats.bestDayProfit)}</span></div><div class="row"><span class="k">Events hosted</span><span>${g.stats.events}</span></div><div class="row"><span class="k">Holes in one</span><span>${g.stats.aces}</span></div></div>`;
     return html;
   }

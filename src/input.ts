@@ -1,6 +1,7 @@
+import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TileEdit, ToolId, blockReason, brushTiles, planMoveCup, planMoveTee, planNewHole, planPaint, planTile } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TileEdit, ToolId, blockReason, brushTiles, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile } from './editing';
 import { CFG } from './config';
 import { Pt, idx, inBounds } from './terrain';
 
@@ -88,6 +89,18 @@ export class Editor {
     window.addEventListener('blur', () => this.cancelStroke());
   }
 
+  focusHole() {
+    const h = this.game.hole(this.game.selectedHole);
+    if (h) {
+      const width = this.r.cw - this.r.insets.l - this.r.insets.r - 40;
+      const height = this.r.ch - this.r.insets.t - this.r.insets.b - 60;
+      const points = [h.tee,h.cup,h.bend].map(p => projectGround(p.x * 32,p.y * 32));
+      const spanX = Math.max(...points.map(p => p.x))-Math.min(...points.map(p => p.x))+240;
+      const spanY = Math.max(...points.map(p => p.y))-Math.min(...points.map(p => p.y))+200;
+      const zoom = Math.max(.25, Math.min(.95,width / spanX,Math.max(180,height) / spanY));
+      this.r.focus((h.tee.x + h.cup.x) / 2 + .5, (h.tee.y + h.cup.y) / 2 + .5, zoom, this.game.world);
+    }
+  }
   setTool(t: ToolId) {
     this.cancelStroke();
     if (t !== 'build') this.cancelBuild();
@@ -142,6 +155,8 @@ export class Editor {
     if (this.pointers.size > 2) return;
     this.start = p;
     this.moved = false;
+    if (this.game.owner.active) { this.mode = 'inspect'; return; }
+    this.game.followGolfer = 0;
     const panByButton = e.button === 1 || e.button === 2 || this.space || this.tool === 'pan';
     if (panByButton) {
       this.mode = 'pan';
@@ -234,7 +249,9 @@ export class Editor {
       return;
     }
     const over = this.overCanvas(e);
-    if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
+    if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
+      this.game.owner.aim = this.r.toWorld(p.x, p.y);
+    } else if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
     else if (this.mode === 'paint') this.commitStroke();
     else if (this.mode === 'place' && over) {
       const t = this.tileAt(p);
@@ -269,7 +286,7 @@ export class Editor {
     const world = this.game.world;
     const h = this.hover;
     this.overlay.tool = this.tool;
-    if (!h || !inBounds(world, h.x, h.y) || (!this.isPaint && this.tool !== 'tee' && this.tool !== 'cup' && this.tool !== 'build' && this.tool !== 'land')) {
+    if (!h || !inBounds(world, h.x, h.y) || (!this.isPaint && this.tool !== 'tee' && this.tool !== 'cup' && this.tool !== 'bend' && this.tool !== 'build' && this.tool !== 'land')) {
       this.overlay.hoverTiles = [];
       this.overlay.changed = new Set();
       this.overlay.blocked = new Set();
@@ -326,7 +343,7 @@ export class Editor {
       };
     } else {
       const hole = this.game.hole(this.game.selectedHole);
-      const plan = this.tool === 'tee' ? planMoveTee(world, hole, h.x, h.y) : planMoveCup(world, hole, h.x, h.y);
+      const plan = this.tool === 'bend' ? planMoveBend(world, hole, h.x, h.y) : this.tool === 'tee' ? planMoveTee(world, hole, h.x, h.y) : planMoveCup(world, hole, h.x, h.y);
       if (typeof plan === 'string') {
         this.overlay.hoverTiles = this.tool === 'tee' ? boxTiles(world, h) : brushTiles(world, h.x, h.y, 2);
         this.overlay.changed = new Set();
@@ -437,7 +454,7 @@ export class Editor {
       return;
     }
     const hole = this.game.hole(this.game.selectedHole);
-    const plan = this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
+    const plan = this.tool === 'bend' ? planMoveBend(this.game.world, hole, t.x, t.y) : this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
     if (typeof plan === 'string') {
       this.game.notify('bad', plan);
       return;
@@ -452,8 +469,9 @@ export class Editor {
     const w = this.r.toWorld(p.x, p.y);
     let best: { id: number; d: number } | null = null;
     for (const g of this.game.sim.golfers) {
-      const d = Math.hypot(g.x - w.x, g.y - 0.35 - w.y);
-      if (d < 1.1 && (!best || d < best.d)) best = { id: g.id, d };
+      const anchor=this.r.toScreen(g.x,g.y),size=Math.max(this.r.ts,16);
+      const d=Math.hypot(p.x-anchor.x,(p.y-(anchor.y-size*.37))*.8);
+      if (d < Math.max(10,size*.45) && (!best || d < best.d)) best = { id: g.id, d };
     }
     if (best) {
       this.game.selectedGolfer = best.id;

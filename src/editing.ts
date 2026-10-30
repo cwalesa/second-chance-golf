@@ -1,7 +1,7 @@
 import { CFG } from './config';
 import { Hole, Pt, T, World, cloneHole, computeZones, holeStraightTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
 
-export type ToolId = 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land';
+export type ToolId = 'green' | 'path' | 'bend' | 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land';
 
 export interface TileState {
   t: number;
@@ -29,10 +29,13 @@ export const setCostMultiplier = (m: number) => {
   COST_MULT = m;
 };
 
-export const PAINT_TOOLS: ToolId[] = ['fairway', 'rough', 'bunker', 'water', 'treeAdd', 'treeDel', 'repair'];
+export const PAINT_TOOLS: ToolId[] = ['green', 'path', 'fairway', 'rough', 'bunker', 'water', 'treeAdd', 'treeDel', 'repair'];
 export const BRUSH_RADII = [0.5, 1.1, 2.1];
 
 export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
+  green: { label: 'Green', hint: 'Expand or reshape a putting surface. Costs $24 per tile. Cannot overwrite tees or paths.' },
+  path: { label: 'Cart path', hint: 'Lay a walking path for $8 per tile. Guests travel faster on paths.' },
+  bend: { label: 'Dogleg', hint: 'Tap a routing point for this hole. Costs $40. Paint fairway along the new route, then reopen.' },
   inspect: { label: 'Inspect', hint: 'Tap a hole, a golfer or a tile to see details.' },
   pan: { label: 'Pan', hint: 'Drag to move the map. Scroll or pinch to zoom.' },
   fairway: { label: 'Fairway', hint: 'Paint mown fairway. Replaces rough, sand and water.' },
@@ -66,7 +69,7 @@ export function blockReason(world: World, tool: ToolId, i: number): string | nul
   if (t === T.BUILDING || t === T.PATH) return 'Buildings and cart paths cannot be edited.';
   if (tool === 'repair') return null;
   if (t === T.GREEN || t === T.TEE) {
-    if (tool === 'treeDel') return null;
+    if (tool === 'treeDel' || (tool === 'green' && t === T.GREEN)) return null;
     return 'Greens and tees are changed with the Move cup / Move tee tools.';
   }
   return null;
@@ -85,6 +88,11 @@ export function planTile(world: World, tool: ToolId, i: number): TileEdit | null
     }
   };
   switch (tool) {
+    case 'green':
+      if (b.t === T.GREEN) return null;
+      cost += 24; stripTree(); a.t = T.GREEN; a.c = CFG.turf.freshGreen; break;
+    case 'path':
+      cost += 8; stripTree(); a.t = T.PATH; a.c = 100; break;
     case 'fairway':
       if (b.t === T.FAIRWAY) return null;
       cost += b.t === T.ROUGH ? C.fairway : C.fairwayFromHazard;
@@ -328,4 +336,15 @@ export function touchedHoles(world: World, plan: EditPlan): number[] {
   for (const e of plan.tiles) if (world.zone[e.i]) ids.add(world.zone[e.i]);
   if (plan.hole) ids.add(plan.hole.id);
   return [...ids];
+}
+
+/** Move a routing waypoint without silently painting or spending on a whole fairway. */
+export function planMoveBend(w: World, h: Hole, x: number, y: number): EditPlan | string {
+  if (!isOwned(w, x, y)) return 'Choose a routing point on land you own.';
+  if (w.terrain[idx(w, x, y)] === T.BUILDING) return 'A dogleg cannot run through the clubhouse.';
+  if (h.bend.x === x && h.bend.y === y) return 'The routing point is already here.';
+  const after = cloneHole(h); after.bend = { x, y };
+  const length = Math.hypot(x - h.tee.x, y - h.tee.y) + Math.hypot(h.cup.x - x, h.cup.y - y);
+  after.par = parFor(length);
+  return { tool: 'bend', label: 'Move dogleg', tiles: [], hole: { id: h.id, before: cloneHole(h), after }, cost: Math.ceil(40 * COST_MULT) };
 }

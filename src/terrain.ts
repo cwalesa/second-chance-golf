@@ -159,10 +159,12 @@ export interface HoleCondition {
   overall: number;
   wornShare: number;
 }
-const condCache = new Map<string, { v: number; r: HoleCondition }>();
+const condCache = new WeakMap<World, Map<string, { v: number; r: HoleCondition }>>();
 export function holeCondition(world: World, h: Hole): HoleCondition {
+  let localCache = condCache.get(world);
+  if (!localCache) condCache.set(world, localCache = new Map());
   const key = String(h.id);
-  const hit = condCache.get(key);
+  const hit = localCache.get(key);
   if (hit && hit.v === world.version) return hit.r;
   const sums = { f: 0, fn: 0, t: 0, tn: 0 };
   let gs = 0;
@@ -201,12 +203,12 @@ export function holeCondition(world: World, h: Hole): HoleCondition {
   const nn = sums.fn + sums.tn + gn;
   const overall = nn ? (sums.f + sums.t + gs) / nn : 0;
   const r = { fairway, green, tee, overall, wornShare: total ? worn / total : 0 };
-  condCache.set(key, { v: world.version, r });
+  localCache.set(key, { v: world.version, r });
   return r;
 }
 
 // ---- Route field: weighted distance-to-cup used by golfers to choose safe lines ----
-const fieldCache = new Map<number, { v: number; cx: number; cy: number; f: Float64Array }>();
+const fieldCache = new WeakMap<World, Map<number, { v: number; cx: number; cy: number; f: Float64Array }>>();
 function stepCost(world: World, i: number): number {
   let c: number;
   switch (world.terrain[i]) {
@@ -222,7 +224,9 @@ function stepCost(world: World, i: number): number {
   return world.tree[i] ? c + 5 : c;
 }
 export function routeField(world: World, h: Hole): Float64Array {
-  const hit = fieldCache.get(h.id);
+  let fields = fieldCache.get(world);
+  if (!fields) fieldCache.set(world, fields = new Map());
+  const hit = fields.get(h.id);
   if (hit && hit.v === world.version && hit.cx === h.cup.x && hit.cy === h.cup.y) return hit.f;
   const n = world.w * world.h;
   const dist = new Float64Array(n).fill(1e9);
@@ -287,7 +291,7 @@ export function routeField(world: World, h: Hole): Float64Array {
       }
     }
   }
-  fieldCache.set(h.id, { v: world.version, cx: h.cup.x, cy: h.cup.y, f: dist });
+  fields.set(h.id, { v: world.version, cx: h.cup.x, cy: h.cup.y, f: dist });
   return dist;
 }
 

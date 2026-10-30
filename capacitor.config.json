@@ -2,7 +2,7 @@
   "appId": "com.secondchancegolf.app",
   "appName": "Second Chance Golf",
   "webDir": "dist",
-  "backgroundColor": "#16231b",
+  "backgroundColor": "#102238",
   "ios": { "contentInset": "never" },
   "android": { "allowMixedContent": false }
 }

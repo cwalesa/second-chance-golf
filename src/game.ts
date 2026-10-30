@@ -1,3 +1,9 @@
+import { Experience, freshExperience, awardExperience, constructionFactor, archiveCourse } from './experience';
+import type { Feedback } from './feedback';
+import { createCampaignWorld } from './locations';
+import { assessDesign, designEnjoyment } from './design';
+import { CampaignState, freshCampaign, activeLocation, LOCATIONS, stageComplete } from './campaign';
+import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
 import { World, Hole, createStartingWorld, computeZones, holeCondition, validateHole, Validation } from './terrain';
@@ -59,7 +65,31 @@ export interface NewGameOptions {
   logo?: Logo;
 }
 
+export const STAFF = {
+  gardener: { name: 'Head greenkeeper', hire: 180, daily: 72, detail: 'Restores 2 condition per hour on owned fairways, greens and tees.' },
+  ranger: { name: 'Course ranger', hire: 160, daily: 48, detail: 'Spaces tee starts 25% closer and reduces guest frustration with waiting.' },
+  host: { name: 'Club host', hire: 140, daily: 42, detail: 'Adds 4 guest satisfaction and helps happy visitors become members.' },
+} as const;
+export type StaffId = keyof typeof STAFF;
+export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'; visits: number; happiness: number; joined: number; }
+export interface Landing { x: number; y: number; hole: number; bad: boolean; }
+
+export interface Preferences { sound: boolean; haptics: boolean; dailyReports: boolean; }
 export class Game {
+  experience: Experience = freshExperience();
+  preferences: Preferences = { sound: true, haptics: true, dailyReports: true };
+  pendingRecap: DaySummary | null = null;
+  onFeedback: (type: Feedback) => void = () => {};
+  campaign: CampaignState = freshCampaign();
+  staff: Record<StaffId, boolean> = { gardener: false, ranger: false, host: false };
+  members: Member[] = [];
+  owner = new OwnerRound();
+  ownerRecords: OwnerRecord[] = [];
+  landings: Landing[] = [];
+  heatmap = false;
+  followGolfer = 0;
+  designMode = false;
+  private designSpeed = 1;
   world: World;
   rng: Rng;
   sim: CourseSim;
@@ -108,6 +138,16 @@ export class Game {
         this.comments.push(c);
         if (this.comments.length > 40) this.comments.shift();
       },
+      onHole: (g, h) => {
+        const report = assessDesign(this.world, h);
+        const bonus = designEnjoyment(report, g.type);
+        if (bonus >= 4) this.sim.say(g, g.type === 'beginner' ? 'Room to miss. I could play here every week.' : g.type === 'skilled' ? 'A proper choice of shots. I like this hole.' : 'Lovely hole. Worth coming back for.');
+        return bonus;
+      },
+      onShot: (h, shot) => {
+        this.landings.push({ x: shot.air.x, y: shot.air.y, hole: h.id, bad: shot.kind !== 'ok' });
+        if (this.landings.length > 400) this.landings.shift();
+      },
       onAce: () => {
         this.stats.aces++;
         this.notify('good', 'A guest just made a hole in one!');
@@ -120,12 +160,69 @@ export class Game {
   applyRegion() {
     const r = REGIONS[this.region];
     setPhysics(r.wind, r.distance);
-    setCostMultiplier(r.buildMult);
+    setCostMultiplier(r.buildMult * constructionFactor(this));
     this.updateWear();
   }
   private updateWear() {
     const r = REGIONS[this.region];
-    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)];
+    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1);
+  }
+
+  get designRating(): number {
+    const open = this.openHoles;
+    return open.length ? Math.round(open.reduce((sum, h) => sum + assessDesign(this.world, h).overall, 0) / open.length) : 0;
+  }
+  get dailyWages(): number { return (Object.keys(STAFF) as StaffId[]).reduce((sum, id) => sum + (this.staff[id] ? STAFF[id].daily : 0), 0); }
+  hire(id: StaffId) {
+    if (!(id in STAFF) || this.staff[id]) return;
+    if (this.cash < STAFF[id].hire) { this.notify('bad', 'Not enough cash for the hiring fee.'); return; }
+    this.spend('construction', STAFF[id].hire, `Hire ${STAFF[id].name}`);
+    this.staff[id] = true;
+    this.notify('good', `${STAFF[id].name} hired. Daily wages: ${fmtMoney(STAFF[id].daily)}.`);
+  }
+  dismiss(id: StaffId) { if (id in STAFF) { this.staff[id] = false; this.dirtySave = true; } }
+  toggleDesignMode() {
+    if (this.owner.active) return;
+    this.designMode = !this.designMode;
+    if (this.designMode) { this.designSpeed = this.settings.speed; this.setSpeed(0); }
+    else this.setSpeed(this.designSpeed || 1);
+    this.notify('info', this.designMode ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
+  }
+  claimObjective(id: string) {
+    const o = activeLocation(this).objectives.find(o => o.id === id);
+    if (!o || this.campaign.claimed.includes(id) || o.value(this) < o.target) return false;
+    this.campaign.claimed.push(id); this.campaign.medals++;
+    this.earn('bonus', o.reward, `Restoration objective: ${o.title}`);
+    awardExperience(this, 75, `${this.campaign.stage}:objective:${id}`);
+    this.onFeedback('reward');
+    this.notify('good', `${o.title} complete. ${fmtMoney(o.reward)} reinvestment grant.`);
+    if (this.campaign.stage === LOCATIONS.length - 1 && stageComplete(this) && !this.campaign.completed.includes(activeLocation(this).id)) { this.campaign.completed.push(activeLocation(this).id); archiveCourse(this); }
+    return true;
+  }
+  travel() {
+    if (!stageComplete(this)) return false;
+    const old = activeLocation(this);
+    archiveCourse(this);
+    if (!this.campaign.completed.includes(old.id)) this.campaign.completed.push(old.id);
+    if (this.campaign.stage >= LOCATIONS.length - 1) { this.notify('good', 'All five courses restored. Your resort is yours to keep building.'); this.dirtySave = true; return false; }
+    this.owner.stop(this);
+    this.experience.site = { irrigation: false, terrace: false, garden: false }; this.experience.reserveUsed = false; this.pendingRecap = null;
+    this.campaign.stage++; this.campaign.claimed = []; this.campaign.rounds = 0; this.campaign.profit = 0; this.campaign.events = 0;
+    const next = activeLocation(this);
+    // The portfolio persists; the new property starts with its own budget and operating history.
+    this.world = createCampaignWorld(next.region); this.region = next.region; this.name = next.name;
+    this.sim.world = this.world; this.sim.golfers = []; this.sim.queues.clear(); this.sim.tee.clear(); this.sim.fx = [];
+    this.cash = next.budget; this.day = 1; this.clock = 0; this.lastHour = 0;
+    this.upgrades = noUpgrades(); this.staff = { gardener: false, ranger: false, host: false }; this.members = [];
+    this.clubLevel = 0; this.fees = { early: 34, mid: 30, twilight: 20 };
+    this.today = emptyLedger(); this.days = []; this.log = []; this.recent = []; this.comments = []; this.undoStack = [];
+    this.bookings = []; this.activeEvent = null; this.lastEvent = null; this.lastAway = null; this.ownerRecords = [];
+    this.selectedHole = 1; this.selectedGolfer = 0; this.followGolfer = 0; this.landings = [];
+    const careerDone = new Set(this.goals.filter(g => g.done && MILESTONES.some(m => m.id === g.id)).map(g => g.id));
+    this.goals = [...CFG.goals, ...MILESTONES].map(g => ({ id: g.id, done: careerDone.has(g.id) }));
+    this.designMode = false; this.settings.speed = 1; this.applyRegion(); this.dirtySave = true;
+    this.notify('good', `Welcome to ${next.name}. Your restoration budget is ${fmtMoney(next.budget)}.`);
+    return true;
   }
 
   // ---- derived ----
@@ -199,7 +296,7 @@ export class Game {
   }
   get maintenanceRate(): number {
     const open = this.openHoles.length;
-    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades);
+    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0);
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
@@ -245,6 +342,7 @@ export class Game {
     this.updateWear();
     this.maybeArrive(dt);
     this.eventArrivals();
+    this.sim.teeIntervalMult = this.staff.ranger ? .75 : 1;
     this.sim.update(dt);
     this.goalTimer += dt;
     if (this.goalTimer >= 0.5) {
@@ -256,13 +354,14 @@ export class Game {
 
   private hourly() {
     this.spend('maintenance', this.maintenanceRate, 'Hourly maintenance');
-    if (this.upgrades.crew) {
+    if (this.dailyWages) this.spend('maintenance', this.dailyWages / CFG.day.hours, 'Staff wages');
+    if (this.upgrades.crew || this.staff.gardener || this.experience.site.irrigation) {
       const w = this.world;
       const u = CFG.upgrades.crew;
       for (let i = 0; i < w.terrain.length; i++) {
         const t = w.terrain[i];
-        if ((t === 1 || t === 2 || t === 3) && w.cond[i] < u.restoreCeil) {
-          w.cond[i] = Math.min(u.restoreCeil, w.cond[i] + u.restorePerHour);
+        if ((t === 1 || t === 2 || t === 3) && w.cond[i] < (this.experience.site.irrigation ? 88 : u.restoreCeil)) {
+          w.cond[i] = Math.min(this.experience.site.irrigation ? 88 : u.restoreCeil, w.cond[i] + (this.upgrades.crew ? u.restorePerHour : 0) + (this.staff.gardener ? 2 : 0) + (this.experience.site.irrigation ? 1 : 0));
           w.dirty.add(i);
         }
       }
@@ -292,7 +391,10 @@ export class Game {
     if (this.sim.golfers.length >= cap) return; // course is full, they drive on by
     const band = this.band;
     const fee = this.fees[band.id];
-    const g = this.sim.spawn(pickGolferType(this.rng), fee, { fair: this.fair * band.fair });
+    const availableMembers = this.members.filter(m => !this.sim.golfers.some(g => g.name === m.name));
+    const returning = availableMembers.length && this.rng.next() < .35 ? this.rng.pick(availableMembers) : null;
+    const g = this.sim.spawn(returning ? returning.type : pickGolferType(this.rng), fee, { fair: this.fair * band.fair });
+    if (g && returning) { g.name = returning.name; g.returning = true; }
     if (g) {
       this.today.arrivals++;
       this.earn('fees', fee, `${band.name} tee time, ${g.name}`);
@@ -302,11 +404,22 @@ export class Game {
 
   private onRoundComplete(r: RoundResult): string {
     const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades) + this.club.sat);
+    const designBonus = r.holes ? (r.designSum ?? 0) / r.holes : 0;
+    sc.total = Math.max(0, Math.min(100, sc.total + designBonus + (this.staff.host ? 4 : 0) + (this.experience.site.terrace ? 3 : 0) + (this.experience.site.garden ? 2 : 0) + (this.staff.ranger ? Math.min(5, r.stats.wait / 20) : 0)));
+    this.campaign.rounds++;
+    awardExperience(this, 2);
+    const member = this.members.find(m => m.name === r.name);
+    if (member) { member.visits++; member.happiness = Math.round(member.happiness * .5 + sc.total * .5); }
+    else if (sc.total >= (this.staff.host ? 70 : 76) && r.holes >= 2 && this.members.length < 30 && this.members.filter(m => m.joined === this.day).length < (this.staff.host ? 3 : 2)) {
+      this.members.push({ name: r.name, type: r.type, visits: 1, happiness: Math.round(sc.total), joined: this.day });
+      awardExperience(this, 12, `${this.campaign.stage}:member:${r.name}`);
+      this.notify('good', `${r.name} joined the club. Happy members pay daily dues and return to play.`);
+    }
     if (r.event && this.activeEvent) {
       this.activeEvent.rounds++;
       this.activeEvent.satSum += sc.total;
     }
-    const spend = shopSpend(this.rng, sc.total, this.upgrades, this.club.shop);
+    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * (this.experience.site.terrace ? 1.15 : 1));
     this.stats.rounds++;
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
@@ -319,6 +432,9 @@ export class Game {
   private endDay() {
     const t = this.today;
     const sum: DaySummary = { ...t, day: this.day, profit: operatingProfit(t), net: netChange(t), avgSat: t.rounds ? t.satSum / t.rounds : 0 };
+    this.campaign.profit += sum.profit;
+    if (sum.profit > 0) awardExperience(this, 20);
+    if (this.preferences.dailyReports) this.pendingRecap = sum;
     this.days.push(sum);
     if (this.days.length > CFG.day.historyKeep) this.days.shift();
     const happy = sum.profit > 0 && t.rounds >= CFG.satisfaction.goalMinRounds && sum.avgSat >= CFG.satisfaction.goal;
@@ -334,6 +450,11 @@ export class Game {
     this.clock = 0;
     this.lastHour = 0;
     this.today = emptyLedger();
+    for (const member of [...this.members]) {
+      member.happiness = Math.round(member.happiness * .8 + this.reputation * .2);
+      if (member.happiness < 45) { this.members = this.members.filter(m => m !== member); this.notify('info', `${member.name} left the club after disappointing visits.`); }
+      else this.earn('shop', 8 + this.clubLevel * 3, `Daily dues: ${member.name}`);
+    }
     this.startEvent();
     this.dirtySave = true;
   }
@@ -408,6 +529,7 @@ export class Game {
     const res: EventResult = { id: e.id, day, guests: e.spawned, revenue: e.revenue, cost: EVENTS[e.id].cost, rounds: e.rounds, avgSat: e.rounds ? e.satSum / e.rounds : 0 };
     this.lastEvent = res;
     this.stats.events++;
+    this.campaign.events++;
     this.activeEvent = null;
     this.notify(res.revenue >= res.cost ? 'good' : 'bad', `${EVENTS[res.id].name}: ${res.guests} golfers, ${fmtMoney(res.revenue)} in entries against ${fmtMoney(res.cost)} setup${res.rounds ? `, satisfaction ${Math.round(res.avgSat)}` : ''}.`);
   }
@@ -661,16 +783,21 @@ export class Game {
       const arrivals = this.arrivalRate * CFG.offline.efficiency;
       const fees = BANDS.reduce((s, b) => s + this.bandArrivals(b.id) * CFG.offline.efficiency * this.fees[b.id], 0);
       const shop = arrivals * (CFG.economy.shopBase + this.reputation * CFG.economy.shopSatFactor + 1.5 + (this.upgrades.snackBar ? CFG.extras.snackSpend : 0)) * (this.upgrades.proShop ? CFG.economy.proShopMultiplier : 1) * this.club.shop;
-      const maint = this.maintenanceRate * CFG.day.hours;
+      const maint = this.maintenanceRate * CFG.day.hours + this.dailyWages;
       const profit = Math.round(fees + shop - maint);
       this.cash += profit;
       net += profit;
       this.stats.rounds += Math.round(arrivals);
+      this.campaign.rounds += Math.round(arrivals);
+      this.campaign.profit += profit;
       this.stats.revenue += Math.round(fees + shop);
       this.stats.bestDayProfit = Math.max(this.stats.bestDayProfit, profit);
       this.day++;
     }
     this.stats.years = yearOf(this.day);
+    this.pendingRecap = null;
+    // Offline income represents completed days, so stale on-course actors cannot resume those days.
+    this.sim.golfers = []; this.sim.queues.clear(); this.sim.tee.clear(); this.activeEvent = null;
     // bookings for the days that passed are cancelled without charge
     const lost = this.bookings.filter((b) => b.day < this.day);
     this.bookings = this.bookings.filter((b) => b.day >= this.day);

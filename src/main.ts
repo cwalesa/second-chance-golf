@@ -1,10 +1,12 @@
+import { FeedbackPlayer } from './feedback';
+import { Studio } from './studio';
 import './style.css';
 import { CFG } from './config';
 import { Game } from './game';
 import { Renderer } from './render';
 import { Editor } from './input';
 import { UI } from './ui';
-import { clearSave, loadGame, saveGame } from './save';
+import { clearSave, loadGame, saveGame, serialize, importSave } from './save';
 import { startScreen } from './start';
 
 async function boot() {
@@ -25,6 +27,8 @@ async function boot() {
   renderer.resize();
   const editor = new Editor(canvas, game, renderer);
   const ui = new UI(game, editor);
+  new FeedbackPlayer(game);
+  const studio = new Studio(game, editor, renderer, ui);
   let resetting = false;
   const persist = () => {
     if (resetting) return;
@@ -36,6 +40,26 @@ async function boot() {
     location.reload();
   };
   ui.onSaveNow = persist;
+  ui.onExport = () => {
+    persist();
+    const blob = new Blob([serialize(game)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = 'Second-Chance-Golf-Save.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    ui.toast('Save backup exported.', 'good');
+  };
+  ui.onImport = () => {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0]; if (!file) return;
+      if (file.size > 3000000) { ui.toast('That file is too large for a game save.', 'bad'); return; }
+      const text = await file.text();
+      if (!confirm('Replace this device’s current course with the selected backup?')) return;
+      if (importSave(text)) { resetting = true; location.reload(); }
+      else ui.toast('That file is not a compatible game save.', 'bad');
+    };
+    input.click();
+  };
   const place = () => {
     renderer.resize();
     renderer.insets = ui.insets();
@@ -53,9 +77,9 @@ async function boot() {
   ui.refresh(true);
   renderer.resize();
   renderer.insets = ui.insets();
-  const h1 = game.world.holes[0];
-  renderer.focus(h1 ? Math.min(h1.cup.x + 6, 44) : 40, h1 ? h1.tee.y : 34, ui.mobile ? 0.55 : 0.7, game.world);
+  renderer.focus(ui.mobile ? 11 : 21, ui.mobile ? 40 : 35, ui.mobile ? .58 : .7, game.world);
 
+  if (loaded?.recovered) ui.toast('Your previous save was recovered from the automatic backup.', 'info');
   if (away) {
     ui.toast(`While you were away (${away.days} day${away.days === 1 ? '' : 's'}) your course earned ${away.net >= 0 ? '+' : ''}$${Math.round(away.net).toLocaleString('en-US')}.`, away.net >= 0 ? 'good' : 'bad');
   } else if (loaded) game.notify('info', `Welcome back. Day ${game.day}, ${game.clockText}.`);
@@ -67,11 +91,13 @@ async function boot() {
   function frame(now: number) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    const speed = game.settings.speed;
+    studio.update(dt);
+    const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.introOpen || document.hidden ? 0 : game.settings.speed;
     acc += dt * speed;
     let steps = 0;
     while (acc >= STEP && steps < CFG.sim.maxStepsPerFrame) {
       game.step(STEP);
+      if (game.pendingRecap) { acc = 0; break; }
       acc -= STEP;
       steps++;
     }
