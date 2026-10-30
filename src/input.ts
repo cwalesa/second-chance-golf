@@ -1,6 +1,7 @@
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TileEdit, ToolId, blockReason, brushTiles, planMoveCup, planMoveTee, planPaint, planTile } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TileEdit, ToolId, blockReason, brushTiles, planMoveCup, planMoveTee, planNewHole, planPaint, planTile } from './editing';
+import { CFG } from './config';
 import { Pt, idx, inBounds } from './terrain';
 
 export interface Preview {
@@ -19,7 +20,12 @@ type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch';
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), tooExpensive: false, hoverPt: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null };
+  /** Parcel picked with the Land tool. */
+  parcel: { col: number; row: number } | null = null;
+  /** A new-hole plan waiting for the player to confirm. */
+  pending: EditPlan | null = null;
+  private buildTee: Pt | null = null;
   preview: Preview | null = null;
   inspectTile: Pt | null = null;
   onChange: () => void = () => {};
@@ -84,6 +90,7 @@ export class Editor {
 
   setTool(t: ToolId) {
     this.cancelStroke();
+    if (t !== 'build') this.cancelBuild();
     this.tool = t;
     this.game.settings.tool = t;
     this.overlay.tool = t;
@@ -155,6 +162,22 @@ export class Editor {
       this.hover = this.tileAt(p);
       this.updateHover();
     }
+  }
+
+  cancelBuild() {
+    this.buildTee = null;
+    this.pending = null;
+    this.overlay.buildTee = null;
+    this.overlay.buildLine = null;
+    this.updateHover();
+    this.onChange();
+  }
+  confirmBuild() {
+    if (!this.pending) return;
+    const res = this.game.commitEdit(this.pending);
+    this.lastMsg = res.message;
+    if (res.ok) this.cancelBuild();
+    else this.onChange();
   }
 
   private move(e: PointerEvent) {
@@ -246,11 +269,37 @@ export class Editor {
     const world = this.game.world;
     const h = this.hover;
     this.overlay.tool = this.tool;
-    if (!h || !inBounds(world, h.x, h.y) || (!this.isPaint && this.tool !== 'tee' && this.tool !== 'cup')) {
+    if (!h || !inBounds(world, h.x, h.y) || (!this.isPaint && this.tool !== 'tee' && this.tool !== 'cup' && this.tool !== 'build' && this.tool !== 'land')) {
       this.overlay.hoverTiles = [];
       this.overlay.changed = new Set();
       this.overlay.blocked = new Set();
       this.preview = null;
+      this.onChange();
+      return;
+    }
+    if (this.tool === 'land') {
+      this.overlay.hoverTiles = [];
+      this.overlay.changed = new Set();
+      this.overlay.blocked = new Set();
+      const col = Math.floor(h.x / CFG.land.pw);
+      const row = Math.floor(h.y / CFG.land.ph);
+      this.overlay.parcel = { col, row };
+      this.preview = null;
+      this.onChange();
+      return;
+    }
+    if (this.tool === 'build') {
+      const foot = boxTiles(world, h);
+      this.overlay.hoverTiles = foot;
+      this.overlay.changed = new Set();
+      this.overlay.blocked = new Set();
+      this.overlay.buildTee = this.buildTee;
+      this.overlay.buildLine = this.buildTee ? { from: this.buildTee, to: h } : null;
+      if (this.buildTee && !this.pending) {
+        const plan = planNewHole(world, this.game.nextHoleId(), this.buildTee, h);
+        if (typeof plan === 'string') this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: false, message: plan, stroking: false, limited: false };
+        else this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
+      } else if (!this.buildTee) this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: true, message: 'Step 1 of 2: tap where the tee box goes.', stroking: false, limited: false };
       this.onChange();
       return;
     }
@@ -358,6 +407,35 @@ export class Editor {
 
   private commitPlace(t: Pt) {
     if (!inBounds(this.game.world, t.x, t.y)) return;
+    if (this.tool === 'land') {
+      this.parcel = { col: Math.floor(t.x / CFG.land.pw), row: Math.floor(t.y / CFG.land.ph) };
+      this.overlay.parcel = this.parcel;
+      this.onChange();
+      return;
+    }
+    if (this.tool === 'build') {
+      if (this.pending) return;
+      if (!this.buildTee) {
+        this.buildTee = t;
+        this.overlay.buildTee = t;
+        this.hover = t;
+        this.updateHover();
+        return;
+      }
+      const plan = planNewHole(this.game.world, this.game.nextHoleId(), this.buildTee, t);
+      if (typeof plan === 'string') {
+        this.game.notify('bad', plan);
+        return;
+      }
+      this.pending = plan;
+      const ids = plan.tiles.map((x) => x.i);
+      this.overlay.hoverTiles = ids;
+      this.overlay.changed = new Set(ids);
+      this.overlay.buildLine = { from: this.buildTee, to: t };
+      this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
+      this.onChange();
+      return;
+    }
     const hole = this.game.hole(this.game.selectedHole);
     const plan = this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
     if (typeof plan === 'string') {

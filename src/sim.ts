@@ -46,6 +46,8 @@ export interface HoleTrack {
   saidRough: boolean;
   saidGreen: boolean;
   start: number;
+  fwyHit: boolean | null;
+  onGreenAt: number | null;
 }
 
 export interface Golfer {
@@ -83,6 +85,17 @@ export interface Golfer {
   scoreFlash: { text: string; t: number } | null;
   path: Pt[] | null;
   pathGoal: Pt | null;
+  // previous-step and render-interpolated positions (render only)
+  px: number;
+  py: number;
+  pbx: number;
+  pby: number;
+  pbz: number;
+  rx: number;
+  ry: number;
+  rbx: number;
+  rby: number;
+  rbz: number;
   event: boolean;
   fairFee: number | null;
 }
@@ -109,6 +122,7 @@ export interface GuestComment {
 export interface SimHooks {
   onRound(r: RoundResult): string | void;
   onComment(c: GuestComment): void;
+  onAce?(g: Golfer): void;
 }
 
 const FIRST = ['Avery', 'Bo', 'Casey', 'Dana', 'Eli', 'Farah', 'Gus', 'Hana', 'Ivo', 'June', 'Kai', 'Lena', 'Milo', 'Nora', 'Omar', 'Pia', 'Quinn', 'Ravi', 'Sam', 'Tess', 'Uma', 'Vic', 'Wren', 'Xavi', 'Yara', 'Zed', 'Marta', 'Doug', 'Ines', 'Walt', 'Greta', 'Hugo'];
@@ -128,7 +142,7 @@ export function scoreName(diff: number, strokes: number): string {
 const PLAYING: Phase[] = ['toBall', 'address', 'swing', 'flight', 'holed'];
 const isPlaying = (g: Golfer) => PLAYING.includes(g.phase);
 const newStats = (): RoundStats => ({ shots: 0, rough: 0, bunker: 0, water: 0, tree: 0, condSum: 0, condN: 0, wait: 0, picked: 0, closedOnMe: 0 });
-const newTrack = (now: number): HoleTrack => ({ strokes: 0, shots: 0, rough: 0, carryWarned: false, saidRough: false, saidGreen: false, start: now });
+const newTrack = (now: number): HoleTrack => ({ strokes: 0, shots: 0, rough: 0, carryWarned: false, saidRough: false, saidGreen: false, start: now, fwyHit: null, onGreenAt: null });
 
 export class CourseSim {
   golfers: Golfer[] = [];
@@ -137,7 +151,7 @@ export class CourseSim {
   now = 0;
   queues = new Map<number, number[]>();
   tee = new Map<number, { last: number; occupant: number }>();
-  crewWear = 1;
+  wearMult = 1;
   private wearDirty = false;
   private lastWearBump = 0;
 
@@ -231,6 +245,16 @@ export class CourseSim {
       scoreFlash: null,
       path: null,
       pathGoal: null,
+      px: SPAWN.x,
+      py: SPAWN.y,
+      pbx: 0,
+      pby: 0,
+      pbz: 0,
+      rx: SPAWN.x,
+      ry: SPAWN.y,
+      rbx: 0,
+      rby: 0,
+      rbz: 0,
       event: !!opts.event,
       fairFee: opts.fair ?? null,
     };
@@ -319,6 +343,14 @@ export class CourseSim {
     g.parDone += h.par;
     g.strokesDone += strokes;
     h.stats.rounds++;
+    if (!picked) {
+      h.stats.girN++;
+      if (g.hs.onGreenAt !== null && g.hs.onGreenAt <= h.par - 2) h.stats.gir++;
+      if (h.par > 3 && g.hs.fwyHit !== null) {
+        h.stats.fwyN++;
+        if (g.hs.fwyHit) h.stats.fwy++;
+      }
+    }
     h.stats.strokes += strokes;
     h.stats.par += h.par;
     if (picked) {
@@ -398,7 +430,7 @@ export class CourseSim {
     const i = idx(this.world, tx, ty);
     const t = this.world.terrain[i];
     if (t !== T.FAIRWAY && t !== T.TEE && t !== T.GREEN) return;
-    this.world.cond[i] = Math.max(CFG.turf.floor, this.world.cond[i] - amount * this.crewWear);
+    this.world.cond[i] = Math.max(CFG.turf.floor, this.world.cond[i] - amount * this.wearMult);
     this.world.dirty.add(i);
     this.wearDirty = true;
   }
@@ -473,6 +505,11 @@ export class CourseSim {
     if (t.occupant === g.id) t.occupant = 0;
     g.hs.strokes += 1 + f.penalty;
     const sh = f.shot;
+    if (!f.putt) {
+      const kind = lieAt(this.world, f.end.x, f.end.y).kind;
+      if (g.hs.shots === 1 && g.hs.fwyHit === null) g.hs.fwyHit = kind === 'fairway' || kind === 'green';
+      if (kind === 'green' && g.hs.onGreenAt === null && f.penalty === 0) g.hs.onGreenAt = g.hs.strokes;
+    }
     if (f.putt) {
       if (f.holed) return this.holeOut(g);
     } else if (sh) {
@@ -504,6 +541,7 @@ export class CourseSim {
   private holeOut(g: Golfer) {
     const h = this.hole(g.holeId)!;
     this.addFx('cup', h.cup.x + 0.5, h.cup.y + 0.5);
+    if (g.hs.strokes === 1) this.hooks.onAce?.(g);
     g.ballVisible = false;
     g.scoreFlash = { text: scoreName(g.hs.strokes - h.par, g.hs.strokes), t: 2.2 };
     g.timer = 1.2;
@@ -532,6 +570,11 @@ export class CourseSim {
     while (this.fx.length && this.now - this.fx[0].t0 > 2.5) this.fx.shift();
     this.manageTees();
     for (const g of this.golfers) {
+      g.px = g.x;
+      g.py = g.y;
+      g.pbx = g.ball.x;
+      g.pby = g.ball.y;
+      g.pbz = g.ballZ;
       g.age += dt;
       g.phaseTime += dt;
       if (g.bubble && (g.bubble.t -= dt) <= 0) g.bubble = null;

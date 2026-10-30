@@ -27,15 +27,20 @@ const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 
 /** What golfers consider a fair green fee for the current state of the course. */
 export function fairFee(avgCond: number, openHoles: number): number {
-  return 12 + 0.16 * avgCond + 5 * openHoles;
+  const holes = 5 * Math.min(openHoles, 6) + 2 * Math.max(0, openHoles - 6);
+  return 12 + 0.16 * avgCond + holes;
 }
 
-export function arrivalsPerDay(openHoles: number, reputation: number, fee: number, fair: number): number {
+/** Daily demand before reputation, price and region modifiers. */
+export function baseDemand(openHoles: number): number {
   if (openHoles <= 0) return 0;
-  const base = CFG.economy.baseGolfersPerDay + CFG.economy.golfersPerOpenHole * openHoles;
-  const rep = clamp(0.55 + (reputation / 100) * 0.9, 0.5, 1.5);
-  const price = clamp(Math.pow(fair / Math.max(1, fee), 1.3), 0.15, 1.5);
-  return base * rep * price;
+  return CFG.economy.baseGolfersPerDay + CFG.economy.golfersPerOpenHole * Math.min(openHoles, 9) + 2 * Math.max(0, openHoles - 9);
+}
+export const reputationFactor = (reputation: number) => clamp(0.55 + (reputation / 100) * 0.9, 0.5, 1.5);
+export const priceFactor = (fair: number, fee: number) => clamp(Math.pow(fair / Math.max(1, fee), 1.3), 0.15, 1.5);
+
+export function arrivalsPerDay(openHoles: number, reputation: number, fee: number, fair: number): number {
+  return baseDemand(openHoles) * reputationFactor(reputation) * priceFactor(fair, fee);
 }
 
 export type UpgradeId = keyof typeof CFG.upgrades;
@@ -93,10 +98,10 @@ export function farewellFor(sc: RoundScore): string {
   return parts[0][0] < 50 ? parts[0][1] : sc.total >= 68 ? 'A decent day out.' : 'Not my best day here.';
 }
 
-export function shopSpend(rng: Rng, satisfaction: number, owned: Owned): number {
+export function shopSpend(rng: Rng, satisfaction: number, owned: Owned, clubShop = 1): number {
   const e = CFG.economy;
   const base = e.shopBase + satisfaction * e.shopSatFactor + rng.range(0, 3) + (owned.snackBar ? CFG.extras.snackSpend : 0);
-  return Math.round(base * (owned.proShop ? e.proShopMultiplier : 1));
+  return Math.round(base * (owned.proShop ? e.proShopMultiplier : 1) * clubShop);
 }
 
 export function reputationOf(totals: number[]): number {

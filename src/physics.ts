@@ -1,6 +1,13 @@
 import { CFG, GolferType } from './config';
-import { Hole, Pt, T, World, center, idx, inBounds, routeField, terrainAt, treeAt } from './terrain';
+import { Hole, Pt, T, World, center, idx, inBounds, isOwned, routeField, terrainAt, treeAt } from './terrain';
 import { Rng } from './rng';
+
+/** Regional conditions: wind widens dispersion, thin air adds distance. */
+export const PHYS = { wind: 1, dist: 1 };
+export function setPhysics(wind: number, dist: number) {
+  PHYS.wind = wind;
+  PHYS.dist = dist;
+}
 
 export type LieKind = 'tee' | 'fairway' | 'rough' | 'bunker' | 'green';
 export interface Lie {
@@ -32,7 +39,7 @@ export function lieAt(world: World, x: number, y: number): Lie {
 export function isValidLie(world: World, x: number, y: number): boolean {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
-  if (!inBounds(world, tx, ty)) return false;
+  if (!inBounds(world, tx, ty) || !isOwned(world, tx, ty)) return false;
   const i = idx(world, tx, ty);
   const t = world.terrain[i];
   return t !== T.WATER && t !== T.BUILDING && world.tree[i] === 0;
@@ -135,7 +142,7 @@ function valueOf(world: World, field: Float64Array, r: ShotResult): number {
 }
 
 export function reachFor(type: GolferType, lie: Lie): number {
-  return CFG.golfers.types[type].reach * lie.distF;
+  return CFG.golfers.types[type].reach * lie.distF * PHYS.dist;
 }
 
 /** Choose where to aim: scores candidate lines by the expected route distance left, including hazards. */
@@ -149,8 +156,8 @@ export function planShot(world: World, hole: Hole, type: GolferType, from: Pt): 
   const base = Math.atan2(cup.y - from.y, cup.x - from.x);
   let best: { angle: number; dist: number; v: number } | null = null;
   const consider = (angle: number, d: number) => {
-    const sa = gt.angSigma * lie.dispF;
-    const sd = gt.distSigma * lie.dispF;
+    const sa = gt.angSigma * lie.dispF * PHYS.wind;
+    const sd = gt.distSigma * lie.dispF * PHYS.wind;
     const lat = Math.max(0.15, d * Math.tan(sa));
     const lon = Math.max(0.15, d * sd);
     const perp = angle + Math.PI / 2;
@@ -206,8 +213,8 @@ export function executeShot(world: World, rng: Rng, type: GolferType, from: Pt, 
   const lie = lieAt(world, from.x, from.y);
   const mishitMult = lie.kind === 'bunker' ? 3 : lie.kind === 'rough' ? 1.8 : lie.kind === 'tee' ? 0.6 : 1;
   const mishit = rng.next() < gt.mishit * mishitMult;
-  let angErr = rng.normal() * gt.angSigma * lie.dispF;
-  let distMul = 1 + rng.normal() * gt.distSigma * lie.dispF;
+  let angErr = rng.normal() * gt.angSigma * lie.dispF * PHYS.wind;
+  let distMul = 1 + rng.normal() * gt.distSigma * lie.dispF * PHYS.wind;
   if (mishit) {
     angErr *= 2.8;
     distMul = rng.range(0.4, 0.75);

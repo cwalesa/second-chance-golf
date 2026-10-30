@@ -1,4 +1,5 @@
 import { CFG } from './config';
+import { REGIONS, RegionId } from './progression';
 
 export const T = { ROUGH: 0, FAIRWAY: 1, GREEN: 2, TEE: 3, BUNKER: 4, WATER: 5, PATH: 6, BUILDING: 7 } as const;
 export type TerrainId = (typeof T)[keyof typeof T];
@@ -19,8 +20,20 @@ export interface Hole {
   par: number;
   fixedGreenAt: number; // total sim time a worn green was repaired, -1 if never
   reopenedAt: number;
-  stats: { rounds: number; strokes: number; par: number; water: number; picked: number };
+  stats: HoleStats;
 }
+export interface HoleStats {
+  rounds: number;
+  strokes: number;
+  par: number;
+  water: number;
+  picked: number;
+  fwy: number; // fairways hit off the tee (par 4/5 only)
+  fwyN: number;
+  gir: number; // greens in regulation
+  girN: number;
+}
+export const newStats = (): HoleStats => ({ rounds: 0, strokes: 0, par: 0, water: 0, picked: 0, fwy: 0, fwyN: 0, gir: 0, girN: 0 });
 
 export interface World {
   w: number;
@@ -31,6 +44,8 @@ export interface World {
   zone: Uint8Array; // owning hole id, 0 = none
   holes: Hole[];
   version: number;
+  region: RegionId;
+  parcels: Uint8Array; // 1 when the parcel is owned
   dirty: Set<number>; // tile indices changed since the renderer last looked
 }
 
@@ -43,10 +58,18 @@ export const inBounds = (w: World, x: number, y: number) => x >= 0 && y >= 0 && 
 export const center = (p: Pt): Pt => ({ x: p.x + 0.5, y: p.y + 0.5 });
 
 /** Terrain id at a continuous position, or -1 outside the property. */
+export function parcelIndex(tx: number, ty: number): number {
+  return Math.floor(ty / CFG.land.ph) * CFG.land.cols + Math.floor(tx / CFG.land.pw);
+}
+export function isOwned(w: World, tx: number, ty: number): boolean {
+  return inBounds(w, tx, ty) && w.parcels[parcelIndex(tx, ty)] === 1;
+}
+export const startsOwned = (col: number, row: number) => col < CFG.land.startCols && row < CFG.land.startRows;
+
 export function terrainAt(w: World, x: number, y: number): number {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
-  if (!inBounds(w, tx, ty)) return -1;
+  if (!inBounds(w, tx, ty) || !isOwned(w, tx, ty)) return -1;
   return w.terrain[ty * w.w + tx];
 }
 export function treeAt(w: World, x: number, y: number): boolean {
@@ -339,16 +362,17 @@ export function validateHole(world: World, h: Hole): Validation {
 }
 
 // ---- Starting property ----
-export function createStartingWorld(): World {
+export function createStartingWorld(regionId: RegionId = 'parkland'): World {
+  const region = REGIONS[regionId];
   const { w, h } = CFG.grid;
   const n = w * h;
   const holes: Hole[] = [
-    { id: 1, name: 'Old Orchard', tee: { x: 9, y: 33 }, cup: { x: 42, y: 31 }, bend: { x: 24, y: 35 }, open: true, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: { rounds: 0, strokes: 0, par: 0, water: 0, picked: 0 } },
-    { id: 2, name: 'Cattail Carry', tee: { x: 48, y: 42 }, cup: { x: 60, y: 28 }, bend: { x: 62, y: 41 }, open: true, par: 3, fixedGreenAt: -1, reopenedAt: -1, stats: { rounds: 0, strokes: 0, par: 0, water: 0, picked: 0 } },
-    { id: 3, name: 'Foxglove Run', tee: { x: 10, y: 10 }, cup: { x: 42, y: 10 }, bend: { x: 26, y: 14 }, open: false, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: { rounds: 0, strokes: 0, par: 0, water: 0, picked: 0 } },
+    { id: 1, name: 'Old Orchard', tee: { x: 9, y: 33 }, cup: { x: 42, y: 31 }, bend: { x: 24, y: 35 }, open: true, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
+    { id: 2, name: 'Cattail Carry', tee: { x: 48, y: 42 }, cup: { x: 60, y: 28 }, bend: { x: 62, y: 41 }, open: true, par: 3, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
+    { id: 3, name: 'Foxglove Run', tee: { x: 10, y: 10 }, cup: { x: 42, y: 10 }, bend: { x: 26, y: 14 }, open: false, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
   ];
   for (const hole of holes) hole.par = parFor(holeStraightTiles(hole));
-  const world: World = { w, h, terrain: new Uint8Array(n), cond: new Float32Array(n), tree: new Uint8Array(n), zone: new Uint8Array(n), holes, version: 1, dirty: new Set() };
+  const world: World = { w, h, terrain: new Uint8Array(n), cond: new Float32Array(n), tree: new Uint8Array(n), zone: new Uint8Array(n), holes, version: 1, region: regionId, parcels: Uint8Array.from({ length: CFG.land.cols * CFG.land.rows }, (_, i) => (startsOwned(i % CFG.land.cols, Math.floor(i / CFG.land.cols)) ? 1 : 0)), dirty: new Set() };
   computeZones(world);
   const set = (x: number, y: number, t: number, c: number) => {
     if (!inBounds(world, x, y)) return;
@@ -466,11 +490,28 @@ export function createStartingWorld(): World {
       }
       if (ring < 1.4) continue;
       const nz = vnoise(x / 4, y / 4, 3);
-      let p = nz > 0.58 ? 0.55 : 0.035;
-      if (ring < 3.6 && rr) p = Math.max(p, 0.16);
-      if (x < 2 || x > w - 3 || y < 2 || y > h - 3) p = 0.6;
+      let p = (nz > 0.58 ? 0.55 : 0.035) * region.treeDensity;
+      if (ring < 3.6 && rr) p = Math.max(p, 0.16 * Math.min(1, region.treeDensity));
+      if (x < 2 || x > w - 3 || y < 2 || y > h - 3) p = Math.min(0.9, 0.6 * region.treeDensity);
+      p = Math.min(0.9, p);
       if (hash2(x, y, 21) < p) world.tree[i] = 1;
     }
+  // Natural waste ground (dunes, scrub, desert sand) well away from the played holes
+  if (region.waste > 0) {
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = idx(world, x, y);
+        if (world.terrain[i] !== T.ROUGH || (x < 24 && y > 38 && x < 24)) continue;
+        let ring = 99;
+        for (const b of bounds) ring = Math.min(ring, polyDist(x + 0.5, y + 0.5, holePath(b.hole)).d - b.r);
+        if (ring < 3.2) continue;
+        if (vnoise(x / 6, y / 6, 77) > 0.86 - region.waste * 0.14 && hash2(x, y, 78) < 0.5) {
+          world.terrain[i] = T.BUNKER;
+          world.cond[i] = 100;
+          world.tree[i] = 0;
+        }
+      }
+  }
   // Hand-placed trees: shot-shaping on hole 1/2, blockers on hole 3
   const addTree = (x: number, y: number) => {
     if (inBounds(world, x, y) && world.terrain[idx(world, x, y)] === T.ROUGH) world.tree[idx(world, x, y)] = 1;

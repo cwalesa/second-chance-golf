@@ -4,28 +4,15 @@ import { Golfer } from './sim';
 import { Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { ToolId } from './editing';
 import { EVENTS } from './events';
+import { Palette, REGIONS, RGB } from './progression';
+import { drawLogo } from './logo';
 
-export const TS = 28; // tile size in the cached terrain canvas
-type RGB = [number, number, number];
+export const TS = 32; // tile size in the cached terrain canvas
 
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const css = (c: RGB, j = 0) => `rgb(${Math.max(0, Math.min(255, Math.round(c[0] + j)))},${Math.max(0, Math.min(255, Math.round(c[1] + j)))},${Math.max(0, Math.min(255, Math.round(c[2] + j)))})`;
 
-const COL = {
-  roughGood: [64, 137, 60] as RGB,
-  roughBad: [118, 140, 66] as RGB,
-  fairGood: [106, 180, 74] as RGB,
-  fairWorn: [158, 144, 88] as RGB,
-  greenGood: [84, 170, 96] as RGB,
-  greenWorn: [152, 142, 92] as RGB,
-  teeGood: [112, 188, 96] as RGB,
-  dirt: [146, 116, 78] as RGB,
-  sand: [236, 218, 164] as RGB,
-  sandRim: [196, 168, 110] as RGB,
-  water: [58, 142, 198] as RGB,
-  waterDeep: [40, 112, 172] as RGB,
-  path: [192, 184, 168] as RGB,
-};
+const COL: Palette = { ...REGIONS.parkland.palette };
 
 export interface Overlay {
   tool: ToolId;
@@ -35,6 +22,9 @@ export interface Overlay {
   staged: Set<number>;
   tooExpensive: boolean;
   hoverPt: Pt | null;
+  parcel: { col: number; row: number } | null;
+  buildTee: Pt | null;
+  buildLine: { from: Pt; to: Pt } | null;
 }
 
 export class Renderer {
@@ -49,6 +39,8 @@ export class Renderer {
   dpr = 1;
   private trees: HTMLCanvasElement[] = [];
   private builtFor: World | null = null;
+  private regionKey = '';
+  private cmaps: Record<string, HTMLCanvasElement> = {};
 
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -58,7 +50,7 @@ export class Renderer {
     this.base.height = this.terr.height;
     this.tctx = this.base.getContext('2d')!;
     this.tctx2 = this.terr.getContext('2d')!;
-    for (let v = 0; v < 5; v++) this.trees.push(makeTree(v));
+    for (let v = 0; v < 7; v++) this.trees.push(makeTree(v));
   }
 
   resize() {
@@ -96,13 +88,13 @@ export class Renderer {
     this.cam.y += (before.y - after.y) * TS;
     this.clampCam(w);
   }
-  /** Put world point (tx,ty) in the middle of the area not covered by the side panels. */
+  /** Pixels covered by UI panels on each side; the map is centred in what remains. */
+  insets = { l: 90, r: 330, t: 46, b: 50 };
+  /** Put world point (tx,ty) in the middle of the area not covered by the panels. */
   focus(tx: number, ty: number, zoom: number, w: World) {
     this.cam.zoom = zoom;
-    const left = this.cw > 900 ? 90 : 84;
-    const right = this.cw > 1100 ? 330 : this.cw > 860 ? 280 : 250;
-    const sx = (left + (this.cw - right)) / 2;
-    const sy = (46 + (this.ch - 50)) / 2;
+    const sx = (this.insets.l + (this.cw - this.insets.r)) / 2;
+    const sy = (this.insets.t + (this.ch - this.insets.b)) / 2;
     this.cam.x = tx * TS - (sx - this.cw / 2) / zoom;
     this.cam.y = ty * TS - (sy - this.ch / 2) / zoom;
     this.clampCam(w);
@@ -126,8 +118,11 @@ export class Renderer {
 
   private syncTerrain(w: World) {
     const now = performance.now();
-    if (this.builtFor !== w) {
+    if (this.builtFor !== w || this.regionKey !== w.region) {
       this.builtFor = w;
+      this.regionKey = w.region;
+      Object.assign(COL, REGIONS[w.region].palette);
+      this.masks.clear();
       this.base.width = CFG.grid.w * TS;
       this.base.height = CFG.grid.h * TS;
       this.layerCv.width = this.layerCv.height = Renderer.CH * TS;
@@ -168,7 +163,86 @@ export class Renderer {
     }
   }
 
-  private static readonly R = 8;
+  /** One pixel per tile, upscaled with smoothing, so colour changes blend instead of stepping. */
+  private buildColorMaps(w: World) {
+    const mk = (key: string, color: (x: number, y: number, i: number) => RGB) => {
+      let cv = this.cmaps[key];
+      if (!cv || cv.width !== w.w) {
+        cv = this.cmaps[key] = document.createElement('canvas');
+        cv.width = w.w;
+        cv.height = w.h;
+      }
+      const cx = cv.getContext('2d')!;
+      const img = cx.createImageData(w.w, w.h);
+      for (let y = 0; y < w.h; y++)
+        for (let x = 0; x < w.w; x++) {
+          const i = y * w.w + x;
+          const [r, g, b] = color(x, y, i);
+          const o = i * 4;
+          img.data[o] = r;
+          img.data[o + 1] = g;
+          img.data[o + 2] = b;
+          img.data[o + 3] = 255;
+        }
+      cx.putImageData(img, 0, 0);
+    };
+    const jit = (x: number, y: number) => (vnoise(x / 2.6, y / 2.6, 41) - 0.5) * 14;
+    const add = (c: RGB, j: number): RGB => [c[0] + j, c[1] + j, c[2] + j];
+    const wearOf = (cond: number) => Math.max(0, Math.min(1, (64 - cond) / 54));
+    mk('rough', (x, y, i) => add(mix(COL.roughBad, COL.roughGood, Math.max(0, Math.min(1, (w.terrain[i] === T.ROUGH ? w.cond[i] : 62) / 70))), jit(x, y)));
+    mk('grass', (x, y, i) => add(w.terrain[i] === T.FAIRWAY ? mix(COL.fairGood, COL.fairWorn, wearOf(w.cond[i])) : COL.fairGood, jit(x, y) * 0.7));
+    mk('green', (x, y, i) => add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i])) : COL.greenGood, jit(x, y) * 0.6));
+    mk('tee', (x, y, i) => add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i])) : COL.teeGood, jit(x, y) * 0.5));
+    mk('sand', (x, y) => add(COL.sand, (vnoise(x / 1.8, y / 1.8, 43) - 0.5) * 12));
+    mk('water', (x, y) => mix(COL.water, COL.waterDeep, vnoise(x / 2.2, y / 2.2, 210) * 0.7));
+  }
+  private drawSmooth(c: CanvasRenderingContext2D, key: string, tx0: number, ty0: number, tx1: number, ty1: number, w: World) {
+    const sx0 = Math.max(0, tx0 - 1);
+    const sy0 = Math.max(0, ty0 - 1);
+    const sx1 = Math.min(w.w, tx1 + 1);
+    const sy1 = Math.min(w.h, ty1 + 1);
+    c.save();
+    c.beginPath();
+    c.rect(tx0 * TS, ty0 * TS, (tx1 - tx0) * TS, (ty1 - ty0) * TS);
+    c.clip();
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(this.cmaps[key], sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * TS, sy0 * TS, (sx1 - sx0) * TS, (sy1 - sy0) * TS);
+    c.restore();
+  }
+  private stripePattern: CanvasPattern | null = null;
+  private getStripes(c: CanvasRenderingContext2D): CanvasPattern {
+    if (this.stripePattern) return this.stripePattern;
+    const p = document.createElement('canvas');
+    p.width = p.height = 2 * TS;
+    const g = p.getContext('2d')!;
+    const S = TS;
+    g.fillStyle = 'rgba(255,255,255,0.07)';
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.lineTo(S, 0);
+    g.lineTo(0, S);
+    g.closePath();
+    g.moveTo(2 * S, 0);
+    g.lineTo(2 * S, S);
+    g.lineTo(S, 2 * S);
+    g.lineTo(0, 2 * S);
+    g.closePath();
+    g.fill();
+    g.fillStyle = 'rgba(0,30,10,0.05)';
+    g.beginPath();
+    g.moveTo(S, 0);
+    g.lineTo(2 * S, 0);
+    g.lineTo(2 * S, S);
+    g.lineTo(0, 2 * S);
+    g.lineTo(0, S);
+    g.closePath();
+    g.fill();
+    this.stripePattern = c.createPattern(p, 'repeat')!;
+    return this.stripePattern;
+  }
+
+  private static readonly R = 12;
   private maskFor(w: World, pred: (t: number) => boolean, ths: number[]): HTMLCanvasElement[] {
     const R = Renderer.R;
     const src = document.createElement('canvas');
@@ -229,6 +303,7 @@ export class Renderer {
   }
 
   compose(w: World) {
+    this.buildColorMaps(w);
     for (const key of this.dirtyChunks) this.composeChunk(w, key % 1000, Math.floor(key / 1000));
     this.dirtyChunks.clear();
   }
@@ -246,6 +321,7 @@ export class Renderer {
     const k = Renderer.R / TS;
     const t = this.tctx2;
     t.globalCompositeOperation = 'source-over';
+    this.drawSmooth(t, 'rough', tx0, ty0, tx1, ty1, w);
     t.drawImage(this.base, X, Y, CW, CHH, X, Y, CW, CHH);
     const lc = this.layerCv.getContext('2d')!;
     // work in a chunk-sized scratch canvas: full-size scratch copies make software canvases crawl
@@ -264,9 +340,8 @@ export class Renderer {
       c.fillStyle = col;
       c.fillRect(X, Y, CW, CHH);
     };
-    const tex = (base: string, types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
-      c.fillStyle = base;
-      c.fillRect(X, Y, CW, CHH);
+    const tex = (cmap: string, types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
+      this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w);
       for (let y = ty0; y < ty1; y++)
         for (let x = tx0; x < tx1; x++) {
           const i = y * w.w + x;
@@ -276,18 +351,20 @@ export class Renderer {
     const m = (key: string) => this.masks.get(key)!;
     // grass: first-cut ring, then body
     stamp(flat('rgba(46,112,52,0.32)'), m('grass')[1]);
-    stamp(tex(css(COL.fairGood), [T.FAIRWAY, T.GREEN, T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.fairGood, COL.fairWorn, ((x - y) >> 1) & 1 ? 4 : -3)), m('grass')[0]);
+    stamp(tex('grass', [T.FAIRWAY, T.GREEN, T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.fairGood, COL.fairWorn, ((x - y) >> 1) & 1 ? 4 : -3)), m('grass')[0]);
+    stamp((c) => {
+      c.fillStyle = this.getStripes(c);
+      c.fillRect(X, Y, CW, CHH);
+    }, m('grass')[0]);
     stamp(flat('rgba(150,214,140,0.45)'), m('green')[1]);
-    stamp(tex(css(COL.greenGood), [T.GREEN], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.greenGood, COL.greenWorn, (x + y) & 1 ? 3 : -2)), m('green')[0]);
-    stamp(tex(css(COL.teeGood), [T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.teeGood, COL.fairWorn, 3)), m('tee')[0]);
+    stamp(tex('green', [T.GREEN], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.greenGood, COL.greenWorn, (x + y) & 1 ? 3 : -2)), m('green')[0]);
+    stamp(tex('tee', [T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i, COL.teeGood, COL.fairWorn, 3)), m('tee')[0]);
     // sand
     stamp(flat('rgba(150,118,70,0.8)'), m('bunker')[1]);
     stamp(
-      tex(css(COL.sand), [T.BUNKER], (c, x, y) => {
+      tex('sand', [T.BUNKER], (c, x, y) => {
         const px = x * TS;
         const py = y * TS;
-        c.fillStyle = css(COL.sand, (vnoise(x / 1.8, y / 1.8, 43) - 0.5) * 14);
-        c.fillRect(px, py, TS, TS);
         c.fillStyle = 'rgba(150,120,74,0.4)';
         for (let q = 0; q < 7; q++) c.fillRect(px + hash2(x, y, 190 + q) * (TS - 1), py + hash2(x, y, 200 + q) * (TS - 1), 1.4, 1.4);
         c.strokeStyle = 'rgba(170,140,90,0.25)';
@@ -300,13 +377,7 @@ export class Renderer {
     );
     // water: shore ring, body, deeper centre
     stamp(flat('rgba(188,222,206,0.7)'), m('water')[1]);
-    stamp(
-      tex(css(COL.water), [T.WATER], (c, x, y) => {
-        c.fillStyle = css(mix(COL.water, COL.waterDeep, vnoise(x / 2, y / 2, 210) * 0.6));
-        c.fillRect(x * TS, y * TS, TS, TS);
-      }),
-      m('water')[0],
-    );
+    stamp(tex('water', [], () => {}), m('water')[0]);
     stamp(flat('rgba(20,80,140,0.45)'), m('water')[2]);
   }
 
@@ -314,12 +385,9 @@ export class Renderer {
     const cond = w.cond[i];
     const px = x * TS;
     const py = y * TS;
-    const wear = Math.max(0, Math.min(1, (64 - cond) / 54));
-    let col = mix(good, worn, wear);
-    const jit = (vnoise(x / 2.6, y / 2.6, 41) - 0.5) * 9 + (hash2(x, y, 40) - 0.5) * 2;
-    col = [col[0] + stripe, col[1] + stripe, col[2] + stripe * 0.6];
-    c.fillStyle = css(col, jit);
-    c.fillRect(px - 0.5, py - 0.5, TS + 1, TS + 1);
+    void good;
+    void worn;
+    void stripe;
     if (cond < 44) {
       const n = cond < 25 ? 3 : 2;
       for (let k = 0; k < n; k++) {
@@ -351,10 +419,8 @@ export class Renderer {
     const px = x * TS;
     const py = y * TS;
     const jit = (vnoise(x / 2.6, y / 2.6, 41) - 0.5) * 15 + (hash2(x, y, 40) - 0.5) * 4;
-    const roughCol = (cc: number) => mix(COL.roughBad, COL.roughGood, Math.max(0, Math.min(1, cc / 70)));
     const cond = t === T.ROUGH ? w.cond[i] : 62;
-    c.fillStyle = css(roughCol(cond), jit);
-    c.fillRect(px, py, TS, TS);
+    c.clearRect(px, py, TS, TS);
     if (t === T.ROUGH) {
       const tall = cond < 45;
       const n = tall ? 8 : 4;
@@ -395,9 +461,16 @@ export class Renderer {
   }
 
   // ---------- frame ----------
-  render(game: Game, ov: Overlay, time: number) {
+  render(game: Game, ov: Overlay, time: number, alpha = 1) {
     const w = game.world;
     this.time = time;
+    for (const g of game.sim.golfers) {
+      g.rx = g.px + (g.x - g.px) * alpha;
+      g.ry = g.py + (g.y - g.py) * alpha;
+      g.rbx = g.pbx + (g.ball.x - g.pbx) * alpha;
+      g.rby = g.pby + (g.ball.y - g.pby) * alpha;
+      g.rbz = g.pbz + (g.ballZ - g.pbz) * alpha;
+    }
     this.syncTerrain(w);
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -406,7 +479,14 @@ export class Renderer {
     const z = this.cam.zoom;
     const o = this.toScreen(0, 0);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.terr, o.x, o.y, w.w * TS * z, w.h * TS * z);
+    // blit only the visible part of the cached terrain
+    {
+      const sx = Math.max(0, Math.floor(-o.x / z));
+      const sy = Math.max(0, Math.floor(-o.y / z));
+      const sw = Math.min(this.terr.width - sx, Math.ceil(this.cw / z) + 2);
+      const sh = Math.min(this.terr.height - sy, Math.ceil(this.ch / z) + 2);
+      if (sw > 0 && sh > 0) ctx.drawImage(this.terr, sx, sy, sw, sh, o.x + sx * z, o.y + sy * z, sw * z, sh * z);
+    }
     const ts = this.ts;
     const tl = this.toWorld(0, 0);
     const br = this.toWorld(this.cw, this.ch);
@@ -457,16 +537,22 @@ export class Renderer {
     // y-sorted: trees + golfers
     type Item = { y: number; draw: () => void };
     const items: Item[] = [];
+    const wts = REGIONS[w.region].trees;
+    const wsum = wts.reduce((a, b) => a + b, 0) || 1;
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * w.w + x;
         if (!w.tree[i]) continue;
         const hh = hash2(x, y, 400);
         const dead = w.cond[i] < 30 && hh < 0.28;
-        const variant = dead ? 3 : w.cond[i] < 38 && hh < 0.6 ? 4 : hh < 0.4 ? 0 : hh < 0.7 ? 1 : 2;
+        let variant = dead ? 3 : w.cond[i] < 38 && hh < 0.6 ? 4 : 0;
+        if (variant === 0) {
+          let r = hash2(x, y, 401) * wsum;
+          for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { variant = k; break; }
+        }
         items.push({ y: y + 0.95, draw: () => this.drawTree(x, y, variant, hh) });
       }
-    for (const g of game.sim.golfers) items.push({ y: g.y, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
+    for (const g of game.sim.golfers) items.push({ y: g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
 
@@ -476,9 +562,10 @@ export class Renderer {
     for (const g of game.sim.golfers) this.drawChips(g);
 
     this.drawFx(game);
+    this.drawParcels(game, ov);
     this.drawQueues(game);
     this.drawOverlay(game, ov, time);
-    this.drawAtmosphere(time);
+    this.drawAtmosphere(time, game.season.index, game.region);
 
     // time-of-day light
     const frac = game.clock / CFG.day.seconds;
@@ -509,7 +596,7 @@ export class Renderer {
   private drawGolfer(g: Golfer, selected: boolean, time: number) {
     const ctx = this.ctx;
     const u = Math.max(this.ts, 28);
-    const p = this.toScreen(g.x, g.y);
+    const p = this.toScreen(g.rx, g.ry);
     const gt = CFG.golfers.types[g.type];
     const walking = g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave';
     const sw = walking ? Math.sin(g.walkT) : 0;
@@ -578,7 +665,7 @@ export class Renderer {
     if (!g.ballVisible) return;
     const ctx = this.ctx;
     const u = Math.max(this.ts, 22);
-    const p = this.toScreen(g.ball.x, g.ball.y);
+    const p = this.toScreen(g.rbx, g.rby);
     if (g.flight && g.trail.length > 1 && !g.flight.putt) {
       ctx.strokeStyle = 'rgba(255,255,255,0.55)';
       ctx.lineWidth = Math.max(1, u * 0.05);
@@ -592,16 +679,16 @@ export class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const r = Math.max(2.2, u * 0.085) * (1 + g.ballZ * 0.1);
+    const r = Math.max(2.2, u * 0.085) * (1 + g.rbz * 0.1);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
-    ctx.ellipse(p.x + g.ballZ * u * 0.12, p.y, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x + g.rbz * u * 0.12, p.y, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
-    ctx.arc(p.x, p.y - g.ballZ * u * 0.5 - r * 0.4, r, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y - g.rbz * u * 0.5 - r * 0.4, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -609,7 +696,7 @@ export class Renderer {
   private drawBubble(g: Golfer) {
     const ctx = this.ctx;
     const b = g.bubble!;
-    const p = this.toScreen(g.x, g.y);
+    const p = this.toScreen(g.rx, g.ry);
     const u = Math.max(this.ts, 22);
     ctx.font = '600 12px system-ui, sans-serif';
     const maxW = 170;
@@ -651,7 +738,7 @@ export class Renderer {
   private drawChips(g: Golfer) {
     const ctx = this.ctx;
     const u = Math.max(this.ts, 22);
-    const p = this.toScreen(g.x, g.y);
+    const p = this.toScreen(g.rx, g.ry);
     const chip = (text: string, y: number, bg: string, fg = '#fff') => {
       ctx.font = '700 11px system-ui, sans-serif';
       const w = ctx.measureText(text).width + 10;
@@ -804,7 +891,8 @@ export class Renderer {
     const w = 7 * u;
     const h = 5 * u;
     const owned = Object.values(game.upgrades).filter(Boolean).length + game.goals.filter((g) => g.done).length;
-    const tidy = owned >= 2;
+    const lvl = game.clubLevel;
+    const tidy = owned >= 2 || lvl >= 1;
     // ground shadow
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath();
@@ -873,7 +961,7 @@ export class Renderer {
         ctx.fill();
       }
     }
-    // sign board
+    // sign board with the club's logo and name
     ctx.save();
     ctx.translate(a.x + u * 3.5, a.y + u * 2.7);
     ctx.rotate(tidy ? 0 : -0.045);
@@ -881,19 +969,105 @@ export class Renderer {
     ctx.strokeStyle = '#4a3320';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(-u * 2, -u * 0.38, u * 4, u * 0.76, 4);
+    ctx.roundRect(-u * 2.2, -u * 0.5, u * 4.4, u * 1.0, 5);
     ctx.fill();
     ctx.stroke();
+    drawLogo(ctx, -u * 1.55, 0, u * 0.82, game.logo);
     ctx.fillStyle = '#2d4a33';
-    ctx.font = `700 ${Math.max(8, u * 0.3)}px Georgia, serif`;
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('SECOND CHANCE GOLF', 0, -u * 0.1);
+    let fs = Math.max(8, u * 0.3);
+    ctx.font = `700 ${fs}px Georgia, serif`;
+    const nm = game.name.toUpperCase();
+    while (ctx.measureText(nm).width > u * 2.9 && fs > 6) {
+      fs -= 0.5;
+      ctx.font = `700 ${fs}px Georgia, serif`;
+    }
+    ctx.fillText(nm, -u * 1.0, -u * 0.12);
     ctx.font = `italic ${Math.max(7, u * 0.2)}px Georgia, serif`;
     ctx.fillStyle = '#6b5a3c';
-    ctx.fillText(tidy ? 'open for play' : 'under new management', 0, u * 0.18);
+    ctx.fillText(tidy ? 'open for play' : 'under new management', -u * 1.0, u * 0.2);
     ctx.restore();
     ctx.textAlign = 'left';
+    // tier extras: terrace, clock tower, columns, resort flags
+    if (lvl >= 1) {
+      for (let k = 0; k < 4; k++) {
+        const ux = a.x + u * (0.6 + k * 1.9);
+        const uy = a.y - u * 0.55;
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(ux + 3, uy + 4, u * 0.38, u * 0.14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = ['#d65a3f', '#f1ead6', '#4aa3d8', '#e6b44c'][k];
+        ctx.beginPath();
+        ctx.arc(ux, uy, u * 0.34, Math.PI, 0);
+        ctx.fill();
+        ctx.strokeStyle = '#5b4630';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ux, uy);
+        ctx.lineTo(ux, uy + u * 0.25);
+        ctx.stroke();
+      }
+    }
+    if (lvl >= 2) {
+      const tx = a.x + u * 0.3;
+      const ty = roofTop - u * 1.0;
+      ctx.fillStyle = '#e9dfc4';
+      ctx.fillRect(tx, ty, u * 0.9, u * 1.5);
+      ctx.fillStyle = '#7a3a2c';
+      ctx.beginPath();
+      ctx.moveTo(tx - u * 0.1, ty);
+      ctx.lineTo(tx + u * 0.45, ty - u * 0.55);
+      ctx.lineTo(tx + u * 1.0, ty);
+      ctx.fill();
+      ctx.fillStyle = '#fffdf2';
+      ctx.beginPath();
+      ctx.arc(tx + u * 0.45, ty + u * 0.45, u * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(tx + u * 0.45, ty + u * 0.45);
+      ctx.lineTo(tx + u * 0.45, ty + u * 0.25);
+      ctx.moveTo(tx + u * 0.45, ty + u * 0.45);
+      ctx.lineTo(tx + u * 0.6, ty + u * 0.5);
+      ctx.stroke();
+    }
+    if (lvl >= 3) {
+      for (let k = 0; k < 4; k++) {
+        ctx.fillStyle = '#f6f0e0';
+        ctx.fillRect(a.x + u * (2.35 + k * 0.62), a.y - u * 0.35, u * 0.14, u * 0.62);
+      }
+      ctx.fillStyle = tintOf(game.logo.primary);
+      ctx.fillRect(a.x + u * 6.2, a.y + u * 0.2, u * 0.5, u * 1.6);
+      ctx.fillStyle = game.logo.secondary;
+      ctx.fillRect(a.x + u * 6.2, a.y + u * 1.4, u * 0.5, u * 0.4);
+    }
+    if (lvl >= 4) {
+      ctx.fillStyle = 'rgba(140,200,230,0.55)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(a.x + u * 4.9, a.y + u * 3.5, u * 2.4, u * 1.1, 6);
+      ctx.fill();
+      ctx.stroke();
+      for (const fx of [0.3, 6.9]) {
+        const fp2 = { x: a.x + u * fx, y: a.y + u * 4.8 };
+        ctx.strokeStyle = '#e8e8e2';
+        ctx.lineWidth = Math.max(1.5, u * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(fp2.x, fp2.y);
+        ctx.lineTo(fp2.x, fp2.y - u * 2.0);
+        ctx.stroke();
+        ctx.fillStyle = game.logo.secondary;
+        ctx.beginPath();
+        ctx.moveTo(fp2.x, fp2.y - u * 2.0);
+        ctx.lineTo(fp2.x + u * 0.7, fp2.y - u * 1.8 + Math.sin(time * 3 + fx) * u * 0.05);
+        ctx.lineTo(fp2.x, fp2.y - u * 1.5);
+        ctx.fill();
+      }
+    }
     // flag pole by the entrance
     const fp = this.toScreen(9.4, 40.4);
     ctx.strokeStyle = '#d9d9d2';
@@ -1150,8 +1324,78 @@ export class Renderer {
 
   private vignette: CanvasGradient | null = null;
   private vigSize = '';
-  private drawAtmosphere(time: number) {
+  /** Locked land is dimmed and hatched; the Land tool shows prices. */
+  private drawParcels(game: Game, ov: Overlay) {
     const ctx = this.ctx;
+    const L = CFG.land;
+    const pw = L.pw * this.ts;
+    const ph = L.ph * this.ts;
+    for (let row = 0; row < L.rows; row++)
+      for (let col = 0; col < L.cols; col++) {
+        const owned = game.isParcelOwned(col, row);
+        const p = this.toScreen(col * L.pw, row * L.ph);
+        if (p.x > this.cw || p.y > this.ch || p.x + pw < 0 || p.y + ph < 0) continue;
+        const sel = ov.parcel && ov.parcel.col === col && ov.parcel.row === row;
+        if (!owned) {
+          ctx.fillStyle = sel ? 'rgba(20,30,40,0.35)' : 'rgba(12,22,18,0.5)';
+          ctx.fillRect(p.x, p.y, pw, ph);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(p.x, p.y, pw, ph);
+          ctx.clip();
+          ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+          ctx.lineWidth = 2;
+          for (let k = -ph; k < pw; k += 26) {
+            ctx.beginPath();
+            ctx.moveTo(p.x + k, p.y + ph);
+            ctx.lineTo(p.x + k + ph, p.y);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        if (!owned || (ov.tool === 'land' && sel)) {
+          ctx.setLineDash([10, 8]);
+          ctx.strokeStyle = sel ? '#ffe27a' : 'rgba(255,255,255,0.28)';
+          ctx.lineWidth = sel ? 3 : 1.5;
+          ctx.strokeRect(p.x + 1, p.y + 1, pw - 2, ph - 2);
+          ctx.setLineDash([]);
+        }
+        if (!owned && (ov.tool === 'land' || sel)) {
+          const label = `For sale  ${fmtMoneyShort(game.parcelPrice)}`;
+          ctx.font = '700 14px system-ui, sans-serif';
+          const wpx = ctx.measureText(label).width + 20;
+          ctx.fillStyle = sel ? '#e6b44c' : 'rgba(20,30,24,0.85)';
+          ctx.beginPath();
+          ctx.roundRect(p.x + pw / 2 - wpx / 2, p.y + ph / 2 - 14, wpx, 28, 14);
+          ctx.fill();
+          ctx.fillStyle = sel ? '#2a2110' : '#f1ead6';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, p.x + pw / 2, p.y + ph / 2 + 1);
+          ctx.textAlign = 'left';
+        }
+      }
+  }
+
+  private drawAtmosphere(time: number, season: number, region: string) {
+    const ctx = this.ctx;
+    // seasonal light and falling leaves / snow
+    const tint = ['rgba(150,230,140,0.035)', 'rgba(255,225,120,0.05)', 'rgba(235,125,40,0.11)', region === 'mountain' ? 'rgba(190,215,245,0.2)' : 'rgba(170,200,240,0.12)'][season];
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, this.cw, this.ch);
+    if (season === 2 || season === 3) {
+      const n = season === 3 ? 70 : 28;
+      for (let k = 0; k < n; k++) {
+        const sp = season === 3 ? 38 + (k % 5) * 6 : 24 + (k % 4) * 8;
+        const x = ((hash2(k, 1, 600) * (this.cw + 100) + Math.sin(time * 0.8 + k) * 30 + time * (season === 3 ? 6 : 18)) % (this.cw + 100)) - 50;
+        const y = ((hash2(k, 2, 600) * this.ch + time * sp) % (this.ch + 20)) - 10;
+        ctx.fillStyle = season === 3 ? 'rgba(255,255,255,0.8)' : ['rgba(214,120,40,0.8)', 'rgba(196,150,50,0.8)', 'rgba(170,70,40,0.8)'][k % 3];
+        ctx.beginPath();
+        if (season === 3) ctx.arc(x, y, 1.6 + (k % 3) * 0.5, 0, Math.PI * 2);
+        else ctx.ellipse(x, y, 3.2, 1.8, time + k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     // drifting cloud shadows
     ctx.fillStyle = 'rgba(10,25,20,0.07)';
     for (let k = 0; k < 4; k++) {
@@ -1211,6 +1455,32 @@ export class Renderer {
       ctx.strokeRect(r.x + 0.75, r.y + 0.75, ts - 1.5, ts - 1.5);
     }
 
+    // new-hole placement guide
+    if (ov.buildLine) {
+      const f = this.toScreen(ov.buildLine.from.x + 0.5, ov.buildLine.from.y + 0.5);
+      const t2 = this.toScreen(ov.buildLine.to.x + 0.5, ov.buildLine.to.y + 0.5);
+      ctx.setLineDash([10, 8]);
+      ctx.strokeStyle = '#ffe27a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      ctx.lineTo(t2.x, t2.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (const [p, label] of [[f, 'T'], [t2, 'G']] as const) {
+        ctx.fillStyle = '#ffe27a';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2a2110';
+        ctx.font = '800 11px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, p.x, p.y + 0.5);
+        ctx.textAlign = 'left';
+      }
+    }
+
     // selected hole routing line
     const h = game.world.holes.find((x) => x.id === game.selectedHole);
     if (h) {
@@ -1261,6 +1531,10 @@ export class Renderer {
   }
 }
 
+const fmtMoneyShort = (n: number) => (n >= 10000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toLocaleString('en-US')}`);
+
+const tintOf = (hex: string) => hex;
+
 function makeTree(v: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = 96;
@@ -1279,7 +1553,31 @@ function makeTree(v: number): HTMLCanvasElement {
     g.arc(x, y, r, 0, Math.PI * 2);
     g.fill();
   };
-  if (v === 2) {
+  if (v === 5) {
+    g.strokeStyle = '#7a5a3a';
+    g.lineWidth = 7;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(46, 108);
+    g.quadraticCurveTo(54, 70, 48, 40);
+    g.stroke();
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      g.strokeStyle = k % 2 ? '#3f9a4f' : '#2e7f43';
+      g.lineWidth = 5;
+      g.beginPath();
+      g.moveTo(48, 40);
+      g.quadraticCurveTo(48 + Math.cos(a) * 20, 28 + Math.sin(a) * 6 - 8, 48 + Math.cos(a) * 34, 40 + Math.sin(a) * 14 + 8);
+      g.stroke();
+    }
+  } else if (v === 6) {
+    const bush = (x: number, y: number, r: number, c1: string, c2: string) => blob(x, y, r, c1, c2);
+    bush(34, 92, 18, '#a9b27a', '#6f7a4a');
+    bush(60, 90, 20, '#9fae72', '#66744a');
+    bush(48, 80, 20, '#b6bf86', '#788456');
+    g.fillStyle = 'rgba(80,60,30,0.5)';
+    g.fillRect(46, 96, 4, 12);
+  } else if (v === 2) {
     trunk('#5b3d28', 6);
     const tier = (y: number, w: number, h: number, a: string, b: string) => {
       const gr = g.createLinearGradient(48 - w, y, 48 + w, y);
