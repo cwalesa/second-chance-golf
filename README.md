@@ -33,7 +33,11 @@ On a phone, open the published site and use Add to Home Screen. Rotate freely (t
 
 Designer: stacked build batches with confirm/cancel, redo, undoable hole removal, hole bar, grouped touch-size tool tray, floating brush sizes, hole panel with validation explanations, test golfers (no fee, no ratings, no revenue), yardage/par chips on the map, par now computed from the routed length, all land owned, land-buying goals hidden, travel/portfolio removed from the UI, 28 new tests.
 
-Graphics: see the section below.
+Graphics: layered turf with soft mowing stripes, collar rings on greens and crisp tee boxes; organic bunkers with grass lips, grain and rake lines; water with depth, shore detail, reeds, lily pads and restrained glints; ten cached tree variants with consistent upper-left light and lower-right shadows; a more detailed clubhouse precinct (porch, awning, dormers, hedges, lamp posts, parking). Everything is generated procedurally and cached; frame time is within ~6% of the previous renderer. No reference images were available to me beyond the old game screenshots; the look is original.
+
+## Screenshots (`screenshots/`)
+
+Captured from the running game in headless Chromium (touch input via CDP), portrait 390x844 and landscape 844x390 at 2x. Numbered `portrait_*` / `landscape_*` files follow the design flow: 03 new-hole preview, 04 stacked unbuilt strokes with price, 06 after undo/redo, 07-09 holes panel and a blocked hole explained, 10 hole opened, 11-12 practice mode, 13-15 test golfers, 16 after save and reload. **Staged demonstration:** the hole layout was placed by an automated script choosing tiles (a person would choose their own); the game input and results are real. `closeup_*` are real camera close-ups of the shipped textures on the starting course, not edited scenes. `flow-result-*.json` record terrain hash and cash before and after reload: identical.
 
 ## Honest limitations
 
