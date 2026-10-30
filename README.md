@@ -1,3 +1,52 @@
+# Second Chance Golf — First Course Designer (0.6.0)
+
+This version has one job: **design and play Willow Creek, your first course.** Travel, later properties and the campaign portfolio are hidden (the code is still there but unreachable from the interface). No other locations, multiplayer, monetization or App Store work is included.
+
+## Run it
+
+Requires Node 18+.
+
+```bash
+npm ci
+npm run dev        # http://127.0.0.1:5173
+npm test           # unit + simulation tests (vitest)
+npm run build      # typecheck + production site into dist/
+npm run preview    # serve the production build
+```
+
+`dist/` is a ready-built static site (relative paths, so it works from any folder or a GitHub Pages sub-path). The existing GitHub Pages workflow (`.github/workflows/pages.yml`) is unchanged: it tests, builds and publishes `dist/` on push. Replace the matching project files in your repository and commit; do not commit the ZIP itself.
+
+On a phone, open the published site and use Add to Home Screen. Rotate freely (turn system rotation lock off).
+
+## Designing
+
+- **Design** (bottom bar) opens the tray. Tool groups: **Terrain** (fairway, green, rough, path, bunker, water), **Nature** (plant tree, clear tree, repair turf), **Holes** (move tee, move cup, dogleg, new hole). **Select** and **Pan** are always on screen. In landscape the group button cycles through the groups. Brush size (S/M/L) floats at the edge of the map while a paint tool is active.
+- **Strokes stack, then you decide.** Everything you paint is previewed in its final colour with a running tile count and price in the confirm bar. **Build** pays once; **Cancel** (or Undo, Esc) throws it all away for free. You can switch tools between strokes and keep stacking.
+- **Place and move tees, cups and doglegs** on the hole named in the **hole bar** (‹ name ›) at the top. Tap or drag to a spot: a gold ghost shows the new pins, route and par/yardage, then confirm. **New hole**: tap the tee, tap the green, confirm; a fairway corridor is laid.
+- **Shape greens and tees:** rough or fairway paint trims their edges and the Green tool grows a green. The cup and tee centre are protected. Cart paths can be painted over.
+- **Undo / Redo** are always on the map. Undo refunds; redo re-charges. Removing a hole is undoable too.
+- **Holes** (bottom bar): par, yardage and open/blocked status for every hole, plus rename, remove, **Open/Close**, **Play it** (your own practice round) and **Send test golfers** (three free simulated golfers play that hole). A hole that cannot open lists each reason with a **Show on map** button and a **Fix with <tool>** button.
+- You start with **$25,000** and the whole property owned. Up to nine holes. Money is for experimenting; the economy and guest simulation still run underneath.
+- Everything saves automatically in the browser (Menu → Save now, export and import backups). Unbuilt strokes are not saved; built changes, hole names, par and open/closed state are.
+
+## What changed in this version
+
+Designer: stacked build batches with confirm/cancel, redo, undoable hole removal, hole bar, grouped touch-size tool tray, floating brush sizes, hole panel with validation explanations, test golfers (no fee, no ratings, no revenue), yardage/par chips on the map, par now computed from the routed length, all land owned, land-buying goals hidden, travel/portfolio removed from the UI, 28 new tests.
+
+Graphics: see the section below.
+
+## Honest limitations
+
+- Verified in Chromium (headless) with real touch input at 390×844 and 844×390 plus other sizes; not on a physical iPhone/Safari. Performance on real devices is untested.
+- Unbuilt strokes are lost on reload; the confirm bar always shows what is pending.
+- Hole order follows hole numbers; there is no drag-to-reorder.
+- Old saves load; their land is opened up and hole 2 may keep its old par.
+- 120×80 tile property; nine-hole cap in this version.
+
+---
+
+## Earlier versions
+
 # Second Chance Golf — Jewel & Landscape Update (0.5.0)
 
 A new visual direction inspired by classic isometric golf management games: an angled miniature world, upright buildings and trees, a compact terrain palette, and management screens that open when requested. All artwork is original canvas-generated art; the reference screenshots are not embedded or used as game assets.

@@ -842,3 +842,5 @@ body.mobile #brushbar { right: 8px; top: 36%; }
   body.mobile #brushbar { right: calc(8px + env(safe-area-inset-right)); top: calc(112px + env(safe-area-inset-top)); }
   body.mobile #brushbar button { width: 46px; height: 46px; }
 }
+body.mobile .course-heading { padding-right: 40px; }
+body.mobile .course-heading .btn.primary { min-height: 44px; }
