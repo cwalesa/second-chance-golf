@@ -2,7 +2,7 @@ import { CFG } from './config';
 import { Rng } from './rng';
 import { World, Hole, createStartingWorld, computeZones, holeCondition, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
-import { DayLedger, DaySummary, arrivalsPerDay, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
+import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, arrivalsPerDay, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { EditPlan, ToolId, applyPlan, touchedHoles } from './editing';
 
 export interface LogEntry {
@@ -48,7 +48,8 @@ export class Game {
   clock = 0;
   total = 0;
   fee = CFG.economy.fee.default;
-  upgrades = { proShop: false, crew: false };
+  upgrades: Owned = noUpgrades();
+  cartFee = CFG.extras.cartFeeDefault;
   goals: GoalState[] = CFG.goals.map((g) => ({ id: g.id, done: false }));
   today: DayLedger = emptyLedger();
   days: DaySummary[] = [];
@@ -94,7 +95,7 @@ export class Game {
     return reputationOf(this.recent.map((r) => r.total));
   }
   get arrivalRate(): number {
-    return arrivalsPerDay(this.openHoles.length, this.reputation, this.fee, this.fair);
+    return arrivalsPerDay(this.openHoles.length, this.reputation, this.fee, this.fair) * (this.upgrades.range ? CFG.extras.rangeDemand : 1);
   }
   get hourLen(): number {
     return CFG.day.seconds / CFG.day.hours;
@@ -108,7 +109,7 @@ export class Game {
   }
   get maintenanceRate(): number {
     const open = this.openHoles.length;
-    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades.crew);
+    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades);
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
@@ -195,12 +196,13 @@ export class Game {
     if (g) {
       this.today.arrivals++;
       this.earn('fees', this.fee, `Green fee, ${g.name}`);
+      if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee)) this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
     }
   }
 
   private onRoundComplete(r: RoundResult): string {
-    const sc = scoreRound(r, r.fee, this.fair);
-    const spend = shopSpend(this.rng, sc.total, this.upgrades.proShop);
+    const sc = scoreRound(r, r.fee, this.fair, amenityBonus(this.upgrades));
+    const spend = shopSpend(this.rng, sc.total, this.upgrades);
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
     this.today.satSum += sc.total;
@@ -243,6 +245,10 @@ export class Game {
     this.fee = Math.max(CFG.economy.fee.min, Math.min(CFG.economy.fee.max, Math.round(v)));
     this.dirtySave = true;
   }
+  setCartFee(v: number) {
+    this.cartFee = Math.max(1, Math.min(CFG.extras.cartFeeMax, Math.round(v)));
+    this.dirtySave = true;
+  }
   setSpeed(s: number) {
     this.settings.speed = s;
     this.dirtySave = true;
@@ -280,7 +286,7 @@ export class Game {
     this.dirtySave = true;
   }
 
-  buyUpgrade(id: 'proShop' | 'crew'): boolean {
+  buyUpgrade(id: UpgradeId): boolean {
     const u = CFG.upgrades[id];
     if (this.upgrades[id]) return false;
     if (this.cash < u.cost) {

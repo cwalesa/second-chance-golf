@@ -15,7 +15,7 @@ export const CFG = {
   economy: {
     startCash: 1800,
     fee: { default: 30, min: 5, max: 90 },
-    maintenance: { perHour: 12, perOpenHole: 6, perClosedHole: 2, crewPerHour: 8 },
+    maintenance: { perHour: 12, perOpenHole: 6, perClosedHole: 2 },
     baseGolfersPerDay: 6,
     golfersPerOpenHole: 4,
     shopBase: 3,
@@ -24,16 +24,23 @@ export const CFG = {
       },
 
   upgrades: {
-    proShop: { name: 'Pro shop stock', cost: 700, blurb: 'Golfers spend about 60% more at the clubhouse.' },
+    proShop: { name: 'Pro shop stock', cost: 700, upkeep: 2, satBonus: 0, blurb: 'Golfers spend about 60% more at the clubhouse.' },
+    snackBar: { name: 'Snack bar', cost: 500, upkeep: 3, satBonus: 3, blurb: 'Adds about $4 of food and drink per round and pleases guests.' },
+    puttingGreen: { name: 'Practice putting green', cost: 400, upkeep: 1, satBonus: 3, blurb: 'A small warm-up green. Guests rate their day higher.' },
+    range: { name: 'Driving range', cost: 900, upkeep: 5, satBonus: 2, blurb: 'Draws about 15% more golfers to the course.' },
+    carts: { name: 'Golf carts', cost: 800, upkeep: 3, satBonus: 2, blurb: 'Rent carts for a second fee you set. Higher cart prices mean fewer rentals.' },
     crew: {
       name: 'Grounds crew',
       cost: 600,
+      upkeep: 8,
+      satBonus: 0,
       blurb: 'Mows and reseeds worn turf each hour and halves wear. Adds $8/hour upkeep.',
       restorePerHour: 1.6,
       restoreCeil: 84,
       wearMultiplier: 0.5,
     },
   },
+  extras: { snackSpend: 4, rangeDemand: 1.15, cartFeeDefault: 8, cartFeeMax: 30 },
 
   costs: {
     fairway: 20,

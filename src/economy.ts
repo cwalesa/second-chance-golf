@@ -38,9 +38,24 @@ export function arrivalsPerDay(openHoles: number, reputation: number, fee: numbe
   return base * rep * price;
 }
 
-export function maintenancePerHour(openHoles: number, closedHoles: number, crew: boolean): number {
+export type UpgradeId = keyof typeof CFG.upgrades;
+export const UPGRADE_IDS = Object.keys(CFG.upgrades) as UpgradeId[];
+export type Owned = Record<UpgradeId, boolean>;
+export const noUpgrades = (): Owned => ({ proShop: false, snackBar: false, puttingGreen: false, range: false, carts: false, crew: false });
+
+export function upkeepPerHour(owned: Owned): number {
+  return UPGRADE_IDS.reduce((s, id) => s + (owned[id] ? CFG.upgrades[id].upkeep : 0), 0);
+}
+export function amenityBonus(owned: Owned): number {
+  return UPGRADE_IDS.reduce((s, id) => s + (owned[id] ? CFG.upgrades[id].satBonus : 0), 0);
+}
+export function maintenancePerHour(openHoles: number, closedHoles: number, owned: Owned): number {
   const m = CFG.economy.maintenance;
-  return m.perHour + m.perOpenHole * openHoles + m.perClosedHole * closedHoles + (crew ? m.crewPerHour : 0);
+  return m.perHour + m.perOpenHole * openHoles + m.perClosedHole * closedHoles + upkeepPerHour(owned);
+}
+/** Share of golfers who rent a cart at this price. */
+export function cartRentalRate(cartFee: number): number {
+  return clamp(1.1 - cartFee / 18, 0.05, 0.9);
 }
 
 export interface RoundScore {
@@ -50,7 +65,7 @@ export interface RoundScore {
   diff: number;
   pace: number;
 }
-export function scoreRound(r: RoundResult, fee: number, fair: number): RoundScore {
+export function scoreRound(r: RoundResult, fee: number, fair: number, bonus = 0): RoundScore {
   const s = r.stats;
   const W = CFG.satisfaction.weights;
   const price = clamp(75 + (fair - fee) * CFG.tuning.fairLeniency);
@@ -62,7 +77,7 @@ export function scoreRound(r: RoundResult, fee: number, fair: number): RoundScor
     diff = clamp(80 - 28 * excess - 4 * s.water);
   }
   const pace = clamp(100 - Math.max(0, s.wait - 10) * 1.8 - 8 * s.closedOnMe);
-  const total = clamp(W.price * price + W.cond * cond + W.diff * diff + W.pace * pace);
+  const total = clamp(W.price * price + W.cond * cond + W.diff * diff + W.pace * pace + bonus);
   return { total, price, cond, diff, pace };
 }
 
@@ -78,10 +93,10 @@ export function farewellFor(sc: RoundScore): string {
   return parts[0][0] < 50 ? parts[0][1] : sc.total >= 68 ? 'A decent day out.' : 'Not my best day here.';
 }
 
-export function shopSpend(rng: Rng, satisfaction: number, proShop: boolean): number {
+export function shopSpend(rng: Rng, satisfaction: number, owned: Owned): number {
   const e = CFG.economy;
-  const base = e.shopBase + satisfaction * e.shopSatFactor + rng.range(0, 3);
-  return Math.round(base * (proShop ? e.proShopMultiplier : 1));
+  const base = e.shopBase + satisfaction * e.shopSatFactor + rng.range(0, 3) + (owned.snackBar ? CFG.extras.snackSpend : 0);
+  return Math.round(base * (owned.proShop ? e.proShopMultiplier : 1));
 }
 
 export function reputationOf(totals: number[]): number {

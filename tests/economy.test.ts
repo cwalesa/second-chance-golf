@@ -212,3 +212,33 @@ describe('terrain changes shot outcomes and satisfaction', () => {
     expect(avg(true)).toBeGreaterThan(avg(false) + 3);
   });
 });
+
+describe('improvements and pricing', () => {
+  it('each improvement is bought once, costs upkeep, and changes income', () => {
+    const g = new Game(undefined, 3);
+    g.cash = 5000;
+    const base = g.maintenanceRate;
+    expect(g.buyUpgrade('snackBar')).toBe(true);
+    expect(g.buyUpgrade('snackBar')).toBe(false);
+    expect(g.cash).toBe(5000 - CFG.upgrades.snackBar.cost);
+    expect(g.maintenanceRate).toBe(base + CFG.upgrades.snackBar.upkeep);
+    g.buyUpgrade('carts');
+    g.setCartFee(10);
+    run(g, 100);
+    expect(g.log.some((l) => l.label.startsWith('Cart rental'))).toBe(true);
+    const arrivals = new Game(undefined, 3);
+    const before = arrivals.arrivalRate;
+    arrivals.cash = 5000;
+    arrivals.buyUpgrade('range');
+    expect(arrivals.arrivalRate).toBeCloseTo(before * CFG.extras.rangeDemand);
+  });
+  it('old saves without new improvements still load', () => {
+    const g = new Game();
+    const d = JSON.parse(serialize(g));
+    d.upgrades = { proShop: true, crew: false };
+    delete d.cartFee;
+    const h = deserialize(JSON.stringify(d))!;
+    expect(h.upgrades.proShop).toBe(true);
+    expect(h.upgrades.carts).toBe(false);
+  });
+});

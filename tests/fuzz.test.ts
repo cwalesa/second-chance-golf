@@ -25,7 +25,7 @@ describe('random play never strands golfers or loses money', () => {
       else if (a < 0.78) g.closeHole(1 + Math.floor(r.range(0, 3)));
       else if (a < 0.85) g.undo();
       else if (a < 0.92) g.setFee(r.range(8, 70));
-      else if (a < 0.95) g.buyUpgrade(r.next() < 0.5 ? 'crew' : 'proShop');
+      else if (a < 0.95) g.buyUpgrade(r.pick(['crew', 'proShop', 'carts', 'range', 'snackBar', 'puttingGreen'] as const));
       if (g.cash < 200) g.cash += 400; // keep the fuzz moving
       run(g, 20);
       for (const gg of g.sim.golfers) {

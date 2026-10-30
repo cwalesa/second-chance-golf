@@ -3,7 +3,7 @@ import { Game, fmtMoney } from './game';
 import { Editor, terrainLabel } from './input';
 import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId } from './editing';
 import { holeCondition, holeStraightTiles, idx } from './terrain';
-import { operatingProfit, netChange } from './economy';
+import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } from './economy';
 
 type Tab = 'course' | 'guests' | 'money' | 'goals';
 
@@ -88,6 +88,7 @@ export class UI {
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
       <div class="stat"><span class="k">Green fee</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
       <div class="stat" id="satbox" title="Average satisfaction of recent guests"><span class="k">Guests</span><span class="v small" id="sat"></span><div class="meter"><i id="satbar"></i></div></div>
+      <div class="stat" title="Operating profit so far today (fees and sales minus maintenance)"><span class="k">Today</span><span class="v small" id="todayp"></span></div>
       <div class="stat"><span class="k">On course</span><span class="v small" id="oncourse"></span></div>
       <div class="spacer"></div>
       <span class="saved" id="saved"></span>
@@ -140,7 +141,8 @@ export class UI {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'open') this.game.openHole(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
-        else if (el.dataset.act === 'buy') this.game.buyUpgrade(el.dataset.id as 'proShop' | 'crew');
+        else if (el.dataset.act === 'buy') this.game.buyUpgrade(el.dataset.id as UpgradeId);
+        else if (el.dataset.act === 'cartfee') this.game.setCartFee(this.game.cartFee + Number(el.dataset.id));
         else if (el.dataset.act === 'tool') this.editor.setTool(el.dataset.id as ToolId);
         else if (el.dataset.act === 'clear-golfer') this.game.selectedGolfer = 0;
       }
@@ -211,6 +213,7 @@ export class UI {
     set('clock', g.clockText);
     (this.$('daybar') as HTMLElement).style.width = `${(g.clock / CFG.day.seconds) * 100}%`;
     set('fee', fmtMoney(g.fee));
+    set('todayp', `${operatingProfit(g.today) >= 0 ? '+' : ''}${fmtMoney(operatingProfit(g.today))} · ${g.today.rounds} rounds`);
     const rep = g.reputation;
     set('sat', `${Math.round(rep)} · ${word(rep)}`);
     const sb = this.$('satbar') as HTMLElement;
@@ -414,12 +417,13 @@ export class UI {
     const t = g.today;
     const toNext = g.hourLen - (g.clock % g.hourLen);
     const row = (k: string, v: number, sign = 1) => `<div class="row"><span class="k">${k}</span>${money(sign * v)}</div>`;
-    let html = `<div class="sec"><h3>Today, day ${g.day}</h3>${row('Green fees', t.fees)}${row('Clubhouse sales', t.shop)}${row('Maintenance', t.maintenance, -1)}<div class="row total"><span>Operating profit</span>${money(operatingProfit(t))}</div>${row('Construction and upgrades', t.construction, -1)}${t.bonus ? row('Goal bonuses', t.bonus) : ''}<div class="row total"><span>Net change in cash</span>${money(netChange(t))}</div>
+    let html = `<div class="sec"><h3>Today, day ${g.day}</h3>${row('Green fees and cart rentals', t.fees)}${row('Clubhouse sales', t.shop)}${row('Maintenance', t.maintenance, -1)}<div class="row total"><span>Operating profit</span>${money(operatingProfit(t))}</div>${row('Construction and upgrades', t.construction, -1)}${t.bonus ? row('Goal bonuses', t.bonus) : ''}<div class="row total"><span>Net change in cash</span>${money(netChange(t))}</div>
       <div class="dim" style="margin-top:6px">Maintenance of ${fmtMoney(g.maintenanceRate)} is charged every game hour. Next charge in ${Math.ceil(toNext / 1)}s. ${t.arrivals} arrivals so far, expecting about ${Math.round(g.arrivalRate)} per day at this price.</div></div>`;
     const last = g.days[g.days.length - 1];
     if (last) html += `<div class="sec"><h3>Day ${last.day} summary</h3><div class="card"><div class="row"><span class="k">Revenue</span><span>${fmtMoney(last.fees + last.shop)}</span></div><div class="row"><span class="k">Maintenance</span><span>${fmtMoney(last.maintenance)}</span></div><div class="row"><span class="k">Construction</span><span>${fmtMoney(last.construction)}</span></div><div class="row"><span class="k">Rounds / satisfaction</span><span>${last.rounds} / ${last.rounds ? Math.round(last.avgSat) : '-'}</span></div><div class="row total"><span>Operating profit</span>${money(last.profit)}</div></div></div>`;
-    html += `<div class="sec"><h3>Upgrades</h3>`;
-    for (const id of ['proShop', 'crew'] as const) {
+    html += `<div class="sec"><h3>Improvements</h3>`;
+    if (g.upgrades.carts) html += `<div class="card"><div class="row"><span class="t">Cart rental price</span><span><button class="btn" data-act="cartfee" data-id="-1">−</button> <b>${fmtMoney(g.cartFee)}</b> <button class="btn" data-act="cartfee" data-id="1">+</button></span></div><div class="dim">About ${Math.round(cartRentalRate(g.cartFee) * 100)}% of golfers rent a cart at this price.</div></div>`;
+    for (const id of UPGRADE_IDS) {
       const u = CFG.upgrades[id];
       html += `<div class="card"><div class="row"><span class="t">${u.name}</span><span class="reward">${fmtMoney(u.cost)}</span></div><div class="dim">${u.blurb}</div><div style="margin-top:6px">${g.upgrades[id] ? '<span class="badge open">OWNED</span>' : `<button class="btn" data-act="buy" data-id="${id}" ${g.cash < u.cost ? 'disabled' : ''}>Buy${g.cash < u.cost ? ` (need ${fmtMoney(u.cost - g.cash)} more)` : ''}</button>`}</div></div>`;
     }

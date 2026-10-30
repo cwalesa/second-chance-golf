@@ -1,6 +1,7 @@
 import { Game } from './game';
 import { World, computeZones, createStartingWorld } from './terrain';
 import { Rng } from './rng';
+import { noUpgrades } from './economy';
 
 const KEY = 'second-chance-golf.save.v1';
 const VERSION = 1;
@@ -16,6 +17,7 @@ export function serialize(g: Game): string {
       holes: w.holes,
     },
     cash: g.cash,
+    cartFee: g.cartFee,
     day: g.day,
     clock: g.clock,
     total: g.total,
@@ -57,7 +59,8 @@ export function deserialize(text: string): Game | null {
     g.clock = d.clock;
     g.total = d.total;
     g.fee = d.fee;
-    g.upgrades = d.upgrades;
+    g.upgrades = { ...noUpgrades(), ...d.upgrades };
+    g.cartFee = d.cartFee ?? g.cartFee;
     g.goals = d.goals;
     g.today = d.today;
     g.days = d.days;
