@@ -10,10 +10,10 @@ import { World, Hole, createStartingWorld, computeZones, holeCondition, validate
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
-import { EditPlan, ToolId, applyPlan, setCostMultiplier, touchedHoles } from './editing';
+import { EditPlan, ToolId, applyPlan, planRemoveHole, setCostMultiplier, touchedHoles } from './editing';
 import { setPhysics } from './physics';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
-import { GoalCtx, MILESTONES } from './goals';
+import { GoalCtx, HIDDEN_GOALS, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
 
@@ -50,6 +50,7 @@ export interface Settings {
   tool: ToolId;
   introSeen: boolean;
 }
+export interface TestResult { name: string; type: 'beginner' | 'regular' | 'skilled'; hole: number; strokes: number; par: number; }
 export interface LifetimeStats {
   rounds: number;
   revenue: number;
@@ -113,6 +114,9 @@ export class Game {
   recent: RoundRecord[] = [];
   comments: GuestComment[] = [];
   undoStack: UndoEntry[] = [];
+  redoStack: UndoEntry[] = [];
+  /** Most recent test rounds by simulated golfers on the owner's layout (not saved, never paid). */
+  testResults: TestResult[] = [];
   settings: Settings = { speed: 1, brush: 1, tool: 'inspect', introSeen: false };
   selectedHole = 1;
   selectedGolfer = 0;
@@ -154,6 +158,15 @@ export class Game {
       },
     });
     this.applyRegion();
+  }
+
+  /** First-course designer: all of Willow Creek is yours to build on from the start. */
+  openProperty() {
+    if (!this.world.parcels.every((p) => p === 1)) {
+      this.world.parcels.fill(1);
+      this.world.version++;
+      this.dirtySave = true;
+    }
   }
 
   /** Push regional rules into the physics and building-cost modules. */
@@ -261,7 +274,7 @@ export class Game {
     return this.world.parcels.reduce((a, b) => a + b, 0);
   }
   get maxHoles(): number {
-    return this.club.holes;
+    return Math.max(this.club.holes, CFG.holes.designCap);
   }
   get parcelPrice(): number {
     return Math.round((CFG.land.base * this.regionDef.landMult * Math.pow(CFG.land.growth, Math.max(0, this.parcelsOwned - CFG.land.startCols * CFG.land.startRows))) / 10) * 10;
@@ -403,6 +416,14 @@ export class Game {
   }
 
   private onRoundComplete(r: RoundResult): string {
+    if (r.test) {
+      const hole = r.holeIds?.[0] ?? 0;
+      this.testResults.push({ name: r.name, type: r.type, hole, strokes: r.strokes, par: r.par });
+      if (this.testResults.length > 12) this.testResults.shift();
+      const diff = r.strokes - r.par;
+      this.notify('info', `Test golfer ${r.name} finished hole ${hole}: ${r.strokes} strokes (${diff === 0 ? 'par' : (diff > 0 ? '+' : '') + diff}).`);
+      return diff <= 0 ? 'Lovely layout. Is it open to the public?' : 'Tough but fair.';
+    }
     const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades) + this.club.sat);
     const designBonus = r.holes ? (r.designSum ?? 0) / r.holes : 0;
     sc.total = Math.max(0, Math.min(100, sc.total + designBonus + (this.staff.host ? 4 : 0) + (this.experience.site.terrace ? 3 : 0) + (this.experience.site.garden ? 2 : 0) + (this.staff.ranger ? Math.min(5, r.stats.wait / 20) : 0)));
@@ -550,7 +571,7 @@ export class Game {
     if (!this.goalDone('reopen') && h3?.open) this.completeGoal('reopen');
     const ctx = this.goalCtx();
     for (const m of MILESTONES) {
-      if (this.goalDone(m.id)) continue;
+      if (this.goalDone(m.id) || HIDDEN_GOALS.includes(m.id)) continue;
       const [cur, target] = m.progress(ctx);
       if (cur >= target) this.completeGoal(m.id);
     }
@@ -574,8 +595,30 @@ export class Game {
     this.dirtySave = true;
   }
 
+  /** Send three free simulated golfers (beginner, regular, skilled) round one open hole. */
+  sendTestGolfers(id: number): number {
+    const h = this.world.holes.find((x) => x.id === id);
+    if (!h) return 0;
+    if (!h.open) { this.notify('bad', `Open hole ${id} first. Test golfers only play open holes.`); return 0; }
+    let n = 0;
+    for (const type of ['beginner', 'regular', 'skilled'] as const) {
+      if (this.sim.golfers.length >= 40) break;
+      if (this.sim.spawn(type, 0, { test: true, holes: [id] })) n++;
+    }
+    if (n) this.notify('good', `${n} test golfers are heading to hole ${id}. Watch them play your layout.`);
+    return n;
+  }
+
+  private validations = new Map<number, { key: string; v: Validation }>();
+  /** Validation is a flood fill, so remember it until the ground or the hole's pins change. */
   validate(id: number): Validation {
-    return validateHole(this.world, this.hole(id));
+    const h = this.hole(id);
+    const key = `${this.world.version}:${this.world.holes.length}:${h.tee.x},${h.tee.y},${h.cup.x},${h.cup.y}`;
+    const hit = this.validations.get(id);
+    if (hit && hit.key === key) return hit.v;
+    const v = validateHole(this.world, h);
+    this.validations.set(id, { key, v });
+    return v;
   }
 
   openHole(id: number): Validation {
@@ -624,8 +667,8 @@ export class Game {
   }
 
   /** Apply a planned edit. Charges exactly once, closes any open hole it touches, records undo. */
-  commitEdit(plan: EditPlan): { ok: boolean; message: string } {
-    if (!plan.tiles.length && !plan.hole && !plan.newHole) return { ok: false, message: 'Nothing would change.' };
+  commitEdit(plan: EditPlan, redo = false): { ok: boolean; message: string } {
+    if (!plan.tiles.length && !plan.hole && !plan.newHole && !plan.removedHole) return { ok: false, message: 'Nothing would change.' };
     if (plan.newHole) {
       const why = this.addHoleProblem();
       if (why) {
@@ -640,15 +683,19 @@ export class Game {
     }
     const touched = touchedHoles(this.world, plan);
     const before = new Map(touched.filter((id) => this.world.holes.some((h) => h.id === id)).map((id) => [id, holeCondition(this.world, this.hole(id)).green]));
+    if (plan.removedHole) this.closeHole(plan.removedHole.id, true);
     applyPlan(this.world, plan, 'do');
-    this.spend('construction', plan.cost, plan.label);
+    if (plan.cost) this.spend('construction', plan.cost, plan.label);
+    else this.logEntry(plan.label, 0);
     this.undoStack.push({ plan, cost: plan.cost });
-    if (this.undoStack.length > 20) this.undoStack.shift();
+    if (this.undoStack.length > 60) this.undoStack.shift();
+    if (!redo) this.redoStack = [];
     this.afterTerrainChange(touched, before);
     if (plan.newHole) {
       this.selectedHole = plan.newHole.id;
-      this.notify('good', `${plan.newHole.name} is laid out. Check the fairway, then open it from the Course tab.`);
+      this.notify('good', `${plan.newHole.name} is laid out. Check the fairway, then open it from the Holes tab.`);
     }
+    if (plan.removedHole && this.selectedHole === plan.removedHole.id) this.selectedHole = this.world.holes[0]?.id ?? 1;
     return { ok: true, message: `${plan.label}: ${plan.tiles.length} tiles, ${fmtMoney(plan.cost)}` };
   }
 
@@ -656,19 +703,30 @@ export class Game {
     const e = this.undoStack.pop();
     if (!e) return false;
     const touched = touchedHoles(this.world, e.plan);
+    if (e.plan.newHole) this.closeHole(e.plan.newHole.id, true);
     applyPlan(this.world, e.plan, 'undo');
     this.cash += e.cost;
     this.today.construction -= e.cost;
+    this.redoStack.push(e);
     this.logEntry(`Undo: ${e.plan.label}`, e.cost);
     this.afterTerrainChange(touched, null);
-    if (!this.world.holes.some((h) => h.id === this.selectedHole)) this.selectedHole = this.world.holes[0]?.id ?? 1;
+    if (!this.world.holes.some((h) => h.id === this.selectedHole)) this.selectedHole = e.plan.removedHole?.id ?? this.world.holes[0]?.id ?? 1;
     for (const id of touched) {
       const h = this.world.holes.find((x) => x.id === id);
       if (!h) continue;
       if (holeCondition(this.world, h).green < 50) h.fixedGreenAt = -1;
     }
-    this.notify('info', `Undid ${e.plan.label}. ${fmtMoney(e.cost)} refunded.`);
+    this.notify('info', `Undid ${e.plan.label}.${e.cost ? ` ${fmtMoney(e.cost)} refunded.` : ''}`);
     return true;
+  }
+
+  /** Re-apply the edit most recently undone, at its original price. */
+  redo(): boolean {
+    const e = this.redoStack.pop();
+    if (!e) return false;
+    const r = this.commitEdit(e.plan, true);
+    if (!r.ok) this.redoStack.push(e);
+    return r.ok;
   }
 
   private afterTerrainChange(touched: number[], greenBefore: Map<number, number> | null) {
@@ -751,21 +809,16 @@ export class Game {
       this.dirtySave = true;
     }
   }
-  /** Remove a hole entirely. Its ground stays as it is. */
+  /** Remove a hole entirely. Its ground stays as it is, and the removal can be undone. */
   removeHole(id: number): boolean {
-    if (this.world.holes.length <= 1) {
-      this.notify('bad', 'You need at least one hole.');
+    const plan = planRemoveHole(this.world, id);
+    if (typeof plan === 'string') {
+      this.notify('bad', plan);
       return false;
     }
-    this.closeHole(id, true);
-    this.world.holes = this.world.holes.filter((h) => h.id !== id);
-    computeZones(this.world);
-    this.world.version++;
-    this.undoStack = this.undoStack.filter((u) => !(u.plan.hole?.id === id || u.plan.newHole?.id === id));
-    if (this.selectedHole === id) this.selectedHole = this.world.holes[0].id;
-    this.notify('info', `Hole ${id} removed. Its fairway and green are left as they were.`);
-    this.dirtySave = true;
-    return true;
+    const r = this.commitEdit(plan);
+    if (r.ok) this.notify('info', `Hole ${id} removed. Its fairway and green are left as they were. Undo brings it back.`);
+    return r.ok;
   }
   setName(name: string) {
     const n = name.trim().slice(0, 28);

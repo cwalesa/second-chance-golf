@@ -126,6 +126,10 @@ export function polyDist(px: number, py: number, pts: Pt[]): { d: number; s: num
 }
 
 export const holePath = (h: Hole): Pt[] => [center(h.tee), center(h.bend), center(h.cup)];
+/** Playing length in yards along tee, routing point and cup. */
+export const holeYards = (h: Hole) => Math.round(holePathTiles(h) * CFG.grid.yardsPerTile);
+/** Length in tiles along tee, routing point and cup: what par and the scorecard yardage are based on. */
+export const holePathTiles = (h: Hole) => Math.hypot(h.bend.x - h.tee.x, h.bend.y - h.tee.y) + Math.hypot(h.cup.x - h.bend.x, h.cup.y - h.bend.y);
 export const holeStraightTiles = (h: Hole) => Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y);
 export function parFor(tiles: number): number {
   const yards = tiles * CFG.grid.yardsPerTile;
@@ -296,20 +300,32 @@ export function routeField(world: World, h: Hole): Float64Array {
 }
 
 // ---- Validation ----
+/** One thing stopping a hole from opening: what is wrong, where it is, and the tool that fixes it. */
+export interface Issue {
+  text: string;
+  at: Pt | null;
+  fix: 'tee' | 'cup' | 'fairway' | 'green' | null;
+}
 export interface Validation {
   ok: boolean;
   problems: string[];
   warnings: string[];
   breakAt: Pt | null;
+  issues: Issue[];
 }
 export function validateHole(world: World, h: Hole): Validation {
   const problems: string[] = [];
+  const issues: Issue[] = [];
   const warnings: string[] = [];
   let breakAt: Pt | null = null;
+  const problem = (text: string, at: Pt | null, fix: Issue['fix']) => {
+    problems.push(text);
+    issues.push({ text, at, fix });
+  };
   const ti = idx(world, h.tee.x, h.tee.y);
   const ci = idx(world, h.cup.x, h.cup.y);
-  if (world.terrain[ti] !== T.TEE) problems.push('The tee box is damaged. Move the tee to rebuild it.');
-  if (world.terrain[ci] !== T.GREEN) problems.push('The cup is not on a green.');
+  if (world.terrain[ti] !== T.TEE) problem('The tee box is damaged. Use Move tee to build it again.', h.tee, 'tee');
+  if (world.terrain[ci] !== T.GREEN) problem('The cup is not on a green. Paint green around it, or use Move cup to cut a new green.', h.cup, 'green');
   let greenTiles = 0;
   for (let dy = -4; dy <= 4; dy++)
     for (let dx = -4; dx <= 4; dx++) {
@@ -317,9 +333,9 @@ export function validateHole(world: World, h: Hole): Validation {
       const y = h.cup.y + dy;
       if (inBounds(world, x, y) && Math.hypot(dx, dy) <= 3.5 && world.terrain[idx(world, x, y)] === T.GREEN) greenTiles++;
     }
-  if (world.terrain[ci] === T.GREEN && greenTiles < 8) problems.push(`The green is too small (${greenTiles} tiles, needs 8). Move the cup to rebuild it.`);
+  if (world.terrain[ci] === T.GREEN && greenTiles < 8) problem(`The green is too small (${greenTiles} tiles, it needs 8). Paint more green around the cup, or use Move cup.`, h.cup, 'green');
   const len = holeStraightTiles(h);
-  if (len < 8) problems.push('Tee and cup are too close together (minimum 80 yards).');
+  if (len < 8) problem('Tee and cup are too close together (minimum 80 yards). Use Move tee or Move cup.', h.cup, 'cup');
   if (!problems.length) {
     const ok = (x: number, y: number) => {
       if (!inBounds(world, x, y)) return false;
@@ -356,13 +372,13 @@ export function validateHole(world: World, h: Hole): Validation {
     }
     if (!reached) {
       breakAt = best;
-      problems.push(`No continuous fairway (3 tiles wide) from tee to green. It breaks near the marked spot.`);
+      problem(`No continuous fairway (3 tiles wide) from tee to green. It breaks near the marked spot: paint fairway across the gap, or clear the water, sand or trees that cut it.`, best, 'fairway');
     }
   }
   const c = holeCondition(world, h);
   if (!problems.length && c.overall < 45) warnings.push('Turf is in poor shape. Expect complaints until you repair it.');
   if (!problems.length && c.green < 40) warnings.push('The green is badly worn and will make putting hard.');
-  return { ok: problems.length === 0, problems, warnings, breakAt };
+  return { ok: problems.length === 0, problems, warnings, breakAt, issues };
 }
 
 // ---- Starting property ----
@@ -375,7 +391,7 @@ export function createStartingWorld(regionId: RegionId = 'parkland'): World {
     { id: 2, name: 'Cattail Carry', tee: { x: 48, y: 42 }, cup: { x: 60, y: 28 }, bend: { x: 62, y: 41 }, open: true, par: 3, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
     { id: 3, name: 'Foxglove Run', tee: { x: 10, y: 10 }, cup: { x: 42, y: 10 }, bend: { x: 26, y: 14 }, open: false, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
   ];
-  for (const hole of holes) hole.par = parFor(holeStraightTiles(hole));
+  for (const hole of holes) hole.par = parFor(holePathTiles(hole));
   const world: World = { w, h, terrain: new Uint8Array(n), cond: new Float32Array(n), tree: new Uint8Array(n), zone: new Uint8Array(n), holes, version: 1, region: regionId, parcels: Uint8Array.from({ length: CFG.land.cols * CFG.land.rows }, (_, i) => (startsOwned(i % CFG.land.cols, Math.floor(i / CFG.land.cols)) ? 1 : 0)), dirty: new Set() };
   computeZones(world);
   const set = (x: number, y: number, t: number, c: number) => {

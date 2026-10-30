@@ -48,3 +48,6 @@ export const MILESTONES: Milestone[] = [
   m('club5', 'Resort lodge', 'Build the top clubhouse.', 15000, (g) => [g.clubLevel + 1, 5]),
   m('rev500k', 'Earn $500,000 in revenue', 'Lifetime fees and sales.', 25000, (g) => [g.stats.revenue, 500000]),
 ];
+
+/** The first property comes fully owned, so land-buying milestones never apply. */
+export const HIDDEN_GOALS = ['land2', 'land6'];

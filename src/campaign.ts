@@ -13,7 +13,7 @@ const profit = (n: number) => objective('profit', `Earn $${n.toLocaleString()} o
 const members = (n: number) => objective('members', `Build a club of ${n} members`, 'Delighted guests join and pay daily dues. Keep their satisfaction high.', 500, n, g => g.members.length);
 const design = (n: number) => objective('design', `Reach ${n} course design`, 'The average layout rating of your open holes; see Course → Design report.', 650, n, g => g.designRating);
 export const LOCATIONS: { id: string; name: string; region: RegionId; brief: string; budget: number; objectives: Objective[] }[] = [
-  { id: 'willow', name: 'Willow Creek', region: 'parkland', brief: 'An overlooked municipal course with good bones. Restore its greens, reopen the third hole, and give the locals a reason to return.', budget: 2400, objectives: [
+  { id: 'willow', name: 'Willow Creek', region: 'parkland', brief: 'An overlooked municipal course with good bones. Restore its greens, reopen the third hole, and give the locals a reason to return.', budget: 25000, objectives: [
     objective('green', 'Bring two greens back to life', 'Repair at least two greens to condition 75. Close a hole before working on it.', 300, 2, greens),
     holes(3), rounds(12), profit(500),
   ] },

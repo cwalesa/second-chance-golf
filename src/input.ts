@@ -1,7 +1,7 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TileEdit, ToolId, blockReason, brushTiles, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
 import { Pt, idx, inBounds } from './terrain';
 
@@ -21,11 +21,18 @@ type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch';
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
-  /** A new-hole plan waiting for the player to confirm. */
+  /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
   pending: EditPlan | null = null;
+  /** Terrain strokes painted so far but not yet built. They stack until the player builds or cancels. */
+  readonly batch = new Map<number, TileEdit>();
+  private batchCost = 0;
+  private batchTools = new Map<ToolId, number>();
+  private strokeUndo = new Map<number, TileEdit | undefined>();
+  private proposalCache: { rev: number; plan: EditPlan | null } = { rev: -1, plan: null };
+  private rev = 0;
   private buildTee: Pt | null = null;
   preview: Preview | null = null;
   inspectTile: Pt | null = null;
@@ -36,8 +43,6 @@ export class Editor {
   private pointers = new Map<number, Pt>();
   private start: Pt = { x: 0, y: 0 };
   private moved = false;
-  private staged = new Map<number, TileEdit>();
-  private stagedCost = 0;
   private limited = false;
   private skipCost = 0;
   private lastTile: Pt | null = null;
@@ -74,12 +79,17 @@ export class Editor {
         e.preventDefault();
       } else if (e.key === 'Escape') {
         this.cancelStroke();
-        this.setTool('inspect');
+        if (this.proposal) this.discard();
+        else this.setTool('inspect');
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        this.game.undo();
-        this.onChange();
-      } else if (e.key === '[') this.setBrush(Math.max(0, this.brush - 1));
+        if (e.shiftKey) this.redo();
+        else this.undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        this.redo();
+      } else if (e.key === 'Enter' && this.proposal) this.confirm();
+      else if (e.key === '[') this.setBrush(Math.max(0, this.brush - 1));
       else if (e.key === ']') this.setBrush(Math.min(BRUSH_RADII.length - 1, this.brush + 1));
       else if (e.key.toLowerCase() === 'p') this.game.setSpeed(this.game.settings.speed === 0 ? 1 : 0);
     });
@@ -89,6 +99,10 @@ export class Editor {
     window.addEventListener('blur', () => this.cancelStroke());
   }
 
+  /** Bring a spot (a problem marker, say) into the middle of the free map area. */
+  focusPoint(p: Pt, zoom = 0.9) {
+    this.r.focus(p.x + 0.5, p.y + 0.5, zoom, this.game.world);
+  }
   focusHole() {
     const h = this.game.hole(this.game.selectedHole);
     if (h) {
@@ -103,7 +117,8 @@ export class Editor {
   }
   setTool(t: ToolId) {
     this.cancelStroke();
-    if (t !== 'build') this.cancelBuild();
+    if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
+    if (t !== 'build') this.buildTee = null, this.overlay.buildTee = null, this.overlay.buildLine = null;
     this.tool = t;
     this.game.settings.tool = t;
     this.overlay.tool = t;
@@ -119,12 +134,104 @@ export class Editor {
   get isPaint() {
     return PAINT_TOOLS.includes(this.tool);
   }
+  get isPlacement() {
+    return this.tool === 'tee' || this.tool === 'cup' || this.tool === 'bend' || this.tool === 'build';
+  }
 
-  private cancelStroke() {
-    this.staged.clear();
-    this.stagedCost = 0;
+  // ---- the proposal: what Build would do right now ----
+  /** Pending placement, or the stacked paint strokes. Null when there is nothing to confirm. */
+  get proposal(): EditPlan | null {
+    if (this.pending) return this.pending;
+    if (!this.batch.size) return null;
+    if (this.proposalCache.rev !== this.rev) {
+      const tools = [...this.batchTools.keys()];
+      this.proposalCache = {
+        rev: this.rev,
+        plan: { tool: tools[0] ?? this.tool, label: tools.map((t) => TOOL_INFO[t].label).join(' + ') || 'Terrain', tiles: [...this.batch.values()], cost: Math.ceil(this.batchCost - 1e-9) },
+      };
+    }
+    return this.proposalCache.plan;
+  }
+  /** Build the proposal, charging once. */
+  confirm() {
+    const p = this.proposal;
+    if (!p) return;
+    const res = this.game.commitEdit(p);
+    this.lastMsg = res.message;
+    if (res.ok) this.discard();
+    else this.onChange();
+  }
+  /** Throw away everything not yet built. Nothing is charged. */
+  discard() {
+    this.batch.clear();
+    this.stageKinds.clear();
+    this.batchTools.clear();
+    this.strokeUndo.clear();
+    this.batchCost = 0;
     this.limited = false;
-    this.overlay.staged = new Set();
+    this.rev++;
+    this.clearPending();
+    this.buildTee = null;
+    this.overlay.buildTee = null;
+    this.overlay.buildLine = null;
+    this.syncStagedOverlay();
+    this.updateHover();
+    this.onChange();
+  }
+  /** Undo: first discards unbuilt changes, otherwise steps back through built ones. */
+  undo(): boolean {
+    if (this.proposal) {
+      this.discard();
+      this.game.notify('info', 'Unbuilt changes discarded.');
+      return true;
+    }
+    const ok = this.game.undo();
+    this.onChange();
+    return ok;
+  }
+  redo(): boolean {
+    if (this.proposal) return false;
+    const ok = this.game.redo();
+    this.onChange();
+    return ok;
+  }
+  cancelBuild() {
+    this.discard();
+  }
+  confirmBuild() {
+    this.confirm();
+  }
+  /** Choose which hole the hole tools work on; unbuilt placements belonged to the old one. */
+  selectHole(id: number) {
+    if (this.game.selectedHole !== id) this.clearPending();
+    this.game.selectedHole = id;
+    this.onChange();
+  }
+  private clearPending() {
+    this.pending = null;
+    this.overlay.ghost = null;
+    this.rev++;
+  }
+  private syncStagedOverlay() {
+    this.overlay.staged = new Set(this.batch.keys());
+    this.overlay.stagedKind = new Map([...this.batch.keys()].map((i) => [i, this.stageKinds.get(i) ?? this.tool]));
+  }
+  private stageKinds = new Map<number, ToolId>();
+
+  /** Roll back the stroke in progress (a second finger landed, or the pointer was lost). */
+  private cancelStroke() {
+    if (this.mode === 'paint') {
+      for (const [i, prev] of this.strokeUndo) {
+        const now = this.batch.get(i);
+        this.batchCost += (prev?.cost ?? 0) - (now?.cost ?? 0);
+        if (prev) this.batch.set(i, prev);
+        else this.batch.delete(i);
+      }
+      this.rev++;
+    }
+    this.strokeUndo.clear();
+    this.limited = false;
+    this.syncStagedOverlay();
     if (this.mode === 'paint' || this.mode === 'place') this.mode = 'none';
     this.updateHover();
   }
@@ -164,9 +271,9 @@ export class Editor {
     }
     if (this.tool === 'inspect') this.mode = 'inspect';
     else if (this.isPaint) {
+      if (this.pending) this.clearPending();
       this.mode = 'paint';
-      this.staged.clear();
-      this.stagedCost = 0;
+      this.strokeUndo.clear();
       this.limited = false;
       this.skipCost = 0;
       this.lastTile = null;
@@ -177,22 +284,6 @@ export class Editor {
       this.hover = this.tileAt(p);
       this.updateHover();
     }
-  }
-
-  cancelBuild() {
-    this.buildTee = null;
-    this.pending = null;
-    this.overlay.buildTee = null;
-    this.overlay.buildLine = null;
-    this.updateHover();
-    this.onChange();
-  }
-  confirmBuild() {
-    if (!this.pending) return;
-    const res = this.game.commitEdit(this.pending);
-    this.lastMsg = res.message;
-    if (res.ok) this.cancelBuild();
-    else this.onChange();
   }
 
   private move(e: PointerEvent) {
@@ -252,14 +343,12 @@ export class Editor {
     if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
       this.game.owner.aim = this.r.toWorld(p.x, p.y);
     } else if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
-    else if (this.mode === 'paint') this.commitStroke();
+    else if (this.mode === 'paint') this.endStroke();
     else if (this.mode === 'place' && over) {
       const t = this.tileAt(p);
       this.commitPlace(t);
     }
     this.mode = 'none';
-    this.staged.clear();
-    this.overlay.staged = new Set();
     if (e.pointerType === 'mouse') this.updateHover();
     else this.clearHover();
   }
@@ -286,6 +375,10 @@ export class Editor {
     const world = this.game.world;
     const h = this.hover;
     this.overlay.tool = this.tool;
+    if (this.pending && this.mode !== 'place' && this.isPlacement) {
+      this.onChange();
+      return;
+    }
     if (!h || !inBounds(world, h.x, h.y) || (!this.isPaint && this.tool !== 'tee' && this.tool !== 'cup' && this.tool !== 'bend' && this.tool !== 'build' && this.tool !== 'land')) {
       this.overlay.hoverTiles = [];
       this.overlay.changed = new Set();
@@ -322,9 +415,9 @@ export class Editor {
     }
     if (this.isPaint) {
       const foot = brushTiles(world, h.x, h.y, this.brush);
-      const plan = planPaint(world, this.tool, foot);
+      const plan = planPaint(world, this.tool, foot.filter((i) => !this.batch.has(i)));
       const changed = new Set(plan.tiles.map((t) => t.i));
-      const blocked = new Set(foot.filter((i) => !changed.has(i) && blockReason(world, this.tool, i) !== null));
+      const blocked = new Set(foot.filter((i) => !changed.has(i) && blockReason(world, this.tool, i, stagedState(world, i, this.batch)) !== null));
       this.overlay.hoverTiles = foot;
       this.overlay.changed = changed;
       this.overlay.blocked = blocked;
@@ -348,13 +441,11 @@ export class Editor {
         this.overlay.hoverTiles = this.tool === 'tee' ? boxTiles(world, h) : brushTiles(world, h.x, h.y, 2);
         this.overlay.changed = new Set();
         this.overlay.blocked = new Set(this.overlay.hoverTiles);
+        this.overlay.ghost = null;
         this.preview = { tool: this.tool, label: plan.length ? `Hole ${hole.id}` : '', tiles: 0, cost: 0, affordable: false, message: plan, stroking: false, limited: false };
       } else {
         const foot = this.tool === 'tee' ? boxTiles(world, h) : brushTiles(world, h.x, h.y, 2);
-        const changed = new Set(plan.tiles.map((t) => t.i));
-        this.overlay.hoverTiles = [...new Set([...foot, ...changed])];
-        this.overlay.changed = changed;
-        this.overlay.blocked = new Set();
+        this.showPlan(plan, foot);
         const afford = plan.cost <= this.game.cash;
         this.overlay.tooExpensive = !afford;
         this.preview = { tool: this.tool, label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: afford, message: plan.tiles.length ? '' : 'Only the cup position moves.', stroking: false, limited: false };
@@ -372,54 +463,76 @@ export class Editor {
       const y = Math.round(from.y + ((t.y - from.y) * s) / steps);
       if (!inBounds(world, x, y)) continue;
       for (const i of brushTiles(world, x, y, this.brush)) {
-        if (this.staged.has(i)) continue;
-        const e = planTile(world, this.tool, i);
+        const e = planTile(world, this.tool, i, stagedState(world, i, this.batch));
         if (!e) continue;
-        if (Math.ceil(this.stagedCost + e.cost - 1e-9) > this.game.cash) {
+        if (Math.ceil(this.batchCost + e.cost - 1e-9) > this.game.cash) {
           this.limited = true;
           this.skipCost = Math.max(this.skipCost, Math.ceil(e.cost));
           continue;
         }
-        this.staged.set(i, e);
-        this.stagedCost += e.cost;
+        const prev = this.batch.get(i);
+        if (!this.strokeUndo.has(i)) this.strokeUndo.set(i, prev);
+        const merged = mergeEdit(prev, e);
+        if (merged) {
+          this.batch.set(i, merged);
+          this.stageKinds.set(i, this.tool);
+        } else this.batch.delete(i);
+        this.batchCost += (merged?.cost ?? 0) - (prev?.cost ?? 0);
+        this.batchTools.set(this.tool, (this.batchTools.get(this.tool) ?? 0) + 1);
       }
     }
     this.lastTile = t;
-    this.overlay.staged = new Set(this.staged.keys());
-    const foot = brushTiles(world, t.x, t.y, this.brush);
-    this.overlay.hoverTiles = foot;
+    this.rev++;
+    this.syncStagedOverlay();
+    this.overlay.hoverTiles = brushTiles(world, t.x, t.y, this.brush);
     this.overlay.changed = new Set();
     this.overlay.blocked = new Set();
     this.overlay.tooExpensive = this.limited;
-    this.preview = {
+    this.preview = this.stackPreview();
+    this.onChange();
+  }
+
+  private stackPreview(): Preview {
+    return {
       tool: this.tool,
-      label: planPaint(world, this.tool, []).label,
-      tiles: this.staged.size,
-      cost: Math.ceil(this.stagedCost - 1e-9),
+      label: this.proposal?.label ?? '',
+      tiles: this.batch.size,
+      cost: Math.ceil(this.batchCost - 1e-9),
       affordable: !this.limited,
       message: this.limited ? 'Out of cash: the rest of this stroke will not be painted.' : '',
       stroking: true,
       limited: this.limited,
     };
+  }
+
+  /** Finger up: the stroke joins the stack. Nothing is charged until Build. */
+  private endStroke() {
+    if (!this.batch.size && this.limited) this.game.notify('bad', `Not enough cash for that. A tile costs about ${fmtMoney(this.skipCost)} here and you have ${fmtMoney(this.game.cash)}.`);
+    else if (this.limited) this.game.notify('bad', 'You ran out of cash partway through. Only the affordable tiles are staged.');
+    this.strokeUndo.clear();
+    this.limited = false;
+    this.skipCost = 0;
+    this.lastTile = null;
+    this.preview = null;
     this.onChange();
   }
 
-  private commitStroke() {
-    if (!this.staged.size) {
-      if (this.limited) this.game.notify('bad', `Not enough cash for that. A tile costs about ${fmtMoney(this.skipCost)} here and you have ${fmtMoney(this.game.cash)}.`);
-      this.limited = false;
-      this.skipCost = 0;
-      return;
-    }
-    const plan: EditPlan = { tool: this.tool, label: this.preview?.label ?? 'Edit', tiles: [...this.staged.values()], cost: Math.ceil(this.stagedCost - 1e-9) };
-    const limited = this.limited;
-    const res = this.game.commitEdit(plan);
-    this.lastMsg = res.message;
-    if (res.ok && limited) this.game.notify('bad', 'You ran out of cash partway through. Only the affordable tiles were painted.');
-    this.stagedCost = 0;
-    this.limited = false;
-    this.skipCost = 0;
-    this.onChange();
+  /** Describe a pending or hovered hole plan on the map: footprint, changed tiles and the pins it would move. */
+  private showPlan(plan: EditPlan, foot: number[]) {
+    const changed = new Set(plan.tiles.map((t) => t.i));
+    this.overlay.hoverTiles = [...new Set([...foot, ...changed])];
+    this.overlay.changed = changed;
+    this.overlay.blocked = new Set();
+    const after = plan.hole?.after ?? plan.newHole;
+    const before = plan.hole?.before;
+    this.overlay.ghost = after
+      ? {
+          tee: !before || before.tee.x !== after.tee.x || before.tee.y !== after.tee.y ? after.tee : undefined,
+          cup: !before || before.cup.x !== after.cup.x || before.cup.y !== after.cup.y ? after.cup : undefined,
+          bend: !before || before.bend.x !== after.bend.x || before.bend.y !== after.bend.y ? after.bend : undefined,
+          par: after.par,
+        }
+      : null;
   }
 
   private commitPlace(t: Pt) {
@@ -430,8 +543,11 @@ export class Editor {
       this.onChange();
       return;
     }
+    if (this.batch.size) {
+      this.game.notify('bad', 'Build or cancel your terrain changes first, then place the hole markers.');
+      return;
+    }
     if (this.tool === 'build') {
-      if (this.pending) return;
       if (!this.buildTee) {
         this.buildTee = t;
         this.overlay.buildTee = t;
@@ -445,9 +561,8 @@ export class Editor {
         return;
       }
       this.pending = plan;
-      const ids = plan.tiles.map((x) => x.i);
-      this.overlay.hoverTiles = ids;
-      this.overlay.changed = new Set(ids);
+      this.rev++;
+      this.showPlan(plan, []);
       this.overlay.buildLine = { from: this.buildTee, to: t };
       this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
       this.onChange();
@@ -459,10 +574,11 @@ export class Editor {
       this.game.notify('bad', plan);
       return;
     }
-    const res = this.game.commitEdit(plan);
-    this.lastMsg = res.message;
-    this.hover = null;
-    this.updateHover();
+    this.pending = plan;
+    this.rev++;
+    this.showPlan(plan, this.tool === 'tee' ? boxTiles(this.game.world, t) : brushTiles(this.game.world, t.x, t.y, 2));
+    this.preview = null;
+    this.onChange();
   }
 
   private inspectAt(p: Pt) {

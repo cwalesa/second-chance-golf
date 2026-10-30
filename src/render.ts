@@ -20,11 +20,15 @@ export interface Overlay {
   changed: Set<number>;
   blocked: Set<number>;
   staged: Set<number>;
+  /** Tool that staged each tile, so unbuilt strokes preview in the colour of what they will become. */
+  stagedKind: Map<number, ToolId>;
   tooExpensive: boolean;
   hoverPt: Pt | null;
   parcel: { col: number; row: number } | null;
   buildTee: Pt | null;
   buildLine: { from: Pt; to: Pt } | null;
+  /** Pins an unbuilt tee/cup/dogleg/new-hole plan would move. */
+  ghost: { tee?: Pt; cup?: Pt; bend?: Pt; par: number } | null;
 }
 
 export class Renderer {
@@ -1065,16 +1069,49 @@ export class Renderer {
     ctx.fillRect(0, 0, this.cw, this.ch);
   }
 
+  /** Yardage chips along a tee-bend-cup route: one per leg when it doglegs, plus par and total at the green. */
+  private drawYardage(route: Pt[], par: number, ghost = false) {
+    const ctx = this.ctx;
+    const yd = (a: Pt, b: Pt) => Math.round(Math.hypot(b.x - a.x, b.y - a.y) * CFG.grid.yardsPerTile);
+    const [tee, bend, cup] = route;
+    const lineDev = Math.abs((cup.x - tee.x) * (tee.y - bend.y) - (tee.x - bend.x) * (cup.y - tee.y)) / (Math.hypot(cup.x - tee.x, cup.y - tee.y) || 1);
+    const chip = (text: string, wx: number, wy: number, lift: number) => {
+      const s = this.toScreen(wx, wy);
+      ctx.font = '700 11px system-ui, sans-serif';
+      const tw = ctx.measureText(text).width + 12;
+      ctx.fillStyle = ghost ? 'rgba(58,45,12,.92)' : 'rgba(10,28,44,.88)';
+      ctx.strokeStyle = ghost ? '#ffe27a' : 'rgba(176,222,232,.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(s.x - tw / 2, s.y - lift - 10, tw, 20, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = ghost ? '#ffe9a6' : '#eef7f4';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, s.x, s.y - lift + 0.5);
+      ctx.textAlign = 'left';
+    };
+    if (lineDev > 1.5) {
+      chip(`${yd(tee, bend)} y`, (tee.x + bend.x) / 2, (tee.y + bend.y) / 2, 4);
+      chip(`${yd(bend, cup)} y`, (bend.x + cup.x) / 2, (bend.y + cup.y) / 2, 4);
+    }
+    const total = Math.round((Math.hypot(bend.x - tee.x, bend.y - tee.y) + Math.hypot(cup.x - bend.x, cup.y - bend.y)) * CFG.grid.yardsPerTile);
+    chip(`Par ${par} · ${total} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, lineDev > 1.5 ? 4 : 4);
+  }
+
   private drawOverlay(game: Game, ov: Overlay, time: number) {
     const ctx = this.ctx;
     const w = game.world;
     const ts = this.ts;
-    const col = ({ fairway:'110,200,80', green:'180,220,130', path:'210,200,160', rough:'70,140,60', bunker:'240,214,140', water:'70,150,230', treeAdd:'40,120,50', treeDel:'230,140,60', repair:'120,230,160' } as Record<string,string>)[ov.tool] ?? '255,255,255';
+    const COLS: Record<string, string> = { fairway:'110,200,80', green:'180,220,130', path:'210,200,160', rough:'70,140,60', bunker:'240,214,140', water:'70,150,230', treeAdd:'40,120,50', treeDel:'230,140,60', repair:'120,230,160' };
+    const col = COLS[ov.tool] ?? '255,255,255';
     const tile = (i:number,staged=false) => {
       this.groundPolygon(i%w.w,Math.floor(i/w.w));
       const blocked=ov.blocked.has(i),changed=ov.changed.has(i)||staged;
-      if(blocked||changed){ctx.fillStyle=blocked||ov.tooExpensive?'rgba(220,70,50,.45)':`rgba(${col},.48)`;ctx.fill();}
-      ctx.strokeStyle=blocked?'#e08e70':changed?'rgba(250,245,213,.9)':'rgba(244,241,211,.4)';ctx.lineWidth=changed?1.3:.7;ctx.stroke();
+      const rgb = staged ? COLS[ov.stagedKind.get(i) ?? ov.tool] ?? col : col;
+      if(blocked||changed){ctx.fillStyle=blocked||ov.tooExpensive?'rgba(220,70,50,.45)':`rgba(${rgb},${staged ? .58 : .48})`;ctx.fill();}
+      ctx.strokeStyle=blocked?'#e08e70':staged?'rgba(255,226,140,.95)':changed?'rgba(250,245,213,.9)':'rgba(244,241,211,.4)';ctx.lineWidth=changed?1.3:.7;ctx.stroke();
     };
     for(const i of ov.hoverTiles)tile(i);
     for(const i of ov.staged)tile(i,true);
@@ -1134,6 +1171,46 @@ export class Renderer {
       };
       mk(center(h.tee), 'T', '#2d6ccb');
       mk(center(h.cup), String(h.id), '#c2552d');
+      this.drawYardage(holePath(h), h.par);
+      if (ov.ghost) {
+        const g = ov.ghost;
+        const route = [center(g.tee ?? h.tee), center(g.bend ?? h.bend), center(g.cup ?? h.cup)];
+        const pts2 = route.map((p) => this.toScreen(p.x, p.y));
+        ctx.setLineDash([3, 6]);
+        ctx.strokeStyle = '#ffe27a';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        pts2.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = 'butt';
+        const pin = (p: Pt | undefined, label: string) => {
+          if (!p) return;
+          const s = this.toScreen(p.x + 0.5, p.y + 0.5);
+          ctx.fillStyle = '#ffe27a';
+          ctx.strokeStyle = '#3a2d0c';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y - ts * 1.9, 11, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y - ts * 1.9 + 11);
+          ctx.lineTo(s.x, s.y);
+          ctx.stroke();
+          ctx.fillStyle = '#2a2110';
+          ctx.font = '800 11px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
+          ctx.textAlign = 'left';
+        };
+        pin(g.tee, 'T');
+        pin(g.cup, 'G');
+        pin(g.bend, '◆');
+        this.drawYardage(route, g.par, true);
+      }
       if (!h.open) {
         const v = game.validate(h.id);
         if (v.breakAt) {

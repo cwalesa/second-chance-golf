@@ -685,3 +685,160 @@ body.mobile #confirm { top:calc(105px + env(safe-area-inset-top)); }
  #start { overflow-y:auto;padding:12px; }
  #start .wrap { margin:auto; }
 }
+
+/* ===== First-course designer layer ===== */
+/* Hole state chips are shared by the hole bar, the routing list and hole detail. */
+.hole-state { flex: none; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; letter-spacing: .01em; }
+.hole-state.open { background: #74e4b324; color: var(--good); }
+.hole-state.ready { background: #ffd47726; color: var(--gold); }
+.hole-state.blocked { background: #ee7a5826; color: #ffab92; }
+
+/* Hole bar: always shows which hole the hole tools act on. */
+#holebar { position: absolute; z-index: 5; top: 69px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; height: 48px; width: min(420px, calc(100vw - 760px)); min-width: 300px; background: linear-gradient(115deg, #102238f7, #173d53f5); border: 1px solid #8bd4df66; border-radius: 12px; box-shadow: 0 4px 14px #071d3540; overflow: hidden; }
+#holebar button { border: 0; background: none; color: var(--text); }
+#holebar .hb-step { width: 44px; flex: none; font-size: 28px; line-height: 1; color: var(--gold); }
+#holebar .hb-step:active, #holebar .hb-main:active { background: #ffffff14; }
+#holebar .hb-main { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; text-align: left; }
+#holebar .hb-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+#holebar .hb-name b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#holebar .hb-name small { font-size: 10.5px; color: var(--dim); }
+body.owner-playing #holebar { display: none !important; }
+
+/* Map controls: real touch targets, undo/redo always in view. */
+#map-controls button { min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 11px; font-weight: 600; }
+#map-controls button svg { width: 19px; height: 19px; flex: none; }
+#map-controls button:disabled { opacity: .38; }
+body.designing #map-controls button[data-camera="design"] { background: linear-gradient(#ffe4ae, #eabf6a); color: #19344d; border-color: #fff1c1; }
+body[data-tab]:not([data-tab="none"]):not([data-tab="build"]):not(.mobile) #map-controls { right: 388px; }
+
+/* Confirm bar: Build or Cancel, with the price in plain sight. */
+#confirm { z-index: 7; width: min(480px, calc(100vw - 24px)); bottom: 112px; gap: 10px; padding: 9px 10px 9px 14px; background: linear-gradient(135deg, #1b354d, #10283b); border: 1px solid var(--gold); border-radius: 14px; box-shadow: 0 8px 28px #04101e88, 0 0 0 3px #ffd47722; }
+#confirm .cf-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+#confirm .cf-text b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#confirm .cf-sub { font-size: 12px; color: var(--dim); }
+#confirm .cf-cost { color: var(--gold); font-weight: 800; font-size: 14px; }
+#confirm .btn { min-height: 46px; min-width: 84px; font-size: 14px; border-radius: 11px; }
+body.has-proposal #pill { display: none !important; }
+
+/* Tools: three brush sizes big enough for a thumb; the tray fades where it scrolls on. */
+#tools .brushgrp { border-right: 0; padding-right: 2px; }
+#tools .brushes { flex-direction: row; gap: 5px; padding: 0; }
+#tools .brushes button, body.mobile #tools .brushes button { width: 46px; height: 58px; border-radius: 10px; display: flex; flex-direction: column; gap: 5px; align-items: center; justify-content: center; font-size: 10px; }
+#tools .brushes button span { font-weight: 700; line-height: 1; }
+#tools.sl { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px); mask-image: linear-gradient(90deg, transparent 0, #000 22px); }
+#tools.sr { -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 22px); mask-image: linear-gradient(270deg, transparent 0, #000 22px); }
+#tools.sl.sr { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); }
+#tools { scrollbar-width: none; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+#tools::-webkit-scrollbar { display: none; }
+
+/* Holes panel */
+.course-heading h2 { font-size: 26px; margin: 6px 0 4px; }
+.course-sum { margin: 0 0 4px; font-size: 12px; }
+.hole-list { display: grid; gap: 8px; }
+.hole-card { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 9px 12px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; }
+.hole-card.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold), 0 0 14px #ffd47722; }
+.hole-card:active { background: #28536b; }
+.hole-num { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(#2d7084, #18405d); border: 2px solid #92d6d8; font: 700 15px Georgia, serif; color: #e6fff5; }
+.hole-card.on .hole-num { background: linear-gradient(#ffe4ae, #eabf6a); border-color: #fff1c1; color: #19344d; }
+.hole-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.hole-main b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hole-main small { color: var(--dim); font-size: 11.5px; }
+.hole-detail .big-name { font: 20px Georgia, serif; }
+.hole-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0 8px; text-align: center; }
+.hole-stats > div { background: #00000026; border-radius: 9px; padding: 8px 4px; }
+.hole-stats b { display: block; font-size: 15px; }
+.hole-stats small { display: block; color: var(--dim); font-size: 10.5px; margin-top: 2px; }
+.why-closed { margin: 8px 0; padding: 10px 12px; border: 1px solid #ee7a5877; background: #ee7a5814; border-radius: 10px; }
+.why-closed > b { color: #ffab92; font-size: 13px; }
+.why-closed .issue { padding-top: 8px; margin-top: 8px; border-top: 1px solid #ee7a5833; }
+.why-closed .issue:first-of-type { border-top: 0; }
+.why-closed p { margin: 0 0 6px; font-size: 13px; line-height: 1.5; color: #f6d8cf; }
+.hole-detail .btnrow .btn { flex: 1 1 auto; min-height: 44px; }
+.hole-detail .tools-row .btn { min-height: 40px; font-size: 12px; }
+.small { font-size: 11.5px; }
+
+/* Phone: portrait */
+body.mobile #map-controls { top: calc(65px + env(safe-area-inset-top)); left: 8px; right: 8px; gap: 5px; justify-content: flex-end; }
+body.mobile #map-controls button { min-height: 44px; min-width: 44px; padding: 6px 9px; font-size: 11.5px; }
+body.mobile #map-controls button:first-child { margin-right: auto; padding: 6px 12px; }
+body.mobile #undoBtn span { display: none; }
+body.mobile #holebar { top: calc(65px + 44px + 6px + env(safe-area-inset-top)); left: 8px; right: 8px; width: auto; min-width: 0; transform: none; height: 50px; }
+body.mobile #confirm { left: 8px; right: 8px; width: auto; transform: none; top: auto; bottom: calc(64px + 8px + env(safe-area-inset-bottom)); }
+body.mobile[data-tab="build"] #confirm { bottom: calc(64px + 134px + 8px + env(safe-area-inset-bottom)); }
+body.mobile[data-tab="course"] #confirm, body.mobile[data-tab="guests"] #confirm, body.mobile[data-tab="money"] #confirm, body.mobile[data-tab="club"] #confirm, body.mobile[data-tab="journey"] #confirm { top: calc(65px + 44px + 6px + 50px + 6px + env(safe-area-inset-top)); bottom: auto; }
+body.mobile #intro { top: calc(176px + env(safe-area-inset-top)); }
+body.mobile #intro .card { max-height: calc(100dvh - 300px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
+body.mobile #toasts { top: calc(176px + env(safe-area-inset-top)); bottom: auto; }
+body.mobile #pill { bottom: calc(64px + 134px + 8px + env(safe-area-inset-bottom)); }
+body.mobile[data-tab="none"] #pill { display: none; }
+body.mobile .hole-card { min-height: 62px; }
+
+/* Phone: landscape keeps the rail, puts the hole bar beside the controls */
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #holebar { top: calc(59px + env(safe-area-inset-top)); left: calc(82px + env(safe-area-inset-left)); right: calc(396px + env(safe-area-inset-right)); width: auto; max-width: 440px; height: 44px; }
+  body.mobile #map-controls button:first-child { margin-right: 0; }
+  body.mobile #holebar .hb-step { width: 40px; }
+  body.mobile #map-controls button { min-height: 44px; }
+  body.mobile #confirm { left: calc(82px + env(safe-area-inset-left)); right: auto; width: min(460px, calc(100vw - 104px - env(safe-area-inset-left) - env(safe-area-inset-right))); bottom: calc(8px + env(safe-area-inset-bottom)); top: auto; }
+  body.mobile[data-tab="build"] #confirm { bottom: calc(97px + env(safe-area-inset-bottom)); }
+  body.mobile[data-tab="course"] #confirm, body.mobile[data-tab="guests"] #confirm, body.mobile[data-tab="money"] #confirm, body.mobile[data-tab="club"] #confirm, body.mobile[data-tab="journey"] #confirm { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); width: min(420px, calc(100vw - 104px - min(360px, 47vw))); }
+  body.mobile[data-tab="course"] #holebar, body.mobile[data-tab="guests"] #holebar, body.mobile[data-tab="money"] #holebar, body.mobile[data-tab="club"] #holebar, body.mobile[data-tab="journey"] #holebar { display: none; }
+  body.mobile #intro { top: calc(110px + env(safe-area-inset-top)); }
+  body.mobile #intro .card { max-height: calc(100dvh - 130px); }
+  body.mobile #toasts { top: calc(110px + env(safe-area-inset-top)); bottom: auto; left: calc(90px + env(safe-area-inset-left)); width: min(480px, calc(100vw - 110px)); }
+  body.mobile #pill { bottom: calc(97px + env(safe-area-inset-bottom)); }
+  body.mobile #tools .tool { height: 67px; }
+  body.mobile #tools .brushes button { height: 56px; width: 44px; }
+}
+@media (orientation: landscape) and (max-width: 700px) and (max-height: 600px) {
+  body.mobile #holebar { right: calc(300px + env(safe-area-inset-right)); }
+  body.mobile #holebar .hole-state { display: none; }
+  body.mobile #map-controls button[data-camera="in"], body.mobile #map-controls button[data-camera="out"] { display: none; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  body.mobile #confirm .cf-text b { font-size: 12px; }
+  body.mobile #confirm .btn { min-width: 72px; min-height: 44px; font-size: 13px; }
+}
+
+/* ---- Tool tray: grouped so every tool is on screen; Select/Pan always reachable ---- */
+#tools .trayrow { display: flex; align-items: center; gap: 4px; flex: none; padding-right: 7px; margin: 0; border-right: 1px solid #9bd5df33; border-bottom: 0; }
+#tools .trayrow:last-child { border-right: 0; padding-right: 0; }
+#tools .cats { display: none; }
+#tools .tool.mini { width: 51px; height: 69px; }
+#brushbar { position: absolute; z-index: 5; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; padding: 6px; background: linear-gradient(135deg, #203c59f2, #11283ef2); border: 1px solid #78bdcc77; border-radius: 14px; box-shadow: 0 6px 18px #04101e66; }
+#brushbar button { width: 48px; height: 48px; border-radius: 10px; border: 1px solid #82bbc955; background: #23445b; color: #d6f4ec; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 10px; font-weight: 700; padding: 0; }
+#brushbar button i { display: block; background: #9dd8ca; border-radius: 50%; }
+#brushbar button.on { background: linear-gradient(#ffe4ae, #eabf6a); color: #19344d; border-color: #fff1c1; }
+#brushbar button.on i { background: #19344d; }
+body.owner-playing #brushbar { display: none !important; }
+body[data-tab]:not([data-tab="none"]):not([data-tab="build"]):not(.mobile) #brushbar { right: 388px; }
+
+body.mobile #tools { flex-direction: column; align-items: stretch; height: auto; gap: 4px; padding: 6px 8px calc(7px); overflow: visible; -webkit-mask-image: none; mask-image: none; }
+body.mobile #tools .trayrow { padding: 0; border: 0; gap: 4px; }
+body.mobile #tools .catrow { height: 48px; justify-content: flex-start; }
+body.mobile #tools .cats { display: flex; flex: 1; gap: 4px; margin-left: 4px; }
+body.mobile #tools .cat { flex: 1; height: 44px; border-radius: 10px; border: 1px solid #82bbc955; background: #23445b; color: #d6f4ec; font-size: 12px; font-weight: 700; }
+body.mobile #tools .cat.on { background: linear-gradient(#ffe4ae, #eabf6a); color: #19344d; border-color: #fff1c1; }
+body.mobile #tools .toolrow { justify-content: space-around; }
+body.mobile #tools[data-cat="terrain"] .toolrow:not([data-tools="terrain"]),
+body.mobile #tools[data-cat="nature"] .toolrow:not([data-tools="nature"]),
+body.mobile #tools[data-cat="holes"] .toolrow:not([data-tools="holes"]) { display: none; }
+body.mobile #tools .toolrow .tool { flex: 1 1 0; min-width: 0; max-width: 72px; width: auto; height: 70px; }
+body.mobile #tools .tool.mini { width: 48px; height: 46px; flex: none; flex-direction: column; gap: 0; font-size: 9px; padding: 2px 0; }
+body.mobile #tools .tool.mini svg { width: 20px; height: 20px; margin: 2px 0 1px; }
+body.mobile #brushbar { right: 8px; top: 36%; }
+
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools { flex-direction: row; align-items: center; height: 79px; gap: 8px; padding: 3px 7px; overflow-x: auto; overflow-y: hidden; }
+  body.mobile #tools .trayrow { flex: none; }
+  body.mobile #tools .catrow { height: auto; gap: 6px; }
+  body.mobile #tools .tool.mini { width: 50px; height: 67px; }
+  body.mobile #tools .tool.mini svg { width: 22px; height: 22px; margin: 8px 0; }
+  body.mobile #tools .cats { flex: none; width: 96px; margin: 0; }
+  body.mobile #tools .cat { display: none; width: 96px; height: 62px; font-size: 13px; }
+  body.mobile #tools .cat.on { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  body.mobile #tools .cat.on::after { content: '▸'; opacity: .75; }
+  body.mobile #tools .toolrow .tool { flex: none; width: 60px; height: 67px; max-width: none; }
+  body.mobile #brushbar { right: calc(8px + env(safe-area-inset-right)); top: calc(112px + env(safe-area-inset-top)); }
+  body.mobile #brushbar button { width: 46px; height: 46px; }
+}

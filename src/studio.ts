@@ -4,23 +4,41 @@ import { Renderer } from './render';
 import { UI } from './ui';
 import { CLUBS, ClubId } from './owner';
 import { escapeHtml } from './panels';
+import { fmtMoney } from './game';
+import { holeYards } from './terrain';
 
 /** Persistent map controls and a practice HUD that stays above mobile sheets. */
 export class Studio {
   private controls = document.createElement('div');
   private hud = document.createElement('div');
   private mini = document.createElement('canvas');
+  private holebar = document.createElement('div');
+  private barKey = '';
+  private editKey = '';
   private cache = '';
   private miniTime = 0;
   private layoutKey = ''; 
   constructor(private g: Game, private editor: Editor, private r: Renderer, private ui: UI) {
     this.controls.id = 'map-controls'; this.hud.id = 'owner-hud'; this.mini.id = 'minimap';
     this.mini.width = 192; this.mini.height = 128;
-    document.getElementById('app')!.append(this.controls, this.hud, this.mini);
-    this.controls.innerHTML = `<button data-camera="design" title="Pause time to design">Design mode</button><button data-camera="projects" title="Plan your next improvement">Projects</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="home" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.holebar.id = 'holebar';
+    document.getElementById('app')!.append(this.controls, this.holebar, this.hud, this.mini);
+    const arrow = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="undo" id="undoBtn" aria-label="Undo">${arrow('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/>')}<span>Undo</span></button><button data-camera="redo" id="redoBtn" aria-label="Redo">${arrow('<path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 8"/>')}</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.holebar.onclick = e => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>('[data-hb]')?.dataset.hb;
+      if (!act) return;
+      const holes = this.g.world.holes, i = Math.max(0, holes.findIndex(h => h.id === this.g.selectedHole));
+      if (act === 'prev' || act === 'next') {
+        this.editor.selectHole(holes[(i + (act === 'next' ? 1 : holes.length - 1)) % holes.length].id);
+        this.editor.focusHole();
+      } else { this.ui.tab = 'course'; this.ui.refresh(true); this.ui.onInsets(); }
+      this.update(0);
+    };
     this.controls.onclick = e => {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
-      if (action === 'projects') { this.ui.tab = 'journey'; this.ui.journalView = 'projects'; this.ui.refresh(true); this.ui.onInsets(); }
+      if (action === 'undo') this.editor.undo();
+      else if (action === 'redo') this.editor.redo();
       else if (action === 'design') { this.g.toggleDesignMode(); this.editor.setTool('inspect'); }
       else if (action === 'fit') { this.g.followGolfer = 0; this.r.fit(this.g.world); }
       else if (action === 'home') { this.g.followGolfer = 0; this.editor.focusHole(); }
@@ -52,6 +70,7 @@ export class Studio {
     document.body.classList.toggle('owner-playing', o.active);
     document.body.classList.toggle('designing', g.designMode);
     this.controls.querySelector('[data-camera="design"]')!.textContent = g.designMode ? '✓ Designing · paused' : 'Design mode';
+    this.syncEditing();
     this.hud.hidden = !o.active;
     if (o.active) {
       const hole = g.hole(o.holeId), diff = o.scores.reduce((s, x) => s + x.strokes - x.par, 0);
@@ -75,6 +94,26 @@ export class Studio {
     }
     this.miniTime += dt;
     if (this.miniTime > .5 || dt === 0) { this.miniTime = 0; this.drawMini(); }
+  }
+  /** Undo/redo availability and the hole bar, rebuilt only when what they show changes. */
+  private syncEditing() {
+    const g = this.g, e = this.editor, p = e.proposal, u = g.canUndo;
+    const key = `${!!p}|${u?.label}|${g.redoStack.length}`;
+    if (key !== this.editKey) {
+      this.editKey = key;
+      const undo = this.controls.querySelector<HTMLButtonElement>('#undoBtn')!, redo = this.controls.querySelector<HTMLButtonElement>('#redoBtn')!;
+      undo.disabled = !p && !u;
+      undo.querySelector('span')!.textContent = p ? 'Discard' : 'Undo';
+      undo.title = p ? 'Discard unbuilt changes' : u ? `Undo ${u.label}${u.cost ? ` (refunds ${fmtMoney(u.cost)})` : ''}` : 'Nothing to undo';
+      redo.disabled = !!p || !g.redoStack.length;
+      redo.title = g.redoStack.length ? `Redo ${g.redoStack[g.redoStack.length - 1].plan.label}` : 'Nothing to redo';
+    }
+    const h = g.world.holes.find(x => x.id === g.selectedHole);
+    if (!h) return;
+    const st = this.ui.holeState(h), bkey = `${h.id}|${h.name}|${h.par}|${holeYards(h)}|${st.cls}|${st.text}`;
+    if (bkey === this.barKey) return;
+    this.barKey = bkey;
+    this.holebar.innerHTML = `<button class="hb-step" data-hb="prev" aria-label="Previous hole">‹</button><button class="hb-main" data-hb="open" aria-label="Open the Holes panel"><span class="hb-name"><b>${h.id} · ${escapeHtml(h.name)}</b><small>Par ${h.par} · ${holeYards(h)} yd</small></span><span class="hole-state ${st.cls}">${st.text}</span></button><button class="hb-step" data-hb="next" aria-label="Next hole">›</button>`;
   }
   private drawMini() {
     const c = this.mini.getContext('2d')!, w = this.g.world, sx = 192 / w.w, sy = 128 / w.h;

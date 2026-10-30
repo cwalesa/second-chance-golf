@@ -22,6 +22,7 @@ async function boot() {
     game = new Game(undefined, Math.floor(Math.random() * 1e9), opts);
   }
   game.applyRegion();
+  game.openProperty();
 
   const renderer = new Renderer(canvas);
   renderer.resize();

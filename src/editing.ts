@@ -1,5 +1,5 @@
 import { CFG } from './config';
-import { Hole, Pt, T, World, cloneHole, computeZones, holeStraightTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
+import { Hole, Pt, T, World, cloneHole, computeZones, holePathTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
 
 export type ToolId = 'green' | 'path' | 'bend' | 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land';
 
@@ -21,6 +21,7 @@ export interface EditPlan {
   cost: number;
   hole?: { id: number; before: Hole; after: Hole };
   newHole?: Hole;
+  removedHole?: Hole;
 }
 
 /** Regional building cost multiplier, set by the game. */
@@ -34,7 +35,7 @@ export const BRUSH_RADII = [0.5, 1.1, 2.1];
 
 export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
   green: { label: 'Green', hint: 'Expand or reshape a putting surface. Costs $24 per tile. Cannot overwrite tees or paths.' },
-  path: { label: 'Cart path', hint: 'Lay a walking path for $8 per tile. Guests travel faster on paths.' },
+  path: { label: 'Cart path', hint: 'Lay a cart path for $8 per tile. Golfers walk faster on paths. Paint rough over a path to remove it.' },
   bend: { label: 'Dogleg', hint: 'Tap a routing point for this hole. Costs $40. Paint fairway along the new route, then reopen.' },
   inspect: { label: 'Inspect', hint: 'Tap a hole, a golfer or a tile to see details.' },
   pan: { label: 'Pan', hint: 'Drag to move the map. Scroll or pinch to zoom.' },
@@ -63,21 +64,26 @@ export function brushTiles(world: World, tx: number, ty: number, size: number): 
 const state = (world: World, i: number): TileState => ({ t: world.terrain[i], c: world.cond[i], tr: world.tree[i] });
 
 /** Why a tile cannot take this tool, or null if it can (or is simply already as requested). */
-export function blockReason(world: World, tool: ToolId, i: number): string | null {
-  if (!isOwned(world, i % world.w, Math.floor(i / world.w))) return 'You do not own this land. Buy the parcel with the Land tool.';
-  const t = world.terrain[i];
-  if (t === T.BUILDING || t === T.PATH) return 'Buildings and cart paths cannot be edited.';
+export function blockReason(world: World, tool: ToolId, i: number, cur?: TileState): string | null {
+  if (!isOwned(world, i % world.w, Math.floor(i / world.w))) return 'You do not own this land.';
+  const t = cur ? cur.t : world.terrain[i];
+  if (t === T.BUILDING) return 'The clubhouse cannot be edited.';
   if (tool === 'repair') return null;
   if (t === T.GREEN || t === T.TEE) {
-    if (tool === 'treeDel' || (tool === 'green' && t === T.GREEN)) return null;
-    return 'Greens and tees are changed with the Move cup / Move tee tools.';
+    if (tool === 'treeDel' || tool === 'treeAdd') return null;
+    if (world.holes.some((h) => idx(world, h.cup.x, h.cup.y) === i)) return 'The cup is here. Use Move cup to relocate this green.';
+    if (world.holes.some((h) => idx(world, h.tee.x, h.tee.y) === i)) return 'This is the middle of a tee box. Use Move tee to relocate it.';
+    if (tool === 'fairway' || tool === 'rough') return null; // trims the edge of a green or tee
+    if (tool === 'green') return t === T.GREEN ? null : 'Tee boxes are changed with the Move tee tool.';
+    return 'Greens and tees only take fairway or rough (to trim them) or the Green tool (to grow a green).';
   }
   return null;
 }
 
-export function planTile(world: World, tool: ToolId, i: number): TileEdit | null {
-  if (blockReason(world, tool, i)) return null;
-  const b = state(world, i);
+/** Plan one tile. `cur` lets staged, not-yet-built edits stack: the tile is judged as it would be after them. */
+export function planTile(world: World, tool: ToolId, i: number, cur?: TileState): TileEdit | null {
+  if (blockReason(world, tool, i, cur)) return null;
+  const b = cur ? { ...cur } : state(world, i);
   const a: TileState = { ...b };
   let cost = 0;
   const C = CFG.costs;
@@ -92,6 +98,7 @@ export function planTile(world: World, tool: ToolId, i: number): TileEdit | null
       if (b.t === T.GREEN) return null;
       cost += 24; stripTree(); a.t = T.GREEN; a.c = CFG.turf.freshGreen; break;
     case 'path':
+      if (b.t === T.PATH) return null;
       cost += 8; stripTree(); a.t = T.PATH; a.c = 100; break;
     case 'fairway':
       if (b.t === T.FAIRWAY) return null;
@@ -132,7 +139,7 @@ export function planTile(world: World, tool: ToolId, i: number): TileEdit | null
       break;
     case 'repair': {
       const rough = b.t === T.ROUGH;
-      if (b.t === T.BUNKER || b.t === T.WATER) return null;
+      if (b.t === T.BUNKER || b.t === T.WATER || b.t === T.PATH) return null;
       const target = rough ? CFG.turf.repairRoughTo : CFG.turf.repairTo;
       if (b.c >= (rough ? CFG.turf.repairRoughThreshold : CFG.turf.repairThreshold)) return null;
       cost += (C.repairBase + C.repairPerPoint * (target - b.c)) * (b.t === T.GREEN ? C.repairGreenMult : 1);
@@ -152,6 +159,24 @@ export function planPaint(world: World, tool: ToolId, tiles: Iterable<number>): 
     if (e) out.push(e);
   }
   return { tool, label: TOOL_INFO[tool].label, tiles: out, cost: Math.max(0, Math.ceil(out.reduce((s, e) => s + e.cost, 0) - 1e-9)) };
+}
+
+/** Fold a new edit into the staged edit for the same tile. Returns null when the tile ends up as it started. */
+export function mergeEdit(prev: TileEdit | undefined, next: TileEdit): TileEdit | null {
+  const before = prev ? prev.before : next.before;
+  const cost = (prev?.cost ?? 0) + next.cost;
+  if (before.t === next.after.t && before.tr === next.after.tr && Math.abs(before.c - next.after.c) < 0.01) return null;
+  return { i: next.i, before, after: next.after, cost };
+}
+
+/** The tile state a staged edit would leave behind, or the live state if nothing is staged. */
+export const stagedState = (world: World, i: number, staged?: Map<number, TileEdit>): TileState => staged?.get(i)?.after ?? state(world, i);
+
+export function planRemoveHole(world: World, id: number): EditPlan | string {
+  const h = world.holes.find((x) => x.id === id);
+  if (!h) return 'That hole does not exist.';
+  if (world.holes.length <= 1) return 'You need at least one hole on the course.';
+  return { tool: 'inspect', label: `Remove hole ${id}, ${h.name}`, tiles: [], cost: 0, removedHole: { ...cloneHole(h), open: false } };
 }
 
 function plan3x3(world: World, c: Pt, pred: (i: number) => boolean) {
@@ -200,7 +225,7 @@ export function planMoveTee(world: World, hole: Hole, x: number, y: number): Edi
   after.bend = { x: Math.round(hole.bend.x - mid0.x + mid1.x), y: Math.round(hole.bend.y - mid0.y + mid1.y) };
   after.bend.x = Math.max(1, Math.min(world.w - 2, after.bend.x));
   after.bend.y = Math.max(1, Math.min(world.h - 2, after.bend.y));
-  after.par = parFor(holeStraightTiles(after));
+  after.par = parFor(holePathTiles(after));
   return { tool: 'tee', label: `Move tee, hole ${hole.id}`, tiles: list, cost, hole: { id: hole.id, before: cloneHole(hole), after } };
 }
 
@@ -247,7 +272,7 @@ export function planMoveCup(world: World, hole: Hole, x: number, y: number): Edi
   const mid1 = { x: (hole.tee.x + x) / 2, y: (hole.tee.y + y) / 2 };
   after.cup = { x, y };
   after.bend = { x: Math.max(1, Math.min(world.w - 2, Math.round(hole.bend.x - mid0.x + mid1.x))), y: Math.max(1, Math.min(world.h - 2, Math.round(hole.bend.y - mid0.y + mid1.y))) };
-  after.par = parFor(holeStraightTiles(after));
+  after.par = parFor(holePathTiles(after));
   return { tool: 'cup', label: `Move cup, hole ${hole.id}`, tiles, cost, hole: { id: hole.id, before: cloneHole(hole), after } };
 }
 
@@ -266,7 +291,7 @@ export function planNewHole(world: World, id: number, tee: Pt, cup: Pt): EditPla
   if (len > 55) return 'That is longer than 550 yards. Pick a closer green.';
   const bend = { x: Math.round((tee.x + cup.x) / 2), y: Math.round((tee.y + cup.y) / 2) };
   const hole: Hole = { id, name: holeNameFor(id), tee, cup, bend, open: false, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() };
-  hole.par = parFor(holeStraightTiles(hole));
+  hole.par = parFor(holePathTiles(hole));
   for (const o of world.holes) {
     const d1 = polyDist(tee.x + 0.5, tee.y + 0.5, holePath(o)).d;
     const d2 = polyDist(cup.x + 0.5, cup.y + 0.5, holePath(o)).d;
@@ -304,6 +329,12 @@ export function planNewHole(world: World, id: number, tee: Pt, cup: Pt): EditPla
 }
 
 export function applyPlan(world: World, plan: EditPlan, dir: 'do' | 'undo') {
+  if (plan.removedHole) {
+    const id = plan.removedHole.id;
+    if (dir === 'do') world.holes = world.holes.filter((h) => h.id !== id);
+    else if (!world.holes.some((h) => h.id === id)) world.holes = [...world.holes, cloneHole(plan.removedHole)].sort((a, b) => a.id - b.id);
+    computeZones(world);
+  }
   if (plan.newHole) {
     const id = plan.newHole.id;
     if (dir === 'do') world.holes.push(JSON.parse(JSON.stringify(plan.newHole)));
@@ -335,6 +366,7 @@ export function touchedHoles(world: World, plan: EditPlan): number[] {
   const ids = new Set<number>();
   for (const e of plan.tiles) if (world.zone[e.i]) ids.add(world.zone[e.i]);
   if (plan.hole) ids.add(plan.hole.id);
+  if (plan.removedHole) ids.add(plan.removedHole.id);
   return [...ids];
 }
 

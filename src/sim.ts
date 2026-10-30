@@ -99,6 +99,8 @@ export interface Golfer {
   rby: number;
   rbz: number;
   event: boolean;
+  /** A free test golfer sent by the owner to try the layout: no fee, no sales, no ratings. */
+  test?: boolean;
   fairFee: number | null;
 }
 
@@ -113,6 +115,8 @@ export interface RoundResult {
   fee: number;
   stats: RoundStats;
   event: boolean;
+  test?: boolean;
+  holeIds?: number[];
   fairFee: number | null;
 }
 export interface GuestComment {
@@ -202,8 +206,8 @@ export class CourseSim {
     return { x: tee.x + bx * (2.4 + i * 0.9) + px * side, y: tee.y + by * (2.4 + i * 0.9) + py * side };
   }
 
-  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number } = {}): Golfer | null {
-    const open = this.world.holes.filter((h) => h.open);
+  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[] } = {}): Golfer | null {
+    const open = this.world.holes.filter((h) => h.open && (!opts.holes || opts.holes.includes(h.id)));
     if (!open.length) return null;
     // start on the least busy open hole, then play the rest in order
     let startIdx = 0;
@@ -264,6 +268,7 @@ export class CourseSim {
       rby: 0,
       rbz: 0,
       event: !!opts.event,
+      test: !!opts.test,
       fairFee: opts.fair ?? null,
     };
     this.golfers.push(g);
@@ -572,6 +577,8 @@ export class CourseSim {
       fee: g.fee,
       stats: g.stats,
       event: g.event,
+      test: g.test,
+      holeIds: g.scorecard.map((c) => c.hole),
       fairFee: g.fairFee,
     });
     if (farewell) this.say(g, farewell, true);

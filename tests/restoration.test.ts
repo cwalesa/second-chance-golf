@@ -1,5 +1,6 @@
 import { createCampaignWorld } from '../src/locations';
 import { describe, it, expect } from 'vitest';
+import { CFG } from '../src/config';
 import { Game, STAFF } from '../src/game';
 import { assessDesign, designEnjoyment } from '../src/design';
 import { LOCATIONS, activeLocation, stageComplete } from '../src/campaign';
@@ -169,6 +170,6 @@ describe('staff, practice, and persistent progress', () => {
     run(g, 301);
     expect(g.members.some(m => m.name === 'Unhappy')).toBe(false);
     expect(g.log.some(l => l.label === 'Daily dues: Happy')).toBe(true);
-    expect(g.cash).toBeCloseTo(2400 + g.today.fees + g.today.shop + g.today.bonus - g.today.maintenance - g.today.construction + g.days.reduce((sum, d) => sum + d.net, 0), 6);
+    expect(g.cash).toBeCloseTo(CFG.economy.startCash + g.today.fees + g.today.shop + g.today.bonus - g.today.maintenance - g.today.construction + g.days.reduce((sum, d) => sum + d.net, 0), 6);
   });
 });
