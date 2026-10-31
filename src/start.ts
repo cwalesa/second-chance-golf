@@ -1,4 +1,4 @@
-import { REGIONS, REGION_IDS, RegionId } from './progression';
+
 import { LOGO_COLORS, LOGO_ICONS, LOGO_SHAPES, Logo, defaultLogo, drawLogo, initialsOf } from './logo';
 import type { NewGameOptions } from './game';
 
@@ -34,52 +34,27 @@ export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => strin
   };
 }
 
-/** The new-game screen: choose a region, name the club, design a logo. */
+/** Campaign-first onboarding; the map stays visible once play begins. */
 export function startScreen(): Promise<NewGameOptions> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const root = document.getElementById('start')!;
     root.hidden = false;
-    let region: RegionId = 'parkland';
-    let name = 'Second Chance Golf';
+    let name = 'Willow Creek';
     const logo = defaultLogo();
-    const swatch = (id: RegionId) => {
-      const p = REGIONS[id].palette;
-      return [p.roughGood, p.fairGood, p.sand, p.water].map((c) => `<i style="background:rgb(${c.join(',')})"></i>`).join('');
-    };
-    root.innerHTML = `
-      <div class="start-card">
-        <h1>Second Chance Golf</h1>
-        <p class="sub">You bought a worn-out public course. Restore it, grow it, and make it famous.</p>
-        <h2>1. Choose your region</h2>
-        <div class="regions" id="regions">${REGION_IDS.map((id) => {
-          const r = REGIONS[id];
-          return `<button class="region ${id === region ? 'on' : ''}" data-id="${id}"><span class="sw4">${swatch(id)}</span><b>${r.name}</b><em>${r.tagline}</em><ul>${r.perks.map((p) => `<li>${p}</li>`).join('')}</ul></button>`;
-        }).join('')}</div>
-        <h2>2. Name your club</h2>
-        <input id="clubName" maxlength="28" value="${name}" aria-label="Club name" />
-        <h2>3. Design your logo</h2>
-        <div id="logoBox" class="logo-box"></div>
-        <button class="btn primary big" id="startBtn">Open the gates</button>
-      </div>`;
+    root.innerHTML = `<div class="start-card premium-start">
+      <div class="start-art" aria-hidden="true"><svg viewBox="0 0 800 340" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#b5ccc1"/><stop offset="1" stop-color="#e9dfb8"/></linearGradient><linearGradient id="grass" x2="0" y2="1"><stop stop-color="#8ba568"/><stop offset="1" stop-color="#29543d"/></linearGradient></defs><path fill="url(#sky)" d="M0 0h800v340H0z"/><circle fill="#fff1c5" cx="630" cy="70" r="36"/><path fill="#668473" d="M0 180Q140 70 260 160T520 145T800 120V340H0z"/><path fill="url(#grass)" d="M0 220Q180 120 400 210T800 165V340H0z"/><path fill="#bed092" d="M200 340Q270 260 390 260T510 205Q570 178 625 210Q660 240 555 255T415 308L400 340z"/><path fill="#d6dba6" d="M470 225Q500 205 548 212Q580 230 545 239T470 225"/><path fill="#e9d8ad" d="M433 234q-32-14-47 4t25 21q40-4 22-25M575 221q20-10 30 3t-19 15q-23-3-11-18"/><path fill="#6b9b9c" d="M0 295Q110 250 175 285T235 340H0z"/><g fill="#204734"><path d="M98 144l-40 114h80zM150 165l-35 100h70zM690 140l-40 110h80zM745 165l-31 95h62z"/><path d="M80 240h12v70H80zM687 230h12v55h-12z"/></g><path stroke="#f5e9ce" stroke-width="3" d="M520 220v-60"/><path fill="#c75f43" d="M521 160l32 10-32 13z"/><ellipse fill="#12382b" cx="520" cy="222" rx="6" ry="2"/></svg><span class="edition">THE RESTORATION COLLECTION</span></div>
+      <div class="start-content"><div class="eyebrow">BUILD SOMETHING WORTH PLAYING.</div><h1>Second Chance<br><em>Golf</em></h1><p class="sub">One worn-out municipal course and a generous budget.<br>Reshape the holes, test them yourself, then watch golfers play your design.</p>
+      <div class="start-route"><span>Willow Creek · parkland · $25,000 to experiment with</span></div>
+      <label class="eyebrow" for="newClubName">NAME YOUR FIRST CLUB</label><input id="newClubName" maxlength="28" value="Willow Creek" aria-label="Club name" />
+      <details class="identity"><summary>Customize your club crest</summary><div id="logoBox" class="logo-box"></div></details>
+      <button class="btn primary start-play" id="startBtn">Start designing <span>→</span></button><p class="start-foot">Your design saves on this device. No timers, no ads. Just golf.</p></div></div>`;
     const lg = root.querySelector('#logoBox') as HTMLElement;
     logoDesigner(lg, logo, () => name, () => {});
-    root.querySelector('#regions')!.addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest('.region') as HTMLElement | null;
-      if (!b) return;
-      region = b.dataset.id as RegionId;
-      root.querySelectorAll('.region').forEach((x) => x.classList.toggle('on', x === b));
-    });
-    const input = root.querySelector('#clubName') as HTMLInputElement;
-    input.addEventListener('input', () => {
-      name = input.value;
-      logo.initials = initialsOf(name);
-      logoDesigner(lg, logo, () => name, () => {});
-    });
-    logo.initials = initialsOf(name);
-    logoDesigner(lg, logo, () => name, () => {});
+    const input = root.querySelector('#newClubName') as HTMLInputElement;
+    input.oninput = () => { name = input.value; logo.initials = initialsOf(name); };
     (root.querySelector('#startBtn') as HTMLElement).onclick = () => {
       root.hidden = true;
-      resolve({ region, name: name.trim() || 'Second Chance Golf', logo: { ...logo, initials: initialsOf(name) } });
+      resolve({ region: 'parkland', name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) } });
     };
   });
 }

@@ -76,6 +76,8 @@ export interface Golfer {
   lastSay: number;
   stats: RoundStats;
   hs: HoleTrack;
+  designSum: number;
+  scorecard: { hole: number; par: number; strokes: number }[];
   holesDone: number;
   parDone: number;
   strokesDone: number;
@@ -97,10 +99,13 @@ export interface Golfer {
   rby: number;
   rbz: number;
   event: boolean;
+  /** A free test golfer sent by the owner to try the layout: no fee, no sales, no ratings. */
+  test?: boolean;
   fairFee: number | null;
 }
 
 export interface RoundResult {
+  designSum?: number;
   golferId: number;
   name: string;
   type: GolferType;
@@ -110,6 +115,8 @@ export interface RoundResult {
   fee: number;
   stats: RoundStats;
   event: boolean;
+  test?: boolean;
+  holeIds?: number[];
   fairFee: number | null;
 }
 export interface GuestComment {
@@ -123,6 +130,8 @@ export interface SimHooks {
   onRound(r: RoundResult): string | void;
   onComment(c: GuestComment): void;
   onAce?(g: Golfer): void;
+  onHole?(g: Golfer, h: Hole): number;
+  onShot?(h: Hole, shot: ExecutedShot): void;
 }
 
 const FIRST = ['Avery', 'Bo', 'Casey', 'Dana', 'Eli', 'Farah', 'Gus', 'Hana', 'Ivo', 'June', 'Kai', 'Lena', 'Milo', 'Nora', 'Omar', 'Pia', 'Quinn', 'Ravi', 'Sam', 'Tess', 'Uma', 'Vic', 'Wren', 'Xavi', 'Yara', 'Zed', 'Marta', 'Doug', 'Ines', 'Walt', 'Greta', 'Hugo'];
@@ -152,6 +161,7 @@ export class CourseSim {
   queues = new Map<number, number[]>();
   tee = new Map<number, { last: number; occupant: number }>();
   wearMult = 1;
+  teeIntervalMult = 1;
   private wearDirty = false;
   private lastWearBump = 0;
 
@@ -196,8 +206,8 @@ export class CourseSim {
     return { x: tee.x + bx * (2.4 + i * 0.9) + px * side, y: tee.y + by * (2.4 + i * 0.9) + py * side };
   }
 
-  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number } = {}): Golfer | null {
-    const open = this.world.holes.filter((h) => h.open);
+  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[] } = {}): Golfer | null {
+    const open = this.world.holes.filter((h) => h.open && (!opts.holes || opts.holes.includes(h.id)));
     if (!open.length) return null;
     // start on the least busy open hole, then play the rest in order
     let startIdx = 0;
@@ -236,6 +246,8 @@ export class CourseSim {
       lastSay: -99,
       stats: newStats(),
       hs: newTrack(this.now),
+      designSum: 0,
+      scorecard: [],
       holesDone: 0,
       parDone: 0,
       strokesDone: 0,
@@ -256,6 +268,7 @@ export class CourseSim {
       rby: 0,
       rbz: 0,
       event: !!opts.event,
+      test: !!opts.test,
       fairFee: opts.fair ?? null,
     };
     this.golfers.push(g);
@@ -299,7 +312,8 @@ export class CourseSim {
     const dx = gx - g.x;
     const dy = gy - g.y;
     const d = Math.hypot(dx, dy);
-    const step = CFG.golfers.walkSpeed * g.speed * dt;
+    const onPath = this.world.terrain[idx(this.world, Math.floor(g.x), Math.floor(g.y))] === T.PATH;
+    const step = CFG.golfers.walkSpeed * g.speed * dt * (onPath ? 1.3 : 1);
     if (d <= step || d < 0.05) {
       g.x = gx;
       g.y = gy;
@@ -339,6 +353,8 @@ export class CourseSim {
 
   private completeHole(g: Golfer, h: Hole, strokes: number, picked: boolean) {
     const diff = strokes - h.par;
+    g.designSum += this.hooks.onHole?.(g, h) ?? 0;
+    g.scorecard.push({ hole: h.id, par: h.par, strokes });
     g.holesDone++;
     g.parDone += h.par;
     g.strokesDone += strokes;
@@ -407,7 +423,7 @@ export class CourseSim {
         if (!o || o.holeId !== h.id || !isPlaying(o)) t.occupant = 0;
       }
       if (!q.length || t.occupant) continue;
-      if (this.now - t.last < CFG.holes.teeInterval || this.onHole(h.id) >= CFG.holes.maxOnHole) continue;
+      if (this.now - t.last < CFG.holes.teeInterval * this.teeIntervalMult || this.onHole(h.id) >= CFG.holes.maxOnHole) continue;
       const g = this.golfers.find((x) => x.id === q[0]);
       q.shift();
       if (!g) continue;
@@ -505,6 +521,7 @@ export class CourseSim {
     if (t.occupant === g.id) t.occupant = 0;
     g.hs.strokes += 1 + f.penalty;
     const sh = f.shot;
+    if (sh) this.hooks.onShot?.(h, sh);
     if (!f.putt) {
       const kind = lieAt(this.world, f.end.x, f.end.y).kind;
       if (g.hs.shots === 1 && g.hs.fwyHit === null) g.hs.fwyHit = kind === 'fairway' || kind === 'green';
@@ -550,6 +567,7 @@ export class CourseSim {
 
   private finishRound(g: Golfer) {
     const farewell = this.hooks.onRound({
+      designSum: g.designSum,
       golferId: g.id,
       name: g.name,
       type: g.type,
@@ -559,6 +577,8 @@ export class CourseSim {
       fee: g.fee,
       stats: g.stats,
       event: g.event,
+      test: g.test,
+      holeIds: g.scorecard.map((c) => c.hole),
       fairFee: g.fairFee,
     });
     if (farewell) this.say(g, farewell, true);
