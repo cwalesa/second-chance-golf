@@ -844,3 +844,69 @@ body.mobile #brushbar { right: 8px; top: 36%; }
 }
 body.mobile .course-heading { padding-right: 40px; }
 body.mobile .course-heading .btn.primary { min-height: 44px; }
+
+/* ===== Level 1 walkthrough ===== */
+#coach { position: absolute; z-index: 9; left: 12px; top: 69px; width: min(360px, calc(100vw - 24px)); padding: 12px 14px 10px; background: linear-gradient(150deg, #1d3d57f7, #10283bf7); border: 1px solid var(--gold); border-radius: 14px; box-shadow: 0 10px 30px #04101e8c; line-height: 1.45; }
+#coach[hidden] { display: none; }
+#coach.flash { box-shadow: 0 0 0 3px #74e4b3aa, 0 10px 30px #04101e8c; }
+#coach h3 { margin: 2px 0 4px; font: 18px/1.2 Georgia, serif; color: #fff3d6; }
+#coach p { margin: 0 0 8px; font-size: 13.5px; color: #e3eef0; }
+#coach p b { color: #ffe3aa; }
+#coach .coach-note { display: block; margin-top: 6px; font-size: 12px; color: #ffcbb8; }
+.coach-head { display: flex; justify-content: space-between; align-items: center; }
+.coach-count { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); font-weight: 700; }
+.coach-fold { border: 0; background: #ffffff12; color: var(--text); width: 36px; height: 30px; border-radius: 8px; font-size: 14px; }
+.coach-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.coach-actions .btn { min-height: 44px; min-width: 110px; font-size: 14px; }
+.coach-skip { border: 0; background: none; color: var(--dim); font-size: 12px; text-decoration: underline; min-height: 40px; padding: 0 4px; }
+.coach-wait { font-size: 12px; color: var(--dim); font-style: italic; }
+.coach-bar { height: 4px; border-radius: 4px; background: #ffffff1c; margin-top: 8px; overflow: hidden; }
+.coach-bar i { display: block; height: 100%; background: var(--gold); transition: width .4s; }
+#coach.collapsed { padding-bottom: 8px; }
+#coach.collapsed h3 { font-size: 15px; margin-bottom: 0; }
+.coach-target { position: relative; outline: 3px solid #ffd477 !important; outline-offset: -3px; animation: coachPulse 1.15s ease-in-out infinite; z-index: 2; }
+@keyframes coachPulse { 0%, 100% { box-shadow: inset 0 0 0 0 #ffd47700, 0 0 0 0 #ffd47766; } 50% { box-shadow: inset 0 0 14px 2px #ffd47766, 0 0 0 7px #ffd47733; } }
+body.coaching #goalbar, body.coaching #intro { display: none !important; }
+body.coaching:not(.mobile) #toasts { bottom: 117px; }
+
+body.mobile #coach { left: 8px; right: 8px; width: auto; top: calc(171px + env(safe-area-inset-top)); max-height: calc(100dvh - 171px - 64px - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
+body.mobile.coaching #toasts { top: auto; bottom: calc(64px + 140px + env(safe-area-inset-bottom)); }
+body.mobile.coaching[data-tab="course"] #side, body.mobile.coaching[data-tab="guests"] #side, body.mobile.coaching[data-tab="money"] #side, body.mobile.coaching[data-tab="club"] #side, body.mobile.coaching[data-tab="journey"] #side { height: auto; top: calc(171px + 136px + env(safe-area-inset-top)); max-height: none; }
+body.mobile.coaching.coach-folded[data-tab] #side { top: calc(171px + 64px + env(safe-area-inset-top)); }
+body.owner-playing #coach { top: calc(6px + env(safe-area-inset-top)); }
+body.mobile.owner-playing #coach { top: calc(66px + env(safe-area-inset-top)); }
+
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach { left: calc(82px + env(safe-area-inset-left)); right: auto; width: min(330px, 42vw); top: calc(108px + env(safe-area-inset-top)); max-height: calc(100dvh - 108px - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  body.mobile #coach h3 { font-size: 16px; }
+  body.mobile #coach p { font-size: 12.5px; }
+  body.mobile.coaching[data-tab] #side { top: calc(59px + env(safe-area-inset-top)); }
+  body.mobile.owner-playing #coach { top: calc(59px + env(safe-area-inset-top)); max-height: calc(100dvh - 70px); }
+  body.mobile.coaching #toasts { top: calc(59px + env(safe-area-inset-top)); bottom: auto; left: auto; right: calc(8px + env(safe-area-inset-right)); width: min(340px, 45vw); }
+}
+/* Compact coach on phones; brush sizes sit above the confirm bar, clear of the coach. */
+.coach-tools { display: flex; align-items: center; gap: 4px; }
+.coach-skip { min-height: 30px; }
+.coach-actions { justify-content: flex-end; }
+body.mobile #coach { padding: 9px 12px 8px; }
+body.mobile #coach h3 { font-size: 16px; margin: 1px 0 3px; }
+body.mobile #coach p { font-size: 13px; line-height: 1.4; margin-bottom: 4px; }
+body.mobile #coach .coach-actions .btn { min-height: 42px; }
+body.mobile #coach .coach-bar { margin-top: 6px; }
+body.mobile #brushbar { top: auto; bottom: calc(64px + 134px + 84px + env(safe-area-inset-bottom)); flex-direction: row; }
+body.mobile #brushbar button { width: 46px; height: 46px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #brushbar { top: calc(112px + env(safe-area-inset-top)); bottom: auto; flex-direction: column; }
+}
+#brushbar em { display: none; font-style: normal; }
+body.mobile #brushbar { padding: 4px; border-radius: 12px; right: 8px; }
+body.mobile #brushbar button:not(.on) { display: none; }
+body.mobile #brushbar button.on { width: 54px; height: 54px; gap: 2px; }
+body.mobile #brushbar button.on em { display: block; font-size: 9px; font-weight: 600; opacity: .8; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach { width: min(300px, 38vw); padding: 8px 10px 7px; }
+  body.mobile #coach h3 { font-size: 15px; }
+  body.mobile #coach p { font-size: 12px; line-height: 1.35; }
+  body.mobile #coach .coach-note { font-size: 11.5px; margin-top: 3px; }
+  body.mobile #brushbar { top: calc(118px + env(safe-area-inset-top)); }
+}

@@ -16,7 +16,12 @@ export interface Preview {
   limited: boolean;
 }
 
-type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch';
+type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch' | 'hold';
+
+/** Touch gestures: a finger must stay within SLOP pixels to count as a tap or a hold. */
+const SLOP = 10;
+/** How long a finger rests before a drag paints instead of panning. */
+export const HOLD_MS = 320;
 
 export class Editor {
   tool: ToolId;
@@ -47,6 +52,9 @@ export class Editor {
   private skipCost = 0;
   private lastTile: Pt | null = null;
   private pinch = { dist: 0, cx: 0, cy: 0 };
+  private lastPan: Pt | null = null;
+  private holdTimer: number | null = null;
+  private touch = false;
   private space = false;
   private hover: Pt | null = null;
   private lastMsg = '';
@@ -220,6 +228,8 @@ export class Editor {
 
   /** Roll back the stroke in progress (a second finger landed, or the pointer was lost). */
   private cancelStroke() {
+    this.stopHold();
+    if (this.mode === 'hold') this.mode = 'none';
     if (this.mode === 'paint') {
       for (const [i, prev] of this.strokeUndo) {
         const now = this.batch.get(i);
@@ -252,16 +262,20 @@ export class Editor {
     this.canvas.setPointerCapture(e.pointerId);
     const p = this.local(e);
     this.pointers.set(e.pointerId, p);
-    if (this.pointers.size === 2) {
+    if (this.pointers.size >= 2) {
+      // A second finger means pinch or two-finger pan. Never an edit: roll back anything the first finger started.
+      this.stopHold();
       this.cancelStroke();
+      this.clearHover();
       this.mode = 'pinch';
       const [a, b] = [...this.pointers.values()];
       this.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       return;
     }
-    if (this.pointers.size > 2) return;
+    if (this.mode === 'pinch') return; // a finger left over from a pinch must lift before anything else happens
     this.start = p;
     this.moved = false;
+    this.touch = e.pointerType !== 'mouse';
     if (this.game.owner.active) { this.mode = 'inspect'; return; }
     this.game.followGolfer = 0;
     const panByButton = e.button === 1 || e.button === 2 || this.space || this.tool === 'pan';
@@ -270,26 +284,54 @@ export class Editor {
       return;
     }
     if (this.tool === 'inspect') this.mode = 'inspect';
-    else if (this.isPaint) {
-      if (this.pending) this.clearPending();
-      this.mode = 'paint';
-      this.strokeUndo.clear();
-      this.limited = false;
-      this.skipCost = 0;
-      this.lastTile = null;
+    else if (this.touch && (this.isPaint || this.isPlacement || this.tool === 'land')) {
+      // Touch: one finger drags the map. Only a clean tap, or a press-and-hold for painting, edits.
+      this.mode = 'hold';
       this.hover = this.tileAt(p);
-      this.paintTo(this.hover);
-    } else {
+      if (this.isPaint) {
+        this.overlay.hoverTiles = brushTiles(this.game.world, this.hover.x, this.hover.y, this.brush);
+        this.overlay.changed = new Set();
+        this.overlay.blocked = new Set();
+        this.onChange();
+        this.holdTimer = window.setTimeout(() => {
+          this.holdTimer = null;
+          if (this.mode !== 'hold' || this.pointers.size !== 1) return;
+          this.startStroke(this.start);
+          if (this.game.preferences.haptics) navigator.vibrate?.(12);
+        }, HOLD_MS);
+      }
+    } else if (this.isPaint) this.startStroke(p);
+    else {
       this.mode = 'place';
       this.hover = this.tileAt(p);
       this.updateHover();
     }
   }
 
+  private startStroke(p: Pt) {
+    if (this.pending) this.clearPending();
+    this.mode = 'paint';
+    this.strokeUndo.clear();
+    this.limited = false;
+    this.skipCost = 0;
+    this.lastTile = null;
+    this.hover = this.tileAt(p);
+    this.paintTo(this.hover);
+  }
+  private stopHold() {
+    if (this.holdTimer !== null) window.clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+  }
+  /** True while a finger is resting, waiting to see whether it will tap, hold or drag. */
+  get holding() {
+    return this.mode === 'hold';
+  }
+
   private move(e: PointerEvent) {
     const p = this.local(e);
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, p);
-    if (this.mode === 'pinch' && this.pointers.size >= 2) {
+    if (this.mode === 'pinch') {
+      if (this.pointers.size < 2) return;
       const [a, b] = [...this.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       const cx = (a.x + b.x) / 2;
@@ -302,7 +344,18 @@ export class Editor {
       return;
     }
     if (!this.pointers.has(e.pointerId) && this.mode === 'none' && !this.overCanvas(e)) return;
+    if (this.mode === 'none' && e.pointerType !== 'mouse') return; // no hover on touch screens
     const over = this.overCanvas(e);
+    const far = Math.hypot(p.x - this.start.x, p.y - this.start.y) > SLOP;
+    if (this.mode === 'hold' && far) {
+      // The finger travelled before the hold finished: this is a pan, not an edit.
+      this.stopHold();
+      this.mode = 'pan';
+      this.overlay.hoverTiles = [];
+      this.preview = null;
+      this.onChange();
+    }
+    if (this.mode === 'hold') return;
     if (this.mode === 'pan' || (this.mode === 'inspect' && Math.hypot(p.x - this.start.x, p.y - this.start.y) > 6)) {
       if (this.mode === 'inspect') this.mode = 'pan';
       const prev = this.lastPan ?? this.start;
@@ -329,18 +382,24 @@ export class Editor {
       this.updateHover();
     } else if (this.mode === 'none') this.clearHover();
   }
-  private lastPan: Pt | null = null;
 
   private up(e: PointerEvent) {
     const p = this.local(e);
     this.pointers.delete(e.pointerId);
     this.lastPan = null;
     if (this.mode === 'pinch') {
-      if (this.pointers.size < 2) this.mode = 'none';
+      if (this.pointers.size === 0) this.mode = 'none';
       return;
     }
     const over = this.overCanvas(e);
-    if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
+    if (this.mode === 'hold') {
+      // A clean tap: stamp the brush once, or drop the tee/cup/dogleg/new-hole marker for review.
+      this.stopHold();
+      if (over && this.isPaint) {
+        this.startStroke(this.start);
+        this.endStroke();
+      } else if (over) this.commitPlace(this.tileAt(this.start));
+    } else if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
       this.game.owner.aim = this.r.toWorld(p.x, p.y);
     } else if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
     else if (this.mode === 'paint') this.endStroke();
@@ -356,8 +415,9 @@ export class Editor {
   private cancelPointer(e: PointerEvent) {
     this.pointers.delete(e.pointerId);
     this.lastPan = null;
+    this.stopHold();
     this.cancelStroke();
-    this.mode = 'none';
+    this.mode = this.pointers.size ? 'pinch' : 'none';
   }
 
   private clearHover() {

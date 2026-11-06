@@ -16,6 +16,7 @@ export function serialize(g: Game): string {
     v: VERSION,
     savedAt: Date.now(),
     campaign: g.campaign,
+    tutorial: g.tutorial,
     experience: g.experience,
     preferences: g.preferences,
     pendingRecap: g.pendingRecap,
@@ -91,6 +92,8 @@ export function deserialize(text: string): LoadedSave | null {
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
+    // Saves from before the walkthrough existed already know the controls.
+    g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
     g.staff = { ...g.staff, ...(d.staff ?? {}) };
     g.members = Array.isArray(d.members) ? d.members : [];
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];

@@ -87,7 +87,6 @@ export class UI {
     this.buildTop();
     this.buildSide();
     this.buildNav();
-    this.buildIntro();
     this.setMobile(window.matchMedia('(max-width: 860px), (max-height: 520px) and (pointer: coarse)').matches);
     window.matchMedia('(max-width: 860px), (max-height: 520px) and (pointer: coarse)').addEventListener('change', (e) => this.setMobile(e.matches));
     game.onNotice = (n) => this.toast(n.text, n.kind);
@@ -116,11 +115,12 @@ export class UI {
     bb.id = 'brushbar';
     bb.setAttribute('role', 'group');
     bb.setAttribute('aria-label', 'Brush size');
-    bb.innerHTML = BRUSH_RADII.map((_, i) => `<button data-brush="${i}" title="${brushNames[i]} brush" aria-label="${brushNames[i]} brush"><i style="width:${8 + i * 7}px;height:${8 + i * 7}px"></i><span>${'SML'[i]}</span></button>`).join('');
+    bb.innerHTML = BRUSH_RADII.map((_, i) => `<button data-brush="${i}" title="${brushNames[i]} brush" aria-label="${brushNames[i]} brush"><i style="width:${8 + i * 7}px;height:${8 + i * 7}px"></i><span>${'SML'[i]}</span><em>Brush</em></button>`).join('');
     document.getElementById('app')!.append(bb);
     bb.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
-      if (b?.dataset.brush) { this.editor.setBrush(Number(b.dataset.brush)); this.refresh(true); }
+      // Phones show one brush button that cycles through the sizes, so it covers as little of the map as possible.
+      if (b?.dataset.brush) { this.editor.setBrush(this.mobile ? (this.editor.brush + 1) % BRUSH_RADII.length : Number(b.dataset.brush)); this.refresh(true); }
     });
     this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
     this.$('tools').addEventListener('click', (e) => {
@@ -295,6 +295,14 @@ export class UI {
 
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
+    const base = this.panelInsets();
+    const coach = document.getElementById('coach');
+    if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
+    const c = coach.getBoundingClientRect();
+    if (this.landscape) return { ...base, l: Math.max(base.l, c.right + 10) };
+    return { ...base, t: Math.max(base.t, c.bottom + 8) };
+  }
+  private panelInsets() {
     const r = (id: string) => (document.getElementById(id) as HTMLElement).getBoundingClientRect();
     if (this.mobile) {
       const nav = r('nav');
@@ -356,11 +364,17 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
+      <button class="btn" id="mdTutorial">Replay the Level 1 tutorial</button>
       <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
+    (m.querySelector('#mdTutorial') as HTMLElement).onclick = () => {
+      const t = this.modal(`<h2>Replay the tutorial?</h2><p>The walkthrough restarts Willow Creek from the beginning so every step works as intended. Your current design is replaced.</p><div class="actions"><button class="btn" id="tuNo">Keep my course</button><button class="btn primary" id="tuOk">Start over with the tutorial</button></div>`);
+      (t.querySelector('#tuNo') as HTMLElement).onclick = () => this.closeModal();
+      (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onReset(); };
+    };
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
     (m.querySelector('#mdName') as HTMLElement).onclick = () => this.nameModal();
@@ -460,20 +474,6 @@ export class UI {
     const m = this.modal(`<h2>Repair this green?</h2><p>Reseed ${plan.tiles.length} worn tiles for ${fmtMoney(plan.cost)}. The hole closes for construction. Reopen it from Course when ready.</p><div class="actions"><button class="btn" id="repairNo">Cancel</button><button class="btn primary" id="repairYes">Repair · ${fmtMoney(plan.cost)}</button></div>`);
     (m.querySelector('#repairNo') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#repairYes') as HTMLElement).onclick = () => { this.game.commitEdit(plan); this.closeModal(); this.refresh(true); };
-  }
-
-  private buildIntro() {
-    if (this.game.settings.introSeen) return;
-    this.$('intro').innerHTML = `<div class="card"><span class="eyebrow">WILLOW CREEK · YOUR COURSE TO DESIGN</span><h2>Make it yours.</h2>
-      <ol><li><b>Design</b> opens the tools. Paint terrain; strokes stack up with a live price. <b>Build</b> pays, <b>Cancel</b> is free.</li>
-      <li>Hole tools work on the hole named in the top bar. <b>Holes</b> shows par, yardage and what stops a hole opening.</li>
-      <li><b>Undo</b> refunds. Everything saves automatically.</li></ol>
-      <button class="btn primary" id="introOk">Start designing</button></div>`;
-    this.$('introOk').addEventListener('click', () => {
-      this.game.settings.introSeen = true;
-      this.$('intro').innerHTML = '';
-      this.onInsets();
-    });
   }
 
   confirmReset() {
@@ -609,7 +609,7 @@ export class UI {
     } else {
       const info = TOOL_INFO[tool];
       html = `<span><b>${info.label}</b> · ${info.hint}</span>`;
-      if (PAINT_TOOLS.includes(tool)) html += `<span class="dim">Drag to paint. You are only charged for tiles that change.</span>`;
+      if (PAINT_TOOLS.includes(tool)) html += `<span class="dim">${matchMedia('(pointer: coarse)').matches ? 'Drag moves the map. Press and hold, then drag to paint. A tap paints one spot.' : 'Drag to paint. Right-drag or Space-drag moves the map.'} Nothing is charged until you tap Build.</span>`;
     }
     const key = cls + html;
     if (this.cache.get('pill') !== key) {

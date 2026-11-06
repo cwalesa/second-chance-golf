@@ -1,5 +1,6 @@
 import { FeedbackPlayer } from './feedback';
 import { Studio } from './studio';
+import { Tutorial } from './tutorial';
 import './style.css';
 import { CFG } from './config';
 import { Game } from './game';
@@ -30,6 +31,7 @@ async function boot() {
   const ui = new UI(game, editor);
   new FeedbackPlayer(game);
   const studio = new Studio(game, editor, renderer, ui);
+  const tutorial = new Tutorial(game, editor, renderer, ui);
   let resetting = false;
   const persist = () => {
     if (resetting) return;
@@ -109,11 +111,12 @@ async function boot() {
     if (uiClock > 0.12) {
       uiClock = 0;
       ui.refresh();
+      tutorial.update();
     }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui };
+  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial };
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }

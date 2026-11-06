@@ -12,6 +12,7 @@ import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, 
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
 import { EditPlan, ToolId, applyPlan, planRemoveHole, setCostMultiplier, touchedHoles } from './editing';
 import { setPhysics } from './physics';
+import { TutorialState, freshTutorial } from './tutorial';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
 import { GoalCtx, HIDDEN_GOALS, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
@@ -78,6 +79,8 @@ export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 export interface Preferences { sound: boolean; haptics: boolean; dailyReports: boolean; }
 export class Game {
   experience: Experience = freshExperience();
+  /** Level 1 walkthrough progress. New games start at step 0. */
+  tutorial: TutorialState = freshTutorial();
   preferences: Preferences = { sound: true, haptics: true, dailyReports: true };
   pendingRecap: DaySummary | null = null;
   onFeedback: (type: Feedback) => void = () => {};
