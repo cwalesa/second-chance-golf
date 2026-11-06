@@ -200,3 +200,18 @@ describe('first-course designer', () => {
     expect(loaded.validate(h.id).ok).toBe(true);
   });
 });
+
+describe('Level 1 walkthrough state', () => {
+  it('starts new games at step 0 and keeps progress through save and reload', () => {
+    const g = new Game();
+    expect(g.tutorial).toEqual({ step: 0, done: false });
+    g.tutorial.step = 7;
+    const back = deserialize(serialize(g))!.game;
+    expect(back.tutorial).toEqual({ step: 7, done: false });
+  });
+  it('treats saves from before the walkthrough as already finished', () => {
+    const d = JSON.parse(serialize(new Game()));
+    delete d.tutorial;
+    expect(deserialize(JSON.stringify(d))!.game.tutorial.done).toBe(true);
+  });
+});

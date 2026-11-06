@@ -1,3 +1,26 @@
+# Second Chance Golf — Level 1: Willow Creek (0.7.0)
+
+Only Level 1 is playable. A new game starts a **22-step guided walkthrough** that teaches every control while you restore two holes and build one of your own:
+
+1. Look around (drag to move, pinch or +/− to zoom), choose a hole with the hole bar, open the Design tools.
+2. **Restore hole 2:** pick Nature → Repair, press-and-hold then drag over the worn green, review the preview and cost, Build, then try Undo and Redo, and reopen the hole.
+3. **Restore hole 3:** the Holes panel explains why it can't open; Fix with Fairway, bridge the gap, Build, open it.
+4. **Build a new hole:** New hole (tap tee, tap green, Build), Move cup, add a bunker, open it, send test golfers, speed up time, and play it yourself.
+
+A coach card shows one step at a time and a glowing ring marks the button to press; steps advance when you actually do the thing. The clock is paused during the walkthrough. Progress is saved, so a reload resumes the same step. **Skip** ends it; Menu → **Replay the Level 1 tutorial** starts a fresh Willow Creek with the walkthrough.
+
+## Touch controls
+
+- **One finger drag always moves the map.** It never paints or places anything.
+- **Two fingers** pinch-zoom and pan. If a second finger lands, anything the first finger started is rolled back.
+- **Paint:** press and hold about a third of a second (the brush outline appears and the phone gives a short buzz where supported), then drag. A quick **tap** paints one spot.
+- **Tees, cups, doglegs, new holes:** a clean **tap** drops a gold preview; dragging only moves the map.
+- Nothing is charged until **Build**; **Cancel** and **Undo** are always there.
+- On phones the brush size is one **Brush** button that cycles S → M → L.
+- Mouse: drag paints, right-drag or Space-drag moves the map, wheel zooms.
+
+---
+
 # Second Chance Golf — First Course Designer (0.6.0)
 
 This version has one job: **design and play Willow Creek, your first course.** Travel, later properties and the campaign portfolio are hidden (the code is still there but unreachable from the interface). No other locations, multiplayer, monetization or App Store work is included.
