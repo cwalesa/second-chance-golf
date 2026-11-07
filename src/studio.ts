@@ -13,6 +13,7 @@ export class Studio {
   private hud = document.createElement('div');
   private mini = document.createElement('canvas');
   private holebar = document.createElement('div');
+  private editbtns = document.createElement('div');
   private barKey = '';
   private editKey = '';
   private cache = '';
@@ -22,9 +23,22 @@ export class Studio {
     this.controls.id = 'map-controls'; this.hud.id = 'owner-hud'; this.mini.id = 'minimap';
     this.mini.width = 192; this.mini.height = 128;
     this.holebar.id = 'holebar';
-    document.getElementById('app')!.append(this.controls, this.holebar, this.hud, this.mini);
+    this.editbtns.id = 'editbtns';
+    // The hole selector and undo/redo live in the header strip, so they never stack over the course.
+    const top = document.getElementById('top')!;
+    top.insertBefore(this.editbtns, top.querySelector('#speed'));
+    top.insertBefore(this.holebar, this.editbtns);
+    top.insertBefore(Object.assign(document.createElement('div'), { className: 'tbreak' }), this.holebar);
+    document.getElementById('app')!.append(this.controls, this.hud, this.mini);
     const arrow = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="undo" id="undoBtn" aria-label="Undo">${arrow('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/>')}<span>Undo</span></button><button data-camera="redo" id="redoBtn" aria-label="Redo">${arrow('<path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 8"/>')}</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.editbtns.innerHTML = `<button data-camera="undo" id="undoBtn" aria-label="Undo">${arrow('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/>')}<span>Undo</span></button><button data-camera="redo" id="redoBtn" aria-label="Redo">${arrow('<path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 8"/>')}</button>`;
+    this.editbtns.onclick = e => {
+      const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
+      if (action === 'undo') this.editor.undo();
+      else if (action === 'redo') this.editor.redo();
+      this.update(0);
+    };
     this.holebar.onclick = e => {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-hb]')?.dataset.hb;
       if (!act) return;
@@ -37,9 +51,7 @@ export class Studio {
     };
     this.controls.onclick = e => {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
-      if (action === 'undo') this.editor.undo();
-      else if (action === 'redo') this.editor.redo();
-      else if (action === 'design') { this.g.toggleDesignMode(); this.editor.setTool('inspect'); }
+      if (action === 'design') { this.g.toggleDesignMode(); this.editor.setTool('inspect'); }
       else if (action === 'fit') { this.g.followGolfer = 0; this.r.fit(this.g.world); }
       else if (action === 'home') { this.g.followGolfer = 0; this.editor.focusHole(); }
       else if (action) this.r.zoomAt(this.r.cw / 2, this.r.ch / 2, action === 'in' ? 1.3 : 1 / 1.3, this.g.world);
@@ -101,7 +113,7 @@ export class Studio {
     const key = `${!!p}|${u?.label}|${g.redoStack.length}`;
     if (key !== this.editKey) {
       this.editKey = key;
-      const undo = this.controls.querySelector<HTMLButtonElement>('#undoBtn')!, redo = this.controls.querySelector<HTMLButtonElement>('#redoBtn')!;
+      const undo = this.editbtns.querySelector<HTMLButtonElement>('#undoBtn')!, redo = this.editbtns.querySelector<HTMLButtonElement>('#redoBtn')!;
       undo.disabled = !p && !u;
       undo.querySelector('span')!.textContent = p ? 'Discard' : 'Undo';
       undo.title = p ? 'Discard unbuilt changes' : u ? `Undo ${u.label}${u.cost ? ` (refunds ${fmtMoney(u.cost)})` : ''}` : 'Nothing to undo';
@@ -113,7 +125,7 @@ export class Studio {
     const st = this.ui.holeState(h), bkey = `${h.id}|${h.name}|${h.par}|${holeYards(h)}|${st.cls}|${st.text}`;
     if (bkey === this.barKey) return;
     this.barKey = bkey;
-    this.holebar.innerHTML = `<button class="hb-step" data-hb="prev" aria-label="Previous hole">‹</button><button class="hb-main" data-hb="open" aria-label="Open the Holes panel"><span class="hb-name"><b>${h.id} · ${escapeHtml(h.name)}</b><small>Par ${h.par} · ${holeYards(h)} yd</small></span><span class="hole-state ${st.cls}">${st.text}</span></button><button class="hb-step" data-hb="next" aria-label="Next hole">›</button>`;
+    this.holebar.innerHTML = `<button class="hb-step" data-hb="prev" aria-label="Previous hole">‹</button><button class="hb-main" data-hb="open" aria-label="Open the Holes panel"><span class="hb-name"><b>${h.id} · ${escapeHtml(h.name)}</b><small><i class="hb-dot ${st.cls}"></i>${st.cls === 'open' ? 'Open' : st.cls === 'ready' ? 'Ready' : st.text} · Par ${h.par} · ${holeYards(h)} yd</small></span></button><button class="hb-step" data-hb="next" aria-label="Next hole">›</button>`;
   }
   private drawMini() {
     const c = this.mini.getContext('2d')!, w = this.g.world, sx = 192 / w.w, sy = 128 / w.h;

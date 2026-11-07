@@ -21,8 +21,13 @@ interface Ctx {
   mark: Record<string, unknown>;
 }
 interface Step {
-  title: string;
-  body: (c: Ctx) => string;
+  id?: string;
+  /** One short, actionable instruction. */
+  short: (c: Ctx) => string;
+  /** The longer explanation, shown only when the player taps More. */
+  more?: (c: Ctx) => string;
+  /** 'map' steps close management panels so the course is visible; 'sheet' steps keep the Holes sheet at half height. */
+  view?: 'map' | 'sheet';
   /** What to point at; the first selector that is on screen gets the pulsing ring. */
   target?: (c: Ctx) => string[];
   check?: (c: Ctx) => boolean;
@@ -60,153 +65,167 @@ const panelTarget = (c: Ctx, sel: string) => (c.ui.tab !== 'course' ? ['#nav [da
 /** Make sure the hole bar and Holes panel are on the hole the step is about. */
 const holeTarget = (c: Ctx, id: number, then: string[]) => (c.g.selectedHole !== id ? ['#holebar [data-hb="next"]', `[data-hole="${id}"]`] : then);
 
+const isLandscape = (c: Ctx) => c.ui.landscape;
 const touchWords = (c: Ctx) => c.ui.mobile || matchMedia('(pointer: coarse)').matches;
 
 const STEPS: Step[] = [
   {
-    title: 'Welcome to Willow Creek',
-    body: () => `This is Level 1, your first course. It has seen better days. This walkthrough shows every control while you <b>restore two holes</b> and <b>build a brand-new one</b>. Each step tells you what to tap; the glowing ring shows where.`,
-    nextLabel: "Let's start",
+    short: () => 'Welcome to Willow Creek, Level 1.',
+    more: () => 'This walkthrough teaches every control while you restore two holes and build one of your own. Each step asks for one thing; the gold ring marks where to tap.',
+    nextLabel: 'Start',
+    view: 'map',
   },
   {
-    title: 'Look around',
-    body: (c) => touchWords(c)
-      ? `<b>Drag one finger</b> to move the map. <b>Pinch</b> with two fingers to zoom (or use <b>+</b> and <b>−</b>). Moving the map never changes your course.`
-      : `<b>Drag</b> to move the map and use the <b>mouse wheel</b> (or <b>+</b> and <b>−</b>) to zoom.`,
+    short: (c) => (touchWords(c) ? 'Drag one finger to move the map, then pinch to zoom.' : 'Drag to move the map, then scroll to zoom.'),
+    more: (c) => `Moving the map never changes your course.${isLandscape(c) ? '' : ' The + and − buttons zoom too.'}`,
+    view: 'map',
     enter: (c) => { c.mark.x = c.r.cam.x; c.mark.y = c.r.cam.y; c.mark.z = c.r.cam.zoom; },
     check: (c) => Math.hypot(c.r.cam.x - (c.mark.x as number), c.r.cam.y - (c.mark.y as number)) * c.r.cam.zoom > 80 && Math.abs(c.r.cam.zoom / (c.mark.z as number) - 1) > 0.08,
   },
   {
-    title: 'Choose a hole',
-    body: () => `The bar at the top shows the hole your hole tools work on, with its par, length and status. Tap <b>›</b> to go to hole 2, Cattail Carry.`,
+    short: () => 'Tap › to select Cattail Carry.',
+    more: () => 'The hole bar shows which hole the hole tools work on, with its status, par and length. Tap the name to manage that hole.',
+    view: 'map',
     target: () => ['#holebar [data-hb="next"]'],
     check: (c) => c.g.selectedHole === 2,
   },
   {
-    title: 'Open the Design tools',
-    body: (c) => c.ui.mobile ? `Tap <b>Design</b> in the bottom bar. The tool tray opens above it.` : `The tool tray is along the bottom of the screen. Its groups are Terrain, Nature and Holes.`,
+    short: (c) => (c.ui.mobile ? 'Tap Design to open the building tools.' : 'The building tools are along the bottom of the screen.'),
+    more: () => 'Tools come in three groups: Terrain, Nature and Holes.',
+    view: 'map',
     target: (c) => (c.ui.mobile ? ['#nav [data-nav="build"]'] : []),
     check: (c) => !c.ui.mobile || c.ui.tab === 'build',
     nextLabel: 'Next',
   },
   {
-    title: 'Restore hole 2: pick Repair',
-    body: () => `Hole 2's green is worn to dirt. Tools come in three groups: <b>Terrain</b>, <b>Nature</b> and <b>Holes</b>. Tap <b>Nature</b>, then <b>Repair</b>.`,
+    short: () => 'Tap Nature, then Repair.',
+    more: () => "Hole 2's green is worn down to dirt. Repair reseeds worn turf.",
+    view: 'map',
     enter: (c) => { c.e.selectHole(2); const h = hole(c, 2); if (h) c.e.focusPoint(h.cup, 1.1); },
     target: (c) => toolTarget(c, 'repair'),
     check: (c) => c.e.tool === 'repair',
   },
   {
-    title: 'Paint the repair',
-    body: (c) => touchWords(c)
-      ? `<b>Press and hold</b> on the brown green until the brush outline appears, then <b>drag</b> across it. A quick <b>tap</b> paints one spot. A drag <i>without</i> holding just moves the map, so you can't paint by accident. The <b>Brush</b> button cycles small, medium and large.`
-      : `<b>Click and drag</b> across the brown green. S, M and L change the brush size.`,
-    target: (c) => (c.e.tool === 'repair' ? ['#brushbar [data-brush="2"]'] : toolTarget(c, 'repair')),
+    short: (c) => (touchWords(c) ? 'Press and hold the brown green, then drag across it.' : 'Drag across the brown green.'),
+    more: (c) => (touchWords(c) ? "A quick tap paints one spot. A drag without holding only moves the map, so you can't paint by accident. The Brush button changes the size." : 'S, M and L change the brush size.'),
+    view: 'map',
+    target: (c) => (c.e.tool === 'repair' ? [] : toolTarget(c, 'repair')),
     check: (c) => greenRepairs(c, c.e.batch.values()) >= 6 || c.g.undoStack.some((u) => greenRepairs(c, u.plan.tiles) >= 6),
   },
   {
-    title: 'Review, then Build',
-    body: (c) => `Nothing is built yet. The tinted tiles are a <b>preview</b>, and the bar shows how many tiles and what it costs. Keep painting to cover more of the green, then tap <b>Build</b> to pay. <b>Cancel</b> would throw it away for free.${c.e.proposal ? '' : ' (Paint a few tiles first.)'}`,
+    short: (c) => (c.e.proposal ? 'Tap Build to pay for the repair.' : 'Paint a few tiles of the green first.'),
+    more: () => 'Tinted tiles are a preview and the bar shows the tile count and price. Nothing is charged until Build; Cancel throws it away for free.',
+    view: 'map',
     target: (c) => (c.e.proposal ? ['#cfOk'] : []),
     check: (c) => { const p = c.g.undoStack.map((u) => u.plan).reverse().find((pl) => greenRepairs(c, pl.tiles) >= 6); if (p) c.mark.plan = p; return !!p && !c.e.proposal; },
   },
   {
-    title: 'Undo a mistake',
-    body: () => `Everything you build can be undone, and undo gives the money back. Tap <b>Undo</b> (the curved arrow at the top).`,
+    short: () => 'Tap Undo ↶ to take the repair back.',
+    more: () => 'Everything you build can be undone, and Undo refunds what you paid.',
     enter: (c) => { if (!c.mark.plan) c.mark.plan = c.g.undoStack.map((u) => u.plan).reverse().find((pl) => greenRepairs(c, pl.tiles) >= 6); },
     target: () => ['#undoBtn'],
     check: (c) => !c.mark.plan || undoTop(c) !== c.mark.plan,
   },
   {
-    title: '…and Redo',
-    body: () => `Changed your mind again? <b>Redo</b> (the arrow beside it) puts the repair back.`,
+    short: () => 'Tap Redo ↷ to put it back.',
     target: () => ['#redoBtn'],
-    check: (c) => !c.mark.plan || undoTop(c) === c.mark.plan || c.g.undoStack.some((u) => u.plan === c.mark.plan),
+    check: (c) => !c.mark.plan || c.g.undoStack.some((u) => u.plan === c.mark.plan),
   },
   {
-    title: 'Reopen hole 2',
-    body: (c) => `Working on a hole closes it so no golfer gets caught in the work. ${c.ui.mobile ? 'Tap <b>Holes</b> in the bottom bar, then' : 'In the Holes panel, tap'} <b>Open hole</b>. That's one hole restored.`,
+    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole.' : 'Tap Holes, then Open hole.'),
+    more: () => 'Working on a hole closes it so no golfer is caught in the work. Reopen it when you are done.',
+    view: 'sheet',
     target: (c) => holeTarget(c, 2, panelTarget(c, '[data-act="open"]')),
     check: (c) => !!hole(c, 2)?.open,
   },
   {
-    title: 'Hole 3 is overgrown',
-    body: () => `Foxglove Run has been closed for years. Go to <b>hole 3</b> (the <b>›</b> in the top bar or its row in Holes). The Holes panel lists exactly what stops a hole opening. Tap <b>Fix with Fairway</b>.`,
+    short: (c) => (c.g.selectedHole !== 3 ? 'Tap › to select hole 3, Foxglove Run.' : c.ui.tab === 'course' ? 'Tap Fix with Fairway.' : 'Tap Holes to see why hole 3 is closed.'),
+    more: () => 'The Holes panel lists exactly what stops a hole opening, with a button that takes you to the fix.',
+    view: 'sheet',
     target: (c) => holeTarget(c, 3, panelTarget(c, '[data-act="issue"][data-mode="fix"]')),
     check: (c) => c.g.selectedHole === 3 && c.e.tool === 'fairway',
   },
   {
-    title: 'Bridge the gap',
-    body: (c) => {
+    short: (c) => {
       const v = c.g.validate(3);
-      const why = v.ok ? 'Connected: the fairway runs from tee to green.' : c.e.proposal ? 'Looks connected? Tap Build to check.' : 'Still broken at the red ring.';
-      return `The red ring marks where the fairway breaks. ${touchWords(c) ? 'Hold, then drag' : 'Drag'} fairway across the gap, three tiles wide, then tap <b>Build</b>. Fairway clears trees as it goes. Set <b>Brush</b> to <b>L</b> for wide strokes.<br><span class="coach-note">${why}</span>`;
+      if (c.e.proposal) return 'Tap Build to lay the fairway.';
+      return v.ok ? 'Connected. Tap Build if anything is still staged.' : `${touchWords(c) ? 'Hold and drag' : 'Drag'} fairway across the red ring.`;
     },
+    more: () => 'The fairway must run three tiles wide from tee to green. Fairway clears trees as it goes; set Brush to L for wide strokes.',
+    view: 'map',
     enter: (c) => { c.e.selectHole(3); const b = c.g.validate(3).breakAt; if (b) c.e.focusPoint(b, 1); if (c.e.tool !== 'fairway') c.e.setTool('fairway'); },
-    target: (c) => (c.e.proposal ? ['#cfOk'] : c.e.tool === 'fairway' ? ['#brushbar [data-brush="2"]'] : toolTarget(c, 'fairway')),
+    target: (c) => (c.e.proposal ? ['#cfOk'] : c.e.tool === 'fairway' ? [] : toolTarget(c, 'fairway')),
     check: (c) => c.g.validate(3).ok && !c.e.proposal,
   },
   {
-    title: 'Open hole 3',
-    body: (c) => `Every check passes. ${c.ui.mobile ? 'In <b>Holes</b>, tap' : 'Tap'} <b>Open hole</b> for Foxglove Run. Two holes restored!`,
+    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole for Foxglove Run.' : 'Tap Holes, then Open hole.'),
+    more: () => 'Every check passes now. That is two holes restored.',
+    view: 'sheet',
     target: (c) => holeTarget(c, 3, panelTarget(c, '[data-act="open"]')),
     check: (c) => !!hole(c, 3)?.open,
   },
   {
-    title: 'Build a new hole',
-    body: (c) => `Now something of your own. In the open land shown here, choose <b>Holes → New hole</b>. Tap where the <b>tee</b> goes, then tap where the <b>green</b> goes, about two thumb-widths away. A gold preview shows the route, par and yards. Tap <b>Build</b>.${c.e.tool === 'build' && c.e.proposal ? ' Looks good? Tap Build.' : ''}`,
+    short: (c) => (c.e.tool !== 'build' ? 'Tap Holes, then New hole.' : c.e.proposal ? 'Tap Build to lay out your hole.' : c.e.buildStarted ? 'Tap where the green goes.' : 'Tap open land for the tee.'),
+    more: () => 'Put the green about two thumb-widths from the tee. A gold preview shows the route, par and yards before anything is built.',
+    view: 'map',
     enter: (c) => { c.mark.n = c.g.world.holes.length; c.e.focusPoint(NEW_HOLE_AREA, 0.55); },
     target: (c) => toolTarget(c, 'build'),
     check: (c) => c.g.world.holes.length > (c.mark.n as number) && !c.e.proposal,
   },
   {
-    title: 'Move the cup',
-    body: (c) => `Not quite right? With <b>Move cup</b>, tap a new spot for the green. A gold ghost shows the new pin before anything is built. Tap <b>Build</b> to cut the new green.${c.e.tool === 'cup' ? ' Tap the map near the green.' : ''}`,
+    short: (c) => (c.e.tool !== 'cup' ? 'Tap Move cup.' : c.e.proposal ? 'Tap Build to cut the new green.' : 'Tap a new spot for the green.'),
+    more: () => 'A gold ghost shows the new pin, route and yardage first. Cancel leaves the hole as it was.',
+    view: 'map',
     enter: (c) => { const h = newestHole(c); c.e.selectHole(h.id); c.mark.cup = `${h.cup.x},${h.cup.y}`; },
     target: (c) => toolTarget(c, 'cup'),
     check: (c) => { const h = hole(c, myId(c)); return !!h && `${h.cup.x},${h.cup.y}` !== c.mark.cup && !c.e.proposal; },
   },
   {
-    title: 'Add a hazard',
-    body: () => `Holes need character. Choose <b>Terrain → Bunker</b> and paint a bunker or two beside the green (hold, then drag), then <b>Build</b>. Keep a path of fairway open to the green or the hole can't open.`,
+    short: (c) => (c.e.tool !== 'bunker' ? 'Tap Terrain, then Bunker.' : c.e.proposal ? 'Tap Build to dig the bunker.' : 'Hold and drag beside the green.'),
+    more: () => 'Hazards give a hole character. Leave fairway open to the green or the hole cannot open.',
+    view: 'map',
     enter: (c) => { c.mark.sand = sandNear(c); const h = hole(c, myId(c)); if (h) c.e.focusPoint(h.cup, 0.95); },
     target: (c) => toolTarget(c, 'bunker'),
     check: (c) => sandNear(c) >= (c.mark.sand as number) + 3 && !c.e.proposal,
   },
   {
-    title: 'Open your hole',
-    body: (c) => `${c.ui.mobile ? 'In <b>Holes</b>, tap' : 'Tap'} <b>Open hole</b>. If it can't open, the panel says why and <b>Show on map</b> takes you there.`,
+    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole.' : 'Tap Holes, then Open hole.'),
+    more: () => "If it can't open, the panel says why and Show on map takes you there.",
+    view: 'sheet',
     target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="open"]')),
     check: (c) => !!hole(c, myId(c))?.open,
   },
   {
-    title: 'Send test golfers',
-    body: () => `Let's watch real golfers try it. Tap <b>Send test golfers</b>. Three of them (a beginner, a regular and a skilled player) walk out and play your hole for free.`,
+    id: 'testgolfers',
+    short: () => 'Tap Test golfers.',
+    more: () => 'A beginner, a regular and a skilled golfer walk out and play your hole for free. Their scores appear in the Holes panel.',
+    view: 'sheet',
     target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="testgolfers"]')),
     check: (c) => c.g.sim.golfers.some((x) => x.test && x.route.includes(myId(c))) || c.g.testResults.some((r) => r.hole === myId(c)),
   },
   {
-    title: 'Speed up time',
-    body: (c) => `Use the speed buttons at the top: <b>II</b> pauses, <b>1×</b> is normal${c.ui.mobile && innerHeight > innerWidth ? '' : ', <b>3×</b> and <b>8×</b> are faster'}. Watch them play; their scores appear in the Holes panel.`,
-    target: (c) => (c.g.settings.speed < 3 ? ['#speed [data-speed="8"]', '#speed [data-speed="1"]'] : []),
+    short: (c) => (c.g.settings.speed < 3 ? `Tap ${c.ui.mobile && !isLandscape(c) ? '3×' : '8×'} to speed up time.` : 'Watch them finish the hole.'),
+    more: () => 'II pauses and 1× is normal speed.',
+    view: 'map',
+    target: (c) => (c.g.settings.speed < 3 ? ['#speed [data-speed="8"]', '#speed [data-speed="3"]'] : []),
     check: (c) => c.g.testResults.some((r) => r.hole === myId(c)),
   },
   {
-    title: 'Play it yourself',
-    body: () => `Now you try. In Holes, tap <b>Play it</b>. Pick a club, tap <b>Start swing</b>, then tap again as the needle crosses the middle. Tap the map to aim somewhere else.`,
+    short: (c) => (c.g.owner.active ? 'Tap Start swing, then tap again in the middle.' : c.ui.tab === 'course' ? 'Tap Play it.' : 'Tap Holes, then Play it.'),
+    more: () => 'Pick a club first. Tap the map to aim somewhere else. The needle in the centre gives clean contact.',
+    view: 'sheet',
     target: (c) => (c.g.owner.active ? ['[data-owner="hit"]'] : holeTarget(c, myId(c), panelTarget(c, '[data-act="practice"]'))),
     check: (c) => c.g.owner.active && c.g.owner.strokes >= 1,
   },
   {
-    title: 'Finish your round',
-    body: () => `Play on as long as you like. Tap <b>Finish</b> to return to designing.`,
+    short: () => 'Tap Finish when you are done.',
     target: (c) => (c.g.owner.active ? ['[data-owner="stop"]'] : []),
     check: (c) => !c.g.owner.active,
   },
   {
-    title: 'Level 1 complete',
-    body: () => `You restored two holes, built one, tested it and played it. Willow Creek is yours to keep shaping: add holes (up to nine), water, paths and trees. <b>Goals</b> lists rewards to chase. Everything saves on this device automatically.`,
-    nextLabel: 'Finish tutorial',
+    short: () => 'Level 1 complete. Willow Creek is yours.',
+    more: () => 'You restored two holes and built, tested and played your own. Keep shaping the course: up to nine holes, water, paths and trees. Goals lists rewards to chase. Everything saves on this device.',
+    nextLabel: 'Finish',
   },
 ];
 
@@ -220,7 +239,7 @@ function sandNear(c: Ctx) {
   return n;
 }
 
-/** Level 1's coach: one card, one ring, one thing to do at a time. */
+/** Level 1's coach: one short instruction at a time, docked beside the free map area, with a ring on the target. */
 export class Tutorial {
   private card = document.createElement('div');
   private ctx: Ctx;
@@ -228,10 +247,17 @@ export class Tutorial {
   private ring: HTMLElement | null = null;
   private html = '';
   private collapsed = false;
+  private more = false;
+  /** While a confirm or placement bar is up, the coach shrinks to its instruction; ⋯ shows Back/More/Skip. */
+  private toolsOpen = false;
+  private slim = false;
   private doneFlash = 0;
+  /** Highest step reached this session; Back reviews earlier steps without re-checking them. */
+  private furthest = 0;
 
   constructor(private g: Game, e: Editor, r: Renderer, private ui: UI) {
     this.ctx = { g, e, r, ui, mark: {} };
+    this.furthest = g.tutorial.step;
     this.card.id = 'coach';
     this.card.setAttribute('role', 'dialog');
     this.card.setAttribute('aria-live', 'polite');
@@ -241,28 +267,47 @@ export class Tutorial {
       if (!b) return;
       const act = b.dataset.coach;
       if (act === 'next') this.advance();
+      else if (act === 'back') this.back();
+      else if (act === 'more') this.more = !this.more;
       else if (act === 'fold') this.collapsed = !this.collapsed;
+      else if (act === 'tools') this.toolsOpen = !this.toolsOpen;
       else if (act === 'skip') {
-        if (confirm('Skip the tutorial? You can keep designing Willow Creek freely.')) this.finish();
+        if (confirm('Skip the tutorial? You can keep designing Willow Creek freely, and replay it from the Menu.')) this.finish();
       }
       this.update(true);
+      this.ui.onInsets();
     };
-    if (this.active) {
-      // The walkthrough runs with the clock stopped so guests and closing time never interrupt it.
+    // Touches on the card never reach the course underneath.
+    this.card.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    if (this.active && g.tutorial.step < TEST_GOLFER_STEP) {
+      // Building steps run with the clock stopped so guests and closing time never interrupt them;
+      // from the test-golfer step on, time has to run for the golfers to play.
       g.settings.introSeen = true;
       g.designMode = true;
       g.setSpeed(0);
     }
+    window.addEventListener('resize', () => this.update(true));
   }
 
   get active() {
     return !this.g.tutorial.done;
   }
+  private get reviewing() {
+    return this.g.tutorial.step < this.furthest;
+  }
 
   private advance() {
     this.g.tutorial.step++;
+    this.furthest = Math.max(this.furthest, this.g.tutorial.step);
+    this.more = false;
     this.g.dirtySave = true;
     if (this.g.tutorial.step >= STEPS.length) this.finish();
+  }
+  private back() {
+    if (this.g.tutorial.step === 0) return;
+    this.g.tutorial.step--;
+    this.more = false;
+    this.entered = -1;
   }
   private finish() {
     this.g.tutorial.done = true;
@@ -271,6 +316,15 @@ export class Tutorial {
     this.card.hidden = true;
     document.body.classList.remove('coaching', 'coach-folded');
     this.g.notify('good', 'Level 1 is yours. Keep designing Willow Creek.');
+    this.ui.onInsets();
+  }
+
+  /** Close panels the step doesn't use, and keep the Holes sheet usable when it is the lesson. */
+  private arrange(step: Step) {
+    const ui = this.ui;
+    if (ui.tab !== 'none' && ui.tab !== 'build' && ui.tab !== 'course') { ui.tab = 'none'; ui.refresh(true); ui.onInsets(); }
+    if (step.view === 'map' && ui.mobile && ui.tab === 'course') { ui.tab = 'none'; ui.refresh(true); ui.onInsets(); }
+    if (step.view === 'sheet' && ui.tab === 'course' && ui.portraitSheet && ui.sheet !== 'half') ui.setSheet('half');
   }
 
   /** Called a few times a second from the main loop. */
@@ -288,27 +342,54 @@ export class Tutorial {
     if (entering) {
       this.entered = t.step;
       this.collapsed = false;
+      if (!this.reviewing) step.enter?.(this.ctx);
+      this.arrange(step);
     }
-    if (!entering && step.check && step.check(this.ctx)) {
+    if (!entering && !this.reviewing && step.check && step.check(this.ctx)) {
       this.doneFlash = performance.now();
       this.advance();
       this.update(true);
       return;
     }
     const flash = performance.now() - this.doneFlash < 900;
-    const html = `<div class="coach-head"><span class="coach-count">${flash ? '✓ Done · ' : ''}Step ${t.step + 1} of ${STEPS.length}</span><span class="coach-tools"><button class="coach-skip" data-coach="skip">Skip</button><button class="coach-fold" data-coach="fold" aria-label="${this.collapsed ? 'Show instructions' : 'Hide instructions'}">${this.collapsed ? '▾' : '▴'}</button></span></div><h3>${step.title}</h3>${this.collapsed ? '' : `<p>${step.body(this.ctx)}</p>${step.check ? '' : `<div class="coach-actions"><button class="btn primary" data-coach="next">${step.nextLabel ?? 'Next'}</button></div>`}`}<div class="coach-bar"><i style="width:${(t.step / STEPS.length) * 100}%"></i></div>`;
+    const manual = !step.check || this.reviewing;
+    const moreText = step.more?.(this.ctx);
+    const confirm = document.getElementById('confirm');
+    this.slim = this.ui.mobile && !!confirm && confirm.style.display !== 'none';
+    const showTools = !this.slim || this.toolsOpen;
+    const html = `<div class="coach-row"><span class="coach-count">${flash ? '✓ ' : ''}${t.step + 1}/${STEPS.length}</span><p class="coach-short">${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${this.reviewing ? 'Next' : step.nextLabel ?? 'Next'}</button>` : ''}${this.slim && !this.collapsed ? `<button class="coach-dots" data-coach="tools" aria-label="${showTools ? 'Hide' : 'Show'} tutorial options" aria-expanded="${showTools}">⋯</button>` : ''}</div>${this.collapsed || !showTools ? '' : `${this.more && moreText ? `<p class="coach-more">${moreText}</p>` : ''}<div class="coach-tools"><button data-coach="back" ${t.step === 0 ? 'disabled' : ''} aria-label="Previous step">‹<span> Back</span></button>${moreText ? `<button data-coach="more" aria-expanded="${this.more}">${this.more ? 'Less' : 'More'}</button>` : ''}<button data-coach="skip">Skip</button><button data-coach="fold" aria-label="Collapse instructions">▾</button></div>`}${this.collapsed ? '<button class="coach-unfold" data-coach="fold" aria-label="Expand instructions">▴</button>' : ''}`;
     if (force || entering || html !== this.html) {
-      const grew = this.html.length === 0 || entering || force;
+      const resized = this.html === '' || entering || force || this.card.classList.contains('collapsed') !== this.collapsed;
       this.html = html;
       this.card.innerHTML = html;
       this.card.classList.toggle('collapsed', this.collapsed);
-      document.body.classList.toggle('coach-folded', this.collapsed);
       this.card.classList.toggle('flash', flash);
-      // Frame the map around the card, so whatever the step asks for is never hidden under it.
-      if (grew) this.ui.onInsets();
+      if (resized) this.ui.onInsets();
     }
-    if (entering) step.enter?.(this.ctx);
+    this.dock();
     this.pointAt(step.target?.(this.ctx) ?? []);
+  }
+
+  /** Sit just above whatever occupies the bottom of the screen: nav, tool tray, sheet or confirm bar. */
+  private dock() {
+    if (!this.ui.mobile) { this.card.style.bottom = ''; this.card.style.left = ''; this.card.style.width = ''; this.card.classList.remove('beside'); return; }
+    const confirm = document.getElementById('confirm');
+    const cr = confirm && confirm.style.display !== 'none' ? confirm.getBoundingClientRect() : null;
+    const dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock')) || 0;
+    const sideW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 0;
+    // In landscape there is usually room beside the confirm bar; stacking would leave almost no map.
+    const room = cr ? window.innerWidth - cr.right - 14 - sideW : 0;
+    const beside = this.ui.landscape && !!cr && room >= 250;
+    const bottom = beside ? `${Math.round(window.innerHeight - cr!.bottom)}px` : `${Math.round(dock + (cr ? cr.height + 8 : 0) + 8)}px`;
+    const left = beside ? `${Math.round(cr!.right + 8)}px` : '';
+    const width = beside ? `${Math.round(Math.min(room, 420))}px` : '';
+    this.card.classList.toggle('beside', beside);
+    if (this.card.style.bottom !== bottom || this.card.style.left !== left || this.card.style.width !== width) {
+      this.card.style.bottom = bottom;
+      this.card.style.left = left;
+      this.card.style.width = width;
+      this.ui.onInsets();
+    }
   }
 
   private pointAt(selectors: string[]) {
@@ -317,18 +398,18 @@ export class Tutorial {
       const found = [...document.querySelectorAll<HTMLElement>(s)].find((x) => x.offsetParent !== null && x.getBoundingClientRect().width > 0);
       if (found) { el = found; break; }
     }
-    if (el === this.ring) return;
-    this.clearRing();
+    if (el && el.closest('#side') && this.ui.portraitSheet && this.ui.sheet === 'peek') this.ui.setSheet('half');
     if (el) {
-      el.classList.add('coach-target');
-      this.ring = el;
-      // Scroll a highlighted panel button into view; the panel scrolls on its own, the page never does.
+      // Keep the ring's target inside the panel's visible scroll area.
       const body = el.closest<HTMLElement>('#sidebody');
       if (body) {
         const er = el.getBoundingClientRect(), br = body.getBoundingClientRect();
-        if (er.bottom > br.bottom - 12 || er.top < br.top + 12) body.scrollTop += er.top - br.top - br.height / 2 + er.height / 2;
+        if (er.bottom > br.bottom - 8 || er.top < br.top + 8) body.scrollTop += er.top - br.top - br.height / 2 + er.height / 2;
       }
     }
+    if (el === this.ring) return;
+    this.clearRing();
+    if (el) { el.classList.add('coach-target'); this.ring = el; }
   }
   private clearRing() {
     this.ring?.classList.remove('coach-target');
@@ -337,3 +418,5 @@ export class Tutorial {
 }
 
 export const TUTORIAL_STEPS = STEPS.length;
+/** Index of 'Send test golfers': from here on the clock must be allowed to run. */
+const TEST_GOLFER_STEP = STEPS.findIndex((st) => st.id === 'testgolfers');

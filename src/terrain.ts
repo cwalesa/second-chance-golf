@@ -509,9 +509,12 @@ export function createStartingWorld(regionId: RegionId = 'parkland'): World {
         }
       }
       if (ring < 1.4) continue;
-      const nz = vnoise(x / 4, y / 4, 3);
-      let p = (nz > 0.58 ? 0.55 : 0.035) * region.treeDensity;
-      if (ring < 3.6 && rr) p = Math.max(p, 0.16 * Math.min(1, region.treeDensity));
+      // Woodland stands with clearings: a broad noise picks the woods, a finer one opens glades inside them.
+      // Outside the woods only the odd specimen tree stands alone.
+      const wood = vnoise(x / 7, y / 7, 3) * 0.7 + vnoise(x / 3, y / 3, 4) * 0.3;
+      let p = (wood > 0.56 ? Math.min(0.8, 0.45 + (wood - 0.56) * 2.2) : 0.008) * region.treeDensity;
+      // planting along the holes comes in groups of a few trees, not as an even line
+      if (ring < 3.6 && rr && vnoise(x / 2.5, y / 2.5, 23) > 0.6) p = Math.max(p, 0.5 * Math.min(1, region.treeDensity));
       if (x < 2 || x > w - 3 || y < 2 || y > h - 3) p = Math.min(0.9, 0.6 * region.treeDensity);
       p = Math.min(0.9, p);
       if (hash2(x, y, 21) < p) world.tree[i] = 1;

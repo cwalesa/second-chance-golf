@@ -1,3 +1,24 @@
+# Second Chance Golf — Level 1: Willow Creek (0.8.0)
+
+Only Level 1 is playable: a guided walkthrough on Willow Creek, then free design. Run with `npm ci && npm run dev`; `npm test`; `npm run build` (static site in `dist/`, published to GitHub Pages from `main`).
+
+## Phone layout
+
+The interface has four states so the course stays visible:
+
+- **Viewing:** a compact header (cash, time, speed, menu; hole selector with undo/redo) and bottom navigation (portrait) or an edge rail (landscape). Zoom and find-hole are small buttons on the map edge.
+- **Editing (Design):** the tool tray with Terrain / Nature / Holes groups. Placing a tee, cup, dogleg or new hole shows a bar with what to tap and a **Cancel** button; a pending change shows its price with **Build** / **Cancel**.
+- **Managing a hole (Holes):** a bottom sheet in portrait with a handle, the hole's name, and collapsed / half / full positions (drag the handle, tap it, or use ▴). Content scrolls on its own and never moves the map. **Edit hole** groups Move tee, Move cup, Dogleg, Rename and Remove; choosing one closes the sheet so you can see where to place. In landscape the same content is a narrow side panel.
+- **Tutorial:** one short instruction at a time, docked just above the bottom controls, with **More**, **‹ Back**, **Skip** and collapse. The gold ring marks the target; the card never covers it. It shrinks to one line while a Build/placement bar is up and sits beside that bar in landscape.
+
+Touch: one finger drags the map; press-and-hold then drag paints; a tap paints one spot or drops a placement preview; two fingers pinch and never edit. Undo is always in the header.
+
+## Terrain
+
+Surfaces are cut from the tile grid with crisp anti-aliased edges instead of a wide blur, kept within a fraction of a tile of the gameplay terrain, so 1-tile paths and small bunkers stay readable. Fairways get calm mowing stripes and a fine cut line; greens a collar and perimeter; bunkers warm sand with a lip and a shaded wall; water a shoreline and depth; paths even paving with kerbs. Worn turf shows where condition is low. Trees grow in stands chosen by species, with blossom trees only near the clubhouse and tees; newly generated courses get woodland with clearings (existing saves keep their trees).
+
+---
+
 # Second Chance Golf — Level 1: Willow Creek (0.7.0)
 
 Only Level 1 is playable. A new game starts a **22-step guided walkthrough** that teaches every control while you restore two holes and build one of your own:

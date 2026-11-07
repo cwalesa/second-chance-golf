@@ -910,3 +910,203 @@ body.mobile #brushbar button.on em { display: block; font-size: 9px; font-weight
   body.mobile #coach .coach-note { font-size: 11.5px; margin-top: 3px; }
   body.mobile #brushbar { top: calc(118px + env(safe-area-inset-top)); }
 }
+
+/* =====================================================================
+   Mobile layout v3: one compact header, edge controls, docked bars.
+   States: viewing (tab none), editing (tab build), managing (a sheet),
+   tutorial (coach docked above whatever sits at the bottom).
+   ===================================================================== */
+:root { --hdr: 110px; --dock: 60px; --side-w: 0px; --line-soft: rgba(255, 255, 255, .13); --panel-solid: #12283b; --panel-raise: #1b3449; }
+
+/* Calmer, consistent controls: neutral borders, no cyan glow; distinct primary/secondary/selected/disabled/destructive. */
+.btn, #map-controls button, body.mobile #map-controls button, #editbtns button, .seg button, #holebar button { box-shadow: none; }
+.btn { background: var(--panel-raise); border: 1px solid var(--line-soft); color: var(--text); }
+.btn:hover { background: #24425a; }
+.btn.primary { background: #f0c96a; color: #172a3b; border-color: transparent; font-weight: 700; }
+.btn.primary:hover { background: #f6d585; }
+.btn.danger, .edit-act.danger { color: #ffb19a; border-color: #ee7a5866; }
+.btn:disabled, .edit-act:disabled { opacity: .42; }
+#top, #nav, #tools, #side, #confirm, #holebar, #coach, #brushbar, body.mobile #tools, body.mobile #nav { box-shadow: 0 6px 20px #020c1966; border-color: var(--line-soft); }
+#top, body.mobile #top { background: var(--panel-solid); }
+#tools, #nav, body.mobile #tools, body.mobile #nav, #side, #brushbar { background: var(--panel-solid); }
+#nav button svg, body.mobile #nav button svg { background: none; border: 0; box-shadow: none; padding: 0; color: #c9dbe0; }
+#nav button.on svg, body.mobile #nav button.on svg { background: none; color: #f0c96a; }
+#nav button.on, body.mobile #nav button.on { background: #f0c96a1f; color: #f0c96a; }
+#tools .tool.on, body.mobile #tools .cat.on, #brushbar button.on, body.designing #map-controls button[data-camera="design"] { background: #f0c96a; color: #172a3b; border-color: transparent; box-shadow: none; }
+#coach { border-color: #f0c96a99; background: var(--panel-solid); }
+.coach-target { outline: 3px solid #f0c96a !important; outline-offset: 2px; position: static; z-index: auto; animation: coachPulse 1.2s ease-in-out infinite; }
+@keyframes coachPulse { 0%, 100% { outline-color: #f0c96a; } 50% { outline-color: #fff2cc; } }
+
+/* Header pieces now live inside #top. */
+.tbreak { display: none; }
+#editbtns { display: flex; gap: 4px; }
+#editbtns button { width: 40px; height: 36px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+#editbtns button svg { width: 18px; height: 18px; }
+#editbtns button span { display: none; }
+#editbtns button:disabled { opacity: .35; }
+#top #holebar { position: absolute; top: calc(100% + 11px); left: 50%; transform: translateX(-50%); }
+#holebar .hb-name small { display: flex; align-items: center; gap: 5px; }
+.hb-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ee7a58; }
+.hb-dot.open { background: var(--good); } .hb-dot.ready { background: #f0c96a; }
+#holebar { background: var(--panel-raise); box-shadow: none; }
+#holebar .hole-state { display: none; }
+
+/* Bottom sheet chrome (used on phones; desktop keeps its tabs). */
+.sheet-head { display: none; }
+#side .body { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.edit-act { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 10px; text-align: left; background: var(--panel-raise); border: 1px solid var(--line-soft); border-radius: 11px; color: var(--text); }
+.edit-act svg { width: 22px; height: 22px; flex: none; color: #f0c96a; }
+.edit-act.danger svg { color: #ffb19a; }
+.edit-act b { display: block; font-size: 13.5px; }
+.edit-act small { display: block; font-size: 11px; color: var(--dim); }
+.hole-actions .btn { flex: 1 1 0; min-height: 46px; }
+#confirm.placing { border-color: #f0c96a99; }
+
+/* ---------- PHONE, PORTRAIT ---------- */
+body.mobile #top { position: absolute; left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); top: calc(4px + env(safe-area-inset-top)); width: auto; height: auto; max-width: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 8px; border-radius: 12px; }
+body.mobile #top .sep { display: none; }
+body.mobile #top .brand canvas { width: 30px; height: 30px; }
+body.mobile #top .stat .k { font-size: 9px; }
+body.mobile #top .stat .v { font-size: 15px; }
+body.mobile #top .daybar { width: 64px; }
+body.mobile #top #speed, body.mobile #top #menuBtn { order: 1; }
+body.mobile #top .tbreak { display: block; order: 2; flex-basis: 100%; height: 0; }
+body.mobile #top #holebar { order: 3; position: static; transform: none; flex: 1 1 auto; min-width: 0; width: auto; height: 44px; top: auto; left: auto; right: auto; border-radius: 10px; }
+body.mobile #top #editbtns { order: 4; }
+body.mobile #top #editbtns button { width: 44px; height: 44px; }
+body.mobile #top .seg button { min-height: 40px; min-width: 42px; }
+body.mobile #top #menuBtn { min-height: 40px; padding: 0 12px; }
+body.mobile #holebar .hb-step { width: 44px; font-size: 26px; }
+body.mobile #holebar .hb-name b { font-size: 13.5px; }
+
+body.mobile #map-controls { position: absolute; left: auto; right: calc(8px + env(safe-area-inset-right)); top: calc(var(--hdr) + 8px); bottom: auto; flex-direction: column; gap: 6px; justify-content: flex-start; pointer-events: auto; }
+body.mobile #map-controls button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; margin: 0; border-radius: 12px; font-size: 18px; background: var(--panel-solid); border: 1px solid var(--line-soft); color: var(--text); }
+body.mobile #map-controls button[data-camera="design"], body.mobile #map-controls button[data-camera="fit"] { display: none; }
+body.mobile #minimap, body.mobile #pill, body.mobile #goalbar { display: none !important; }
+body.mobile #brushbar { left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(var(--hdr) + 8px); bottom: auto; transform: none; flex-direction: column; }
+
+body.mobile #nav { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; height: calc(58px + env(safe-area-inset-bottom)); padding: 2px 6px env(safe-area-inset-bottom); flex-direction: row; gap: 0; border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; }
+body.mobile #nav button { min-height: 54px; font-size: 10px; gap: 3px; border-radius: 10px; flex-direction: column; width: auto; }
+body.mobile #nav button span { display: block; }
+body.mobile #nav button svg { width: 22px; height: 22px; }
+
+body.mobile #tools { left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); top: auto; width: auto; height: auto; padding: 6px 8px; gap: 4px; border-radius: 14px 14px 0 0; border-width: 1px 0 0; }
+body.mobile #tools .catrow { height: 44px; }
+body.mobile #tools .cat { height: 42px; }
+body.mobile #tools .toolrow .tool { height: 62px; }
+body.mobile #tools .terrain-thumb, body.mobile #tools .tool canvas { width: 50px; height: 34px; }
+
+body.mobile #side { position: fixed; left: 0; right: 0; top: auto; bottom: calc(58px + env(safe-area-inset-bottom)); width: auto; max-height: none; border-radius: 16px 16px 0 0; border-width: 1px 0 0; display: flex; flex-direction: column; transition: height .18s ease-out; }
+body.mobile #side[data-sheet="drag"] { transition: none; }
+body.mobile #side:before { display: none; }
+body.mobile #side .tabs { display: none; }
+body.mobile #side .sheet-head { position: relative; display: flex; align-items: center; gap: 6px; flex: none; min-height: 56px; padding: 10px 6px 4px 14px; border-bottom: 1px solid var(--line-soft); touch-action: none; cursor: grab; right: auto; top: auto; }
+body.mobile #side .sheet-heading { display: none !important; }
+.sheet-grip { position: absolute; left: 50%; top: 5px; width: 40px; height: 4px; margin-left: -20px; border-radius: 4px; background: #ffffff40; }
+.sheet-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.sheet-title b { font: 17px Georgia, serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-title small { font-size: 11px; color: var(--dim); }
+.sheet-btn { flex: none; width: 44px; height: 44px; border: 0; border-radius: 10px; background: #ffffff10; color: var(--text); font-size: 20px; }
+body.mobile #side .body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; touch-action: pan-y; }
+body.mobile[data-sheet="peek"] #side .body { display: none; }
+body.mobile .course-heading { padding-right: 0; }
+body.mobile #side .body .hole-detail .row:first-child { display: none; }
+
+body.mobile #confirm { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; top: auto; transform: none; bottom: calc(var(--dock) + 8px); padding: 8px 8px 8px 12px; }
+body.mobile[data-tab] #confirm { top: auto; bottom: calc(var(--dock) + 8px); }
+body.mobile #toasts, body.mobile.coaching #toasts { top: calc(var(--hdr) + 8px); bottom: auto; left: 60px; right: 60px; width: auto; transform: none; }
+
+/* ---------- PHONE, LANDSCAPE: edge rail, one-row header, restrained side panel ---------- */
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #nav { left: calc(6px + env(safe-area-inset-left)); right: auto; top: calc(6px + env(safe-area-inset-top)); bottom: calc(6px + env(safe-area-inset-bottom)); width: 56px; height: auto; padding: 4px; flex-direction: column; justify-content: space-between; border: 1px solid var(--line-soft); border-radius: 12px; }
+  body.mobile #nav button { width: 48px; min-height: 44px; flex: 1 1 0; max-height: 56px; gap: 0; }
+  body.mobile #nav button span { display: none; }
+  body.mobile #top { left: calc(68px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); top: calc(6px + env(safe-area-inset-top)); flex-wrap: nowrap; height: 52px; padding: 4px 6px 4px 8px; gap: 8px; }
+  body.mobile #top .tbreak { display: none; }
+  body.mobile #top #holebar { order: 0; flex: 1 1 auto; max-width: 320px; height: 44px; }
+  body.mobile #top #editbtns { order: 0; }
+  body.mobile #top .spacer { display: none; }
+  body.mobile #top #speed { margin-left: auto; }
+  body.mobile #top .daybar { width: 52px; }
+  body.mobile #map-controls { top: calc(var(--hdr) + 6px); right: calc(6px + env(safe-area-inset-right) + var(--side-w)); }
+  body.mobile #map-controls button[data-camera="in"], body.mobile #map-controls button[data-camera="out"] { display: none; }
+  body.mobile #brushbar { left: calc(74px + env(safe-area-inset-left)); top: calc(var(--hdr) + 6px); }
+  body.mobile #tools { left: calc(68px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); bottom: calc(6px + env(safe-area-inset-bottom)); height: 70px; padding: 3px 6px; border: 1px solid var(--line-soft); border-radius: 12px; }
+  body.mobile #tools .tool.mini, body.mobile #tools .toolrow .tool { height: 62px; }
+  body.mobile #tools .cat { height: 56px; }
+  body.mobile #side { left: auto; right: calc(6px + env(safe-area-inset-right)); top: calc(var(--hdr) + 6px); bottom: calc(6px + env(safe-area-inset-bottom)); width: min(320px, 38vw); height: auto !important; border: 1px solid var(--line-soft); border-radius: 12px; transition: none; }
+  body.mobile #side .sheet-head { min-height: 50px; padding: 4px 4px 4px 12px; cursor: default; }
+  body.mobile #side .sheet-grip, body.mobile #sheetSize { display: none; }
+  body.mobile #side .body { padding: 10px 12px 16px; }
+  body.mobile #confirm, body.mobile[data-tab] #confirm { left: calc(74px + env(safe-area-inset-left)); right: auto; width: min(460px, calc(100vw - 86px - var(--side-w) - env(safe-area-inset-left) - env(safe-area-inset-right))); bottom: calc(var(--dock) + 6px); top: auto; }
+  body.mobile #toasts, body.mobile.coaching #toasts { top: calc(var(--hdr) + 6px); left: calc(130px + env(safe-area-inset-left)); right: calc(60px + var(--side-w)); bottom: auto; width: auto; }
+  body.mobile #owner-hud { top: calc(var(--hdr) + 6px); }
+}
+
+/* ---- Coach v2: short instruction, optional More, docked above the bottom controls ---- */
+#coach { padding: 8px 10px; border-radius: 14px; }
+#coach h3 { display: none; }
+.coach-row { display: flex; align-items: center; gap: 10px; }
+.coach-count { flex: none; font-size: 11px; letter-spacing: .04em; font-weight: 700; color: #172a3b; background: #f0c96a; border-radius: 999px; padding: 3px 8px; text-transform: none; }
+#coach .coach-short { flex: 1; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; color: #fff7e2; }
+#coach .coach-more { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.coach-next { flex: none; min-height: 44px !important; min-width: 76px !important; }
+.coach-tools { display: flex; gap: 6px; margin-top: 6px; }
+.coach-tools button { min-height: 40px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); font-size: 13px; }
+.coach-tools button[data-coach="skip"] { margin-left: auto; background: none; color: var(--dim); }
+.coach-tools button[data-coach="fold"] { width: 44px; padding: 0; }
+.coach-tools button:disabled { opacity: .35; }
+.coach-unfold { flex: none; width: 44px; height: 40px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--panel-raise); color: var(--text); }
+#coach.collapsed { display: flex; align-items: center; gap: 8px; }
+#coach.collapsed .coach-row { flex: 1; min-width: 0; }
+#coach.collapsed .coach-short { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+#coach.flash { box-shadow: 0 0 0 3px #74e4b388; }
+body.mobile #coach, body.mobile.owner-playing #coach { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; top: auto; max-height: 42vh; overflow-y: auto; }
+body.mobile.coaching[data-tab] #side { top: auto; }
+body.mobile.coaching.coach-folded[data-tab] #side { top: auto; }
+@media (orientation: portrait) { body.mobile #speed button[data-speed="3"] { display: inline-block; } }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach, body.mobile.owner-playing #coach { left: calc(74px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right) + var(--side-w)); max-width: 470px; top: auto; max-height: calc(100dvh - var(--hdr) - 16px); }
+  body.mobile.coaching[data-tab] #side { top: calc(var(--hdr) + 6px); }
+  body.mobile #coach .coach-short { font-size: 14px; }
+}
+body.mobile.owner-playing #coach { bottom: auto !important; top: calc(var(--hdr) + 8px); }
+/* Header row 1 fits a 390px phone: the crest stays as a menu shortcut on wider screens only. */
+#menuBtn svg { display: none; width: 22px; height: 22px; }
+body.mobile #menuBtn { display: inline-flex; align-items: center; justify-content: center; }
+body.mobile #menuBtn svg { display: block; }
+body.mobile #menuBtn span { display: none; }
+body.mobile #top #menuBtn { width: 44px; min-height: 40px; padding: 0; }
+@media (orientation: portrait) { body.mobile #top .brand { display: none; } body.mobile #top .seg button { min-width: 40px; padding: 0 6px; } }
+@media (orientation: landscape) and (max-height: 600px) { body.mobile #top #menuBtn { width: 48px; } }
+.coach-target { outline-offset: -3px; }
+body.mobile #side .body > .sec:first-child > h3 { display: none; }
+.edit-grid .edit-act.danger { grid-column: 1 / -1; }
+body.mobile[data-tab] #top #holebar { display: flex; }
+/* Landscape coach: one row, so the short screen keeps its map. */
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach:not(.collapsed) { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; padding: 6px 8px; }
+  body.mobile #coach .coach-row { flex: 1 1 200px; min-width: 0; }
+  body.mobile #coach .coach-tools { margin-top: 0; flex: none; gap: 4px; }
+  body.mobile #coach .coach-tools button { min-height: 44px; padding: 0 10px; }
+  body.mobile #coach .coach-tools button[data-coach="back"] span { display: none; }
+  body.mobile #coach .coach-tools button[data-coach="skip"] { margin-left: 0; }
+  body.mobile #coach .coach-more { order: 3; flex-basis: 100%; }
+}
+.coach-dots { flex: none; width: 44px; height: 40px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--panel-raise); color: var(--text); font-size: 18px; line-height: 1; }
+body.mobile #coach.beside { right: auto; max-width: none; }
+body.mobile[data-sheet="full"] #map-controls, body.mobile[data-sheet="full"] #brushbar { display: none; }
+
+/* Practice HUD: the swing buttons stay reachable on short screens (Safari bars visible). */
+body.mobile #owner-hud { display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
+body.mobile #owner-hud[hidden] { display: none; }
+body.mobile #owner-hud .btnrow { position: sticky; bottom: -1px; margin-top: auto; padding-top: 8px; background: var(--panel-solid); }
+@media (max-height: 420px) {
+  body.mobile #owner-hud { padding: 8px 10px; }
+  body.mobile #owner-hud .swing-panel > small, body.mobile #owner-hud > p { display: none; }
+  body.mobile #owner-hud .owner-top h3 { margin: 2px 0 4px; font-size: 14px; }
+  body.mobile #owner-hud .owner-stats { padding: 4px 0; }
+  body.mobile #owner-hud .owner-clubs button { padding: 5px; }
+  body.mobile #owner-hud .swing-panel { margin: 4px 0; padding: 6px 8px; }
+}
