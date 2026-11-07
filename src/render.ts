@@ -465,7 +465,12 @@ export class Renderer {
       bc.filter = `blur(${R * sigma}px)`;
       bc.drawImage(cv, 0, 0);
       bc.filter = 'none';
-      return bc.getImageData((copy.x0 - src.x0) * R, (copy.y0 - src.y0) * R, (copy.x1 - copy.x0) * R, (copy.y1 - copy.y0) * R).data;
+      const rgba = bc.getImageData((copy.x0 - src.x0) * R, (copy.y0 - src.y0) * R, (copy.x1 - copy.x0) * R, (copy.y1 - copy.y0) * R).data;
+      // keep only the coverage channel: a quarter of the memory while several blurs are alive
+      const alpha = new Uint8Array(rgba.length >> 2);
+      for (let k = 0; k < alpha.length; k++) alpha[k] = rgba[k * 4 + 3];
+      blur.width = blur.height = 0;
+      return alpha;
     };
     const cw = (copy.x1 - copy.x0) * R;
     const ch = (copy.y1 - copy.y0) * R;
@@ -474,6 +479,7 @@ export class Renderer {
     const pb = broad !== tight ? blurred(tight) : null;
     // local amount of surface at a wide scale: small for lone tiles and tiny groups, large next to big shapes
     const pc = pb ? blurred(1) : null;
+    cv.width = cv.height = 0;
     const lutB = Renderer.lut(tight, Renderer.SHRINK);
     const lutT = Renderer.lut(tight);
     // accuracy guard: however much the broad shape is smoothed or wobbled, it stays within a fixed band
@@ -492,7 +498,7 @@ export class Renderer {
       const wy0 = wy | 0;
       const wfy = wy - wy0;
       for (let i = 0; i < cw; i++) {
-        const o = (j * cw + i) * 4 + 3;
+        const o = j * cw + i;
         let a = lutA[pa[o]];
         if (amp) {
           const cov = pa[o] / 255;
@@ -1256,10 +1262,17 @@ export class Renderer {
       for (const h of w.holes) nearTee = Math.min(nearTee, Math.hypot(x - h.tee.x, y - h.tee.y));
       if ((club < 14 || nearTee < 5) && hh > 0.62) v = 7; // ornamental blossom framing the clubhouse and tees
       else if (vnoise(x / 5, y / 5, 420) > 0.66) v = 8; // birch groves
-      else if (vnoise(x / 4, y / 4, 430) > 0.74 && hh > 0.55) v = 9; // a few maples together
+      else if (vnoise(x / 4, y / 4, 430) > 0.74 && hh > 0.55 && this.treeNeighbours(w, x, y) >= 2) v = 9; // a few maples inside a stand, never a lone red tree
     }
     this.species[i] = v;
     return v;
+  }
+
+  private treeNeighbours(w: World, x: number, y: number): number {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inBounds(w, x + dx, y + dy) && w.tree[(y + dy) * w.w + x + dx]) n++;
+    return n;
   }
 
   private treeVariant(game: Game, x: number, y: number, i: number, hh: number): number {

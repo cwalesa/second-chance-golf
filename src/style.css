@@ -1097,3 +1097,16 @@ body.mobile[data-tab] #top #holebar { display: flex; }
 .coach-dots { flex: none; width: 44px; height: 40px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--panel-raise); color: var(--text); font-size: 18px; line-height: 1; }
 body.mobile #coach.beside { right: auto; max-width: none; }
 body.mobile[data-sheet="full"] #map-controls, body.mobile[data-sheet="full"] #brushbar { display: none; }
+
+/* Practice HUD: the swing buttons stay reachable on short screens (Safari bars visible). */
+body.mobile #owner-hud { display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
+body.mobile #owner-hud[hidden] { display: none; }
+body.mobile #owner-hud .btnrow { position: sticky; bottom: -1px; margin-top: auto; padding-top: 8px; background: var(--panel-solid); }
+@media (max-height: 420px) {
+  body.mobile #owner-hud { padding: 8px 10px; }
+  body.mobile #owner-hud .swing-panel > small, body.mobile #owner-hud > p { display: none; }
+  body.mobile #owner-hud .owner-top h3 { margin: 2px 0 4px; font-size: 14px; }
+  body.mobile #owner-hud .owner-stats { padding: 4px 0; }
+  body.mobile #owner-hud .owner-clubs button { padding: 5px; }
+  body.mobile #owner-hud .swing-panel { margin: 4px 0; padding: 6px 8px; }
+}
