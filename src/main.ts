@@ -9,6 +9,7 @@ import { Editor } from './input';
 import { UI } from './ui';
 import { clearSave, loadGame, saveGame, serialize, importSave } from './save';
 import { startScreen } from './start';
+import { suggestClubhouse } from './wilderness';
 
 async function boot() {
   const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -80,7 +81,12 @@ async function boot() {
   ui.refresh(true);
   renderer.resize();
   renderer.insets = ui.insets();
-  renderer.focus(ui.mobile ? 11 : 21, ui.mobile ? 40 : 35, ui.mobile ? .58 : .7, game.world);
+  const club = game.world.clubhouse;
+  {
+    // Open on a meadow worth looking at, or on the clubhouse once it exists.
+    const look = club ? { x: club.x + 8, y: club.y + 2 } : (() => { const c = suggestClubhouse(game.world); return c ? { x: c.x + 4, y: c.y + 3 } : { x: game.world.w / 2, y: game.world.h / 2 }; })();
+    renderer.focus(look.x, look.y, ui.mobile ? .5 : .6, game.world);
+  }
 
   if (loaded?.recovered) ui.toast('Your previous save was recovered from the automatic backup.', 'info');
   if (away) {
@@ -95,7 +101,7 @@ async function boot() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     studio.update(dt);
-    const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.introOpen || document.hidden ? 0 : game.settings.speed;
+    const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.introOpen || document.hidden || !game.world.clubhouse ? 0 : game.settings.speed;
     acc += dt * speed;
     let steps = 0;
     while (acc >= STEP && steps < CFG.sim.maxStepsPerFrame) {

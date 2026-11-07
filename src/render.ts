@@ -6,7 +6,9 @@ import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TRE
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer } from './sim';
-import { Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
+import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
+import { reliefAt, clubLot } from './wilderness';
+import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
 
@@ -16,6 +18,9 @@ interface DistMap { d: Float32Array; DW: number; x0: number; y0: number; x1: num
 /** Coverage 0..1 at index `k` of a distance map. */
 type Shape = (d: Float32Array, k: number) => number;
 interface Rect { x: number; y: number; w: number; h: number }
+
+/** Top-left tile the clubhouse art in art/buildings.ts was drawn for; everything is shifted from here to the real spot. */
+const CLUB_ART_ORIGIN = { x: 3, y: 41 };
 
 export const TS = 32; // tile size in the cached terrain canvas
 
@@ -42,6 +47,10 @@ export interface Overlay {
   buildLine: { from: Pt; to: Pt } | null;
   /** Pins an unbuilt tee/cup/dogleg/new-hole plan would move. */
   ghost: { tee?: Pt; cup?: Pt; bend?: Pt; par: number } | null;
+  /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
+  club: { x: number; y: number; problem: string | null } | null;
+  /** Where the tutorial suggests putting a tee and a green. */
+  hint: { tee?: Pt; cup?: Pt } | null;
 }
 
 export class Renderer {
@@ -237,6 +246,15 @@ export class Renderer {
     const jit = (x: number, y: number) => (vnoise(x / 9, y / 9, 40) - 0.5) * 7;
     const add = (c: RGB, j: number): RGB => [c[0] + j, c[1] + j, c[2] + j];
     const wearOf = (cond: number) => Math.max(0, Math.min(1, (64 - cond) / 54));
+    // Valleys and ridges: low ground is deeper green, high ground is sunnier, and slopes facing the light are brighter.
+    const seed = w.landSeed;
+    const lit = (c: RGB, x: number, y: number, k: number): RGB => {
+      if (!seed) return c;
+      const r = reliefAt(seed, x, y);
+      const slope = reliefAt(seed, x - 1, y) - reliefAt(seed, x + 1, y) + reliefAt(seed, x, y - 1) - reliefAt(seed, x, y + 1);
+      const j = ((r - 0.5) * 46 + slope * 120) * k;
+      return [c[0] + j * 1.05, c[1] + j * 0.9, c[2] + j * 0.45 - (0.5 - r) * 14 * k];
+    };
     // rough colour follows condition averaged over the 3x3 neighbourhood: overgrown areas read as areas
     const roughCond = (x: number, y: number) => {
       let s = 0;
@@ -250,7 +268,7 @@ export class Renderer {
         }
       return s / n;
     };
-    mk('rough', (x, y) => add(mix(COL.roughGood, COL.roughBad, 0.75 * (1 - Math.max(0, Math.min(1, (roughCond(x, y) - 8) / 56)))), jit(x, y)));
+    mk('rough', (x, y) => lit(add(mix(COL.roughGood, COL.roughBad, 0.75 * (1 - Math.max(0, Math.min(1, (roughCond(x, y) - 8) / 56)))), jit(x, y)), x, y, 1));
     // broad wear only tints a little; the actual damage is drawn as crisp patches (see wearStamp)
     // tiles off the fairway borrow their fairway neighbours' wear, so a worn fairway has no fresh-looking rim
     const fairWear = (x: number, y: number, i: number) => {
@@ -267,9 +285,9 @@ export class Renderer {
         }
       return n ? s / n : 0;
     };
-    mk('grass', (x, y, i) => add(mix(COL.fairGood, COL.fairWorn, fairWear(x, y, i) * 0.45), jit(x, y)));
-    mk('green', (x, y, i) => add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i]) * 0.4) : COL.greenGood, jit(x, y) * 0.4));
-    mk('tee', (x, y, i) => add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i]) * 0.4) : COL.teeGood, jit(x, y) * 0.4));
+    mk('grass', (x, y, i) => lit(add(mix(COL.fairGood, COL.fairWorn, fairWear(x, y, i) * 0.45), jit(x, y)), x, y, 0.55));
+    mk('green', (x, y, i) => lit(add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i]) * 0.4) : COL.greenGood, jit(x, y) * 0.4), x, y, 0.4));
+    mk('tee', (x, y, i) => lit(add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i]) * 0.4) : COL.teeGood, jit(x, y) * 0.4), x, y, 0.4));
     mk('sand', (x, y) => add(COL.sand, jit(x, y) * 0.5));
     // water darkens with distance from the shore: light shallows, restrained deep centre
     mk('water', (x, y, i) => {
@@ -1094,14 +1112,17 @@ export class Renderer {
 
     this.drawHoleMarkers(game, time);
     this.drawClubEnhancements(game, time);
-    if (this.nearScreen(7, 44, 16)) drawClubGround(this, game);
+    const club = game.world.clubhouse;
+    if (club && this.nearScreen(club.x + 4, club.y + 3, 16)) drawClubGround(this.clubPainter(club), game);
 
     // y-sorted: trees + golfers
     type Item = { y: number; draw: () => void };
-    const items: Item[] = [
-      { y: 54, draw: () => this.drawBuilding(game, time) },
-      { y: 58, draw: () => this.drawStructures(game, time) },
-    ];
+    const items: Item[] = club
+      ? [
+          { y: club.y + 13, draw: () => this.drawBuilding(game, time) },
+          { y: club.y + 17, draw: () => this.drawStructures(game, time) },
+        ]
+      : [];
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * w.w + x;
@@ -1614,8 +1635,70 @@ export class Renderer {
     const r = radiusTiles * this.ts * 1.2;
     return p.x > -r && p.x < this.cw + r && p.y > -r * 1.4 && p.y < this.ch + r;
   }
-  private drawBuilding(game: Game, time: number) { if (this.nearScreen(7, 44, 16)) drawCountryClub(this, game, time); }
-  private drawStructures(game: Game, time: number) { if (this.nearScreen(15, 41, 14)) drawVillageAmenities(this, game); void time; }
+  /** The clubhouse art is drawn for the classic course's spot; this shifts it to wherever the player put the clubhouse. */
+  private clubPainter(at: Pt): Painter {
+    const dx = at.x - CLUB_ART_ORIGIN.x;
+    const dy = at.y - CLUB_ART_ORIGIN.y;
+    return { ctx: this.ctx, ts: this.ts, toScreen: (x: number, y: number) => this.toScreen(x + dx, y + dy) };
+  }
+  private drawBuilding(game: Game, time: number) {
+    const c = game.world.clubhouse;
+    if (c && this.nearScreen(c.x + 4, c.y + 3, 16)) drawCountryClub(this.clubPainter(c), game, time);
+  }
+  private drawStructures(game: Game, time: number) {
+    const c = game.world.clubhouse;
+    if (c && this.nearScreen(c.x + 12, c.y, 14)) drawVillageAmenities(this.clubPainter(c), game);
+    void time;
+  }
+  /** The clubhouse the player is placing: a translucent building on a coloured lot, red when the ground will not do. */
+  private drawClubGhost(game: Game, spot: { x: number; y: number; problem: string | null }, time: number) {
+    const ctx = this.ctx;
+    const bad = !!spot.problem;
+    const poly = (x0: number, y0: number, x1: number, y1: number) => {
+      const a = this.toScreen(x0, y0), b = this.toScreen(x1, y0), c = this.toScreen(x1, y1), d = this.toScreen(x0, y1);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(d.x, d.y);
+      ctx.closePath();
+    };
+    const lot = clubLot(spot);
+    poly(lot.x0, lot.y0, lot.x1 + 1, lot.y1 + 1);
+    ctx.fillStyle = bad ? 'rgba(220,70,50,.10)' : 'rgba(250,236,170,.10)';
+    ctx.fill();
+    ctx.setLineDash([8, 7]);
+    ctx.strokeStyle = bad ? 'rgba(255,150,120,.7)' : 'rgba(255,238,170,.75)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    poly(spot.x, spot.y, spot.x + CLUB_W, spot.y + CLUB_H);
+    ctx.fillStyle = bad ? 'rgba(220,70,50,.5)' : 'rgba(255,226,140,.45)';
+    ctx.fill();
+    ctx.strokeStyle = bad ? '#ff8a6a' : '#ffe27a';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    if (!bad) {
+      ctx.save();
+      ctx.globalAlpha = 0.72 + 0.1 * Math.sin(time * 4);
+      drawCountryClub(this.clubPainter(spot), game, time);
+      ctx.restore();
+    }
+    const label = this.toScreen(spot.x + CLUB_W / 2, spot.y + CLUB_H / 2);
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const text = bad ? spot.problem! : 'Clubhouse';
+    const wd = ctx.measureText(text).width + 18;
+    const ly = label.y - this.ts * (bad ? 0.2 : 4.4);
+    ctx.fillStyle = bad ? 'rgba(80,24,14,.9)' : 'rgba(18,42,30,.88)';
+    ctx.beginPath();
+    ctx.roundRect(label.x - wd / 2, ly - 12, wd, 24, 12);
+    ctx.fill();
+    ctx.fillStyle = bad ? '#ffd2c4' : '#f6ecc9';
+    ctx.fillText(text, label.x, ly + 0.5);
+    ctx.textAlign = 'left';
+  }
 
   private drawFx(game: Game) {
     const ctx = this.ctx;
@@ -1774,6 +1857,32 @@ export class Renderer {
     };
     for(const i of ov.hoverTiles)tile(i);
     for(const i of ov.staged)tile(i,true);
+    if (ov.club) this.drawClubGhost(game, ov.club, time);
+    if (ov.hint) {
+      for (const [p, label] of [[ov.hint.tee, 'Tee here'], [ov.hint.cup, 'Green here']] as const) {
+        if (!p) continue;
+        const s = this.toScreen(p.x + 0.5, p.y + 0.5);
+        const pulse = 1 + 0.12 * Math.sin(time * 4);
+        ctx.strokeStyle = '#ffe27a';
+        ctx.fillStyle = 'rgba(255,226,122,.22)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, ts * 1.7 * pulse, ts * 0.9 * pulse, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.font = '700 12px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const wd = ctx.measureText(label).width + 16;
+        ctx.fillStyle = 'rgba(40,32,10,.9)';
+        ctx.beginPath();
+        ctx.roundRect(s.x - wd / 2, s.y - ts * 1.9 - 12, wd, 24, 12);
+        ctx.fill();
+        ctx.fillStyle = '#ffe9a6';
+        ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
+        ctx.textAlign = 'left';
+      }
+    }
 
     // new-hole placement guide
     if (ov.buildLine) {

@@ -4,10 +4,11 @@ import { CFG } from '../src/config';
 import { Rng } from '../src/rng';
 import { PAINT_TOOLS, brushTiles, planMoveCup, planMoveTee, planPaint } from '../src/editing';
 import { run } from './helpers';
+import { createTestCourse } from './fixtures/classic-course';
 
 describe('random play never strands golfers or loses money', () => {
   it('survives 12 days of random edits, fee changes and open/close toggles', () => {
-    const g = new Game(undefined, 4242);
+    const g = new Game(createTestCourse(), 4242);
     const r = new Rng(77);
     let maxAge = 0;
     let maxPhase = 0;
@@ -50,7 +51,7 @@ describe('random play never strands golfers or loses money', () => {
   });
 
   it('keeps an exact ledger: cash equals start plus every recorded flow', () => {
-    const g = new Game(undefined, 11);
+    const g = new Game(createTestCourse(), 11);
     const r = new Rng(5);
     for (let k = 0; k < 40; k++) {
       if (r.next() < 0.5) g.commitEdit(planPaint(g.world, r.pick(PAINT_TOOLS), brushTiles(g.world, Math.floor(r.range(4, 76)), Math.floor(r.range(4, 46)), 2)));

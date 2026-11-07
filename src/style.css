@@ -911,6 +911,14 @@ body.mobile #brushbar button.on em { display: block; font-size: 9px; font-weight
   body.mobile #brushbar { top: calc(118px + env(safe-area-inset-top)); }
 }
 
+/* Blank canvas: choosing the clubhouse spot. Everything but the map, the zoom buttons and the placement bar steps aside. */
+body.placing-club #tools, body.placing-club #nav, body.placing-club #holebar, body.placing-club #side, body.placing-club #goalbar, body.placing-club #pill { display: none !important; }
+body.placing-club #map-controls button:nth-child(-n+3) { display: none; }
+body.placing-club #confirm { bottom: 22px; max-width: min(640px, calc(100% - 24px)); }
+body.placing-club #confirm .cf-sub.bad { color: #ffb9a4; }
+body.mobile.placing-club #confirm { top: auto; bottom: calc(14px + env(safe-area-inset-bottom)); flex-wrap: wrap; justify-content: flex-end; }
+body.mobile.placing-club #confirm .cf-text { flex: 1 0 100%; }
+#holebar:empty { display: none; }
 /* =====================================================================
    Mobile layout v3: one compact header, edge controls, docked bars.
    States: viewing (tab none), editing (tab build), managing (a sheet),

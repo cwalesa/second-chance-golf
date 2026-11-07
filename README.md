@@ -21,14 +21,21 @@ Surfaces are cut from the tile grid with crisp anti-aliased edges instead of a w
 
 # Second Chance Golf — Level 1: Willow Creek (0.7.0)
 
-Only Level 1 is playable. A new game starts a **22-step guided walkthrough** that teaches every control while you restore two holes and build one of your own:
+## New: start from a blank canvas
 
-1. Look around (drag to move, pinch or +/− to zoom), choose a hole with the hole bar, open the Design tools.
-2. **Restore hole 2:** pick Nature → Repair, press-and-hold then drag over the worn green, review the preview and cost, Build, then try Undo and Redo, and reopen the hole.
-3. **Restore hole 3:** the Holes panel explains why it can't open; Fix with Fairway, bridge the gap, Build, open it.
-4. **Build a new hole:** New hole (tap tee, tap green, Build), Move cup, add a bunker, open it, send test golfers, speed up time, and play it yourself.
+A new game no longer drops you into a half-built course. You begin with untouched land: dense forest, a creek, a few ponds and rolling valleys (lighter meadows on the valley floors, darker forest on the ridges, shaded so the hills read). Nothing is built, no time passes and there is no money pressure while you set up. A relaxed, 14-step walkthrough guides you:
 
-A coach card shows one step at a time and a glowing ring marks the button to press; steps advance when you actually do the thing. The clock is paused during the walkthrough. Progress is saved, so a reload resumes the same step. **Skip** ends it; Menu → **Replay the Level 1 tutorial** starts a fresh Willow Creek with the walkthrough.
+1. **Look around** (drag to move, pinch or +/− to zoom).
+2. **Choose the clubhouse spot.** Tap or click the ground to move a translucent clubhouse and its lawn. Red means the ground won't do (water, the map edge, or a slope that is too steep); **Suggest a spot** jumps to a good flat meadow. **Build here** places it for free, clears the trees on its lot, and lays a road to the nearest map edge, which is where golfers arrive.
+3. **Build your first hole.** Glowing *Tee here* and *Green here* markers suggest a short, dry par 3 with a pond to look at; tap them (or anywhere you like), review the gold preview and cost, and Build. The fairway, tee and green are laid out and the trees in the way are cleared.
+4. **Add character** (an optional bunker), **open** the hole, **send test golfers** from the clubhouse, speed up time, optionally **play it yourself**, then **open for business**, which switches time on.
+
+Optional steps have a *Skip this step* link. 
+How it works: `wilderness.ts` generates the land from a seed (a creek, ponds in hollows and a height field with valleys carved around them), picks clubhouse spots, and suggests the first hole. The clubhouse is no longer fixed in the corner: `World.clubhouse` / `World.gate` say where it stands and where golfers appear, and `clubSites()` derives the door and entry from that, so the existing clubhouse art is simply drawn at an offset. Level 1's objectives are to open 3 holes, welcome 12 rounds and earn $500 profit. Saves store the clubhouse, gate and land seed, and a course with no holes is a valid save.
+
+A coach card shows one step at a time and a glowing ring marks the button to press; steps advance when you actually do the thing. The clock is paused while you set up. Progress is saved, so a reload resumes the same step. **Skip** ends it; Menu → **Replay the Level 1 tutorial** starts a fresh game.
+
+There is no pre-built course: every game, and every later property reached through the campaign, starts as untouched land. (`tests/fixtures/classic-course.ts` keeps a small hand-built layout for tests only; the game never builds it.) Saves from before this version can't be loaded, because they have no generated land to rebuild.
 
 ## Touch controls
 
@@ -327,7 +334,8 @@ Shortcuts: `P` pause, `[` `]` brush size, `Ctrl/Cmd+Z` undo, `Esc` back to Inspe
 | File | Responsibility |
 | --- | --- |
 | `config.ts` | All tuning values (costs, golfer skill, economy, goals, timing) |
-| `terrain.ts` | Tile world, starting property, hole zones, validation, route field, walk pathfinding |
+| `terrain.ts` | Tile world, starting property, hole zones, validation, route field, walk pathfinding, clubhouse door/entry/gate |
+| `wilderness.ts` | Blank-canvas land (forest, creek, ponds, valleys), clubhouse placement rules, suggested spots |
 | `editing.ts` | Tool plans (cost + affected tiles), tee/cup moves, apply/undo |
 | `physics.ts` | Lies, shot resolution (trees, water, OB, roll), shot planning, putting |
 | `sim.ts` | Golfers, tee queues, hole flow, reactions, wear |

@@ -3,25 +3,26 @@ import { Game } from '../src/game';
 import { CFG } from '../src/config';
 import { REGION_IDS, REGIONS, ratingStars, seasonIndex } from '../src/progression';
 import { planNewHole, planPaint } from '../src/editing';
-import { T, createStartingWorld, idx, isOwned } from '../src/terrain';
+import { T, idx, isOwned } from '../src/terrain';
 import { deserialize, serialize } from '../src/save';
 import { run } from './helpers';
+import { createTestCourse } from './fixtures/classic-course';
 
 describe('regions', () => {
   it('each region builds a valid starting course with its own character', () => {
     for (const id of REGION_IDS) {
-      const g = new Game(undefined, 1, { region: id });
+      const g = new Game(createTestCourse(id), 1);
       expect(g.region).toBe(id);
       expect(g.validate(1).ok).toBe(true);
       expect(g.validate(2).ok).toBe(true);
     }
-    const trees = (id: 'parkland' | 'coast' | 'mountain') => createStartingWorld(id).tree.reduce((a, b) => a + b, 0);
+    const trees = (id: 'parkland' | 'coast' | 'mountain') => createTestCourse(id).tree.reduce((a, b) => a + b, 0);
     expect(trees('mountain')).toBeGreaterThan(trees('parkland'));
     expect(trees('coast')).toBeLessThan(trees('parkland'));
   });
   it('regional economics change prices and demand', () => {
-    const a = new Game(undefined, 1, { region: 'parkland' });
-    const b = new Game(undefined, 1, { region: 'coast' });
+    const a = new Game(createTestCourse('parkland'), 1);
+    const b = new Game(createTestCourse('coast'), 1);
     expect(b.fair).toBeGreaterThan(a.fair);
     expect(REGIONS.mountain.seasonDemand[3]).toBeLessThan(0.5);
   });
@@ -29,7 +30,7 @@ describe('regions', () => {
     expect(seasonIndex(1)).toBe(0);
     expect(seasonIndex(5)).toBe(1);
     expect(seasonIndex(17)).toBe(0);
-    const g = new Game(undefined, 1, { region: 'mountain' });
+    const g = new Game(createTestCourse('mountain'), 1);
     const spring = g.arrivalRate;
     g.day = 13; // winter
     expect(g.arrivalRate).toBeLessThan(spring * 0.6);
@@ -38,7 +39,7 @@ describe('regions', () => {
 
 describe('pricing bands', () => {
   it('each band has its own fee and expected turnout', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const before = g.bandArrivals('twilight');
     g.setBandFee('twilight', 60);
     expect(g.bandArrivals('twilight')).toBeLessThan(before);
@@ -50,7 +51,7 @@ describe('pricing bands', () => {
 
 describe('land, new holes and the clubhouse', () => {
   it('locked land cannot be edited until bought, and shots there are out of bounds', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const x = 90;
     const y = 10;
     expect(isOwned(g.world, x, y)).toBe(false);
@@ -67,7 +68,7 @@ describe('land, new holes and the clubhouse', () => {
     expect(g.parcelPrice).toBeGreaterThan(price);
   });
   it('builds a new hole, validates it, opens it, and undo removes it', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.cash = 5000;
     const plan = planNewHole(g.world, g.nextHoleId(), { x: 50, y: 6 }, { x: 66, y: 8 });
     expect(typeof plan).not.toBe('string');
@@ -87,12 +88,12 @@ describe('land, new holes and the clubhouse', () => {
     expect(g.world.holes.length).toBe(3);
   });
   it('refuses holes that run into other holes or unowned land', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     expect(typeof planNewHole(w, 4, { x: 30, y: 34 }, { x: 44, y: 34 })).toBe('string');
     expect(typeof planNewHole(w, 4, { x: 90, y: 10 }, { x: 100, y: 12 })).toBe('string');
   });
   it('clubhouse upgrades are gated by rating and cash, and raise demand', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.cash = 100000;
     expect(g.stars).toBeLessThan(2.5);
     const before = g.dailyBase;
@@ -112,7 +113,7 @@ describe('land, new holes and the clubhouse', () => {
 
 describe('persistence and time away', () => {
   it('saves region, logo, name, land and clubhouse', () => {
-    const g = new Game(undefined, 2, { region: 'desert', name: 'Dune Ridge', logo: { shape: 'circle', primary: '#111111', secondary: '#eeeeee', icon: 'sun', initials: 'DR' } });
+    const g = new Game(createTestCourse('desert'), 2, { region: 'desert', name: 'Dune Ridge', logo: { shape: 'circle', primary: '#111111', secondary: '#eeeeee', icon: 'sun', initials: 'DR' } });
     g.cash = 9000;
     g.buyParcel(3, 0);
     g.bookEvent('clinic');
@@ -125,7 +126,7 @@ describe('persistence and time away', () => {
     expect(h.goals.length).toBe(g.goals.length);
   });
   it('time away pays modest income, never more than the cap, and cancels missed bookings', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.bookEvent('clinic');
     const cash = g.cash;
     expect(g.applyAway(30)).toBeNull();
@@ -137,7 +138,7 @@ describe('persistence and time away', () => {
     expect(res.net).toBeLessThan(CFG.offline.maxDays * 800);
   });
   it('a tee box on edge tiles survives: new world has owned parcels only around the start', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     expect(w.parcels.reduce((a, b) => a + b, 0)).toBe(CFG.land.startCols * CFG.land.startRows);
     expect(w.terrain[idx(w, 9, 33)]).toBe(T.TEE);
   });

@@ -43,6 +43,7 @@ export class Studio {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-hb]')?.dataset.hb;
       if (!act) return;
       const holes = this.g.world.holes, i = Math.max(0, holes.findIndex(h => h.id === this.g.selectedHole));
+      if (!holes.length) return;
       if (act === 'prev' || act === 'next') {
         this.editor.selectHole(holes[(i + (act === 'next' ? 1 : holes.length - 1)) % holes.length].id);
         this.editor.focusHole();
@@ -121,7 +122,10 @@ export class Studio {
       redo.title = g.redoStack.length ? `Redo ${g.redoStack[g.redoStack.length - 1].plan.label}` : 'Nothing to redo';
     }
     const h = g.world.holes.find(x => x.id === g.selectedHole);
-    if (!h) return;
+    if (!h) {
+      if (this.barKey !== 'none') { this.barKey = 'none'; this.holebar.innerHTML = ''; }
+      return;
+    }
     const st = this.ui.holeState(h), bkey = `${h.id}|${h.name}|${h.par}|${holeYards(h)}|${st.cls}|${st.text}`;
     if (bkey === this.barKey) return;
     this.barKey = bkey;
