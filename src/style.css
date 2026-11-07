@@ -1118,3 +1118,32 @@ body.mobile #owner-hud .btnrow { position: sticky; bottom: -1px; margin-top: aut
   body.mobile #owner-hud .owner-clubs button { padding: 5px; }
   body.mobile #owner-hud .swing-panel { margin: 4px 0; padding: 6px 8px; }
 }
+
+/* ---- Plain pass: flatter surfaces, compact tabs, aligned values. Overrides earlier rules; layout and IDs are untouched. ---- */
+.eyebrow, .coach-count, .section-label, .project-quote small, .report-profit small, .report-kpis small, .property-stats small { text-transform: none; letter-spacing: 0; }
+.eyebrow { font-size: 12px; font-weight: 600; color: var(--dim); }
+.start-card h1 em { font-style: normal; }
+h2, h3, h4, .t.big, .region b { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+h2 { font-weight: 700; }
+.start-card h1, #top .brand { font-family: Georgia, 'Times New Roman', serif; }
+.btn, .tool, #nav button, .seg, .seg button, #map-controls button, .collection-card, .goal-ticket, .project-tile, .next-project, .career-card, .property-cover, .modal .card, .card, #confirm, #coach, #pill, #holebar, .sheet-btn, .coach-next, .coach-tools button { border-radius: 5px !important; }
+.btn { box-shadow: none; padding: 7px 12px; font-weight: 600; }
+.btn:not(.primary) { background: transparent; border: 1px solid var(--line); }
+.btn:not(.primary):hover { background: rgba(255,255,255,.06); }
+.btn.primary { box-shadow: none; }
+.xp-chip, .cover-tag, .collection-status, .hole-state, .reward, .career-medal { border-radius: 3px !important; box-shadow: none !important; font-weight: 600; }
+#side .tabs { gap: 0; border-bottom: 1px solid var(--line); }
+#side .tabs button { border-radius: 0 !important; background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 10px 8px; font-size: 13px; font-weight: 600; color: var(--dim); min-height: 40px; }
+#side .tabs button.on { color: var(--text); border-bottom-color: var(--gold); background: none; box-shadow: none; }
+#side, #tools, #nav, #confirm, #coach, #holebar, .modal, #modal > div { box-shadow: none !important; }
+#confirm, #coach { border-color: var(--line); }
+.coach-target { outline-width: 2px !important; animation: none; box-shadow: none; }
+.sec h3, .section-label, .section-intro h3, .course-heading h2 { font-size: 15px; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.course-heading h2 { border: 0; margin: 2px 0 4px; font-size: 18px; }
+.row { gap: 10px; }
+.row > span:last-child, .ledger-rows b, .budget-line b, .hole-stats b { font-variant-numeric: tabular-nums; }
+.ledger-rows > div, .budget-line { border-bottom: 1px solid var(--line); padding: 6px 0; display: flex; justify-content: space-between; }
+.goal-ticket, .project-tile, .collection-card, .career-card, .next-project { box-shadow: none; }
+.property-cover h3 { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 19px; }
+.start-play { display: flex; align-items: center; justify-content: center; min-height: 46px; box-shadow: none !important; font-size: 15px; }
+.sheet-title b, .sheet-title #sheetTitle { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight: 700; }

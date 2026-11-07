@@ -19,7 +19,7 @@ type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
 const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'journey'];
-const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Holes', guests: 'Guests', money: 'Money', events: 'Events', club: 'Club' };
+const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
 const TAB_ICON: Record<string, string> = {
   journey: '<path d="M4 18l5-12 6 12 5-12M4 18h.01M20 6h.01"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/>',
   build: '<path d="M4 20l6-6M14 4l6 6-8 8-6-6z" />',
@@ -188,7 +188,7 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Your course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
     this.$('sheetClose').onclick = (e) => { e.stopPropagation(); this.tab = 'none'; this.refresh(true); this.onInsets(); };
     this.$('sheetSize').onclick = (e) => { e.stopPropagation(); this.setSheet(this.sheet === 'full' ? 'half' : 'full'); };
     this.bindSheetDrag();
@@ -404,7 +404,7 @@ export class UI {
     if (choosingClub) {
       const spot = this.editor.clubSpot;
       const ok = !!spot && !spot.problem && this.editor.clubLocked;
-      const msg = !spot ? 'Tap or click the ground where it should stand.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'A fine spot. Trees on the lot clear themselves, and a road runs out to the nearest edge.' : 'Tap or click to choose this spot.';
+      const msg = !spot ? 'Tap or click the ground to place it.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'Trees will be cleared. An entrance road is included.' : 'Tap or click to choose this spot.';
       const html = `<span class="cf-text"><b>Place your clubhouse</b><span class="cf-sub ${spot?.problem ? 'bad' : ''}">${escapeHtml(msg)}</span></span><button class="btn" id="clubSuggest">Suggest a spot</button><button class="btn primary" id="clubOk" ${ok ? '' : 'disabled'}>Build here</button>`;
       if (this.cache.get('confirm') !== html) {
         this.cache.set('confirm', html);
@@ -466,14 +466,14 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdTutorial">Replay the Level 1 tutorial</button>
+      <button class="btn" id="mdTutorial">Replay the tutorial</button>
       <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdTutorial') as HTMLElement).onclick = () => {
-      const t = this.modal(`<h2>Replay the tutorial?</h2><p>The walkthrough restarts Willow Creek from the beginning so every step works as intended. Your current design is replaced.</p><div class="actions"><button class="btn" id="tuNo">Keep my course</button><button class="btn primary" id="tuOk">Start over with the tutorial</button></div>`);
+      const t = this.modal(`<h2>Replay the tutorial?</h2><p>This starts a new game on fresh land. Your current course is deleted.</p><div class="actions"><button class="btn" id="tuNo">Keep course</button><button class="btn primary" id="tuOk">Start new game</button></div>`);
       (t.querySelector('#tuNo') as HTMLElement).onclick = () => this.closeModal();
       (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onReset(); };
     };
@@ -532,7 +532,7 @@ export class UI {
 
   private projectModal(id: string) {
     const offer = projectOffers(this.game).find(p => p.id === id); if (!offer || offer.locked) return;
-    const m = this.modal(`<div class="eyebrow">RESTORATION PROJECT</div><h2>${offer.title}</h2><p class="dim">${offer.description}</p><div class="project-quote"><span>Construction quote</span><strong>${fmtMoney(offer.cost)}</strong></div><p class="dim">${offer.plan ? `${offer.plan.tiles.length} tiles in this plan. ` : ''}${offer.xp ? '+' + offer.xp + ' career XP for the first completion at this property.' : 'Career XP for this type of restoration has already been collected.'}</p><div class="actions"><button class="btn" id="projectNo">Keep planning</button><button class="btn primary" id="projectYes" ${this.game.cash < offer.cost ? 'disabled' : ''}>Build · ${fmtMoney(offer.cost)}</button></div>`);
+    const m = this.modal(`<div class="eyebrow">Project</div><h2>${offer.title}</h2><p class="dim">${offer.description}</p><div class="project-quote"><span>Construction quote</span><strong>${fmtMoney(offer.cost)}</strong></div><p class="dim">${offer.plan ? `${offer.plan.tiles.length} tiles in this plan. ` : ''}${offer.xp ? '+' + offer.xp + ' career XP for the first completion at this property.' : 'Career XP for this type of restoration has already been collected.'}</p><div class="actions"><button class="btn" id="projectNo">Keep planning</button><button class="btn primary" id="projectYes" ${this.game.cash < offer.cost ? 'disabled' : ''}>Build · ${fmtMoney(offer.cost)}</button></div>`);
     (m.querySelector('#projectNo') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#projectYes') as HTMLElement).onclick = () => {
       if (!commissionProject(this.game, id)) this.toast('This project is not available at the current budget.', 'bad');
@@ -541,13 +541,13 @@ export class UI {
   }
   private archiveModal(id: string) {
     const a = this.game.experience.archives.find(a => a.id === id); if (!a) return;
-    const m = this.modal(`<span class="eyebrow">YOUR RESTORATION COLLECTION</span><h2>${escapeHtml(a.name)}</h2><canvas id="archiveMap" width="720" height="480" aria-label="Preserved course plan"></canvas><div class="archive-summary"><div><b>${a.holes}</b><small>Open holes</small></div><div><b>${a.design}</b><small>Design rating</small></div><div><b>${a.members}</b><small>Members</small></div></div><p class="dim">Preserved on day ${a.day} · ${a.rounds} rounds · ${fmtMoney(a.profit)} operating profit.</p><p class="dim">This is a record of your completed course. Your active property stays unchanged.</p><div class="actions"><button class="btn primary" id="archiveClose">Back to portfolio</button></div>`);
+    const m = this.modal(`<span class="eyebrow">Completed course</span><h2>${escapeHtml(a.name)}</h2><canvas id="archiveMap" width="720" height="480" aria-label="Preserved course plan"></canvas><div class="archive-summary"><div><b>${a.holes}</b><small>Open holes</small></div><div><b>${a.design}</b><small>Design rating</small></div><div><b>${a.members}</b><small>Members</small></div></div><p class="dim">Preserved on day ${a.day} · ${a.rounds} rounds · ${fmtMoney(a.profit)} operating profit.</p><p class="dim">This is a record of your completed course. Your active property stays unchanged.</p><div class="actions"><button class="btn primary" id="archiveClose">Back to portfolio</button></div>`);
     paintArchive(m.querySelector('#archiveMap') as HTMLCanvasElement, a);
     (m.querySelector('#archiveClose') as HTMLElement).onclick = () => this.closeModal();
   }
   private settingsModal() {
     const prefs = this.game.preferences;
-    const m = this.modal(`<span class="eyebrow">PLAY YOUR WAY</span><h2>Game settings</h2><div class="preference-list">${([['sound','Sound effects','Subtle swing, build, and reward cues.'],['haptics','Touch feedback','Brief vibration where supported by your device.'],['dailyReports','End-of-day reports','Pause at closing time to review the day.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
     m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { this.game.preferences[input.dataset.pref as keyof typeof prefs] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
   }
@@ -555,7 +555,7 @@ export class UI {
     const g = this.game, d = g.pendingRecap; if (!d) return;
     const history = g.days.slice(-7), max = Math.max(1, ...history.map(d => Math.abs(d.profit)));
     const suggestion = nextSuggestion(g);
-    const m = this.modal(`<div class="day-report"><span class="eyebrow">THE CLUBHOUSE LEDGER · DAY ${d.day}</span><h2>A day on your course.</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>OPERATING PROFIT</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>ROUNDS PLAYED</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>GUEST HAPPINESS</small></div><div><b>${g.members.length}</b><small>CLUB MEMBERS</small></div></div><div class="ledger-rows"><div><span>Green fees & clubhouse sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance & staff wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction, tracked separately</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
+    const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
     const finish = () => { g.pendingRecap = null; g.dirtySave = true; this.closeModal(); };
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
@@ -734,7 +734,7 @@ export class UI {
     const g = this.game;
     const loc = activeLocation(g);
     const next = loc.objectives.find(o => !g.campaign.claimed.includes(o.id));
-    const html = next ? `<div class="k">${loc.name} · +${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap to view journey</div>` : `<div class="k">Goals complete</div><div>${loc.name}</div><div class="p">Keep refining your course.</div>`;
+    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${loc.name}</div><div class="p">Keep refining your course.</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
@@ -788,7 +788,7 @@ export class UI {
     const w = g.world;
     const h = g.hole(g.selectedHole);
     if (!h) {
-      return `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name.toUpperCase())}</span><h2>No holes yet</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${w.clubhouse ? 'Your clubhouse is ready. Build a hole from a tee box to a green and golfers will come.' : 'Choose a spot for your clubhouse first.'}</p></div>`;
+      return `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>No holes</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${w.clubhouse ? 'Use New hole to place a tee and a green. Golfers arrive once a hole is open.' : 'Place the clubhouse first.'}</p></div>`;
     }
     const cond = holeCondition(w, h);
     const v = g.validate(h.id);
@@ -821,7 +821,7 @@ export class UI {
       <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
       <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>
     </div></div>`;
-    const summary = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name.toUpperCase())}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div>`;
+    const summary = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div>`;
     html += summary + `<div class="sec"><h3>All holes · routing order</h3><div class="hole-list">${w.holes.map((x) => {
       const hs = this.holeState(x);
       return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${hs.cls}">${hs.text}</span></button>`;

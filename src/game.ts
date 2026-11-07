@@ -173,7 +173,7 @@ export class Game {
       return false;
     }
     this.onFeedback('build');
-    this.notify('good', `${this.name} clubhouse is open for business. Golfers will arrive by the road.`);
+    this.notify('good', `Clubhouse built. Golfers arrive by the entrance road.`);
     this.dirtySave = true;
     return true;
   }
@@ -226,7 +226,7 @@ export class Game {
     this.earn('bonus', o.reward, `Restoration objective: ${o.title}`);
     awardExperience(this, 75, `${this.campaign.stage}:objective:${id}`);
     this.onFeedback('reward');
-    this.notify('good', `${o.title} complete. ${fmtMoney(o.reward)} reinvestment grant.`);
+    this.notify('good', `${o.title}: ${fmtMoney(o.reward)} grant.`);
     if (this.campaign.stage === LOCATIONS.length - 1 && stageComplete(this) && !this.campaign.completed.includes(activeLocation(this).id)) { this.campaign.completed.push(activeLocation(this).id); archiveCourse(this); }
     return true;
   }
@@ -235,7 +235,7 @@ export class Game {
     const old = activeLocation(this);
     archiveCourse(this);
     if (!this.campaign.completed.includes(old.id)) this.campaign.completed.push(old.id);
-    if (this.campaign.stage >= LOCATIONS.length - 1) { this.notify('good', 'All five courses restored. Your resort is yours to keep building.'); this.dirtySave = true; return false; }
+    if (this.campaign.stage >= LOCATIONS.length - 1) { this.notify('good', 'All five courses complete. Keep building as you like.'); this.dirtySave = true; return false; }
     this.owner.stop(this);
     this.experience.site = { irrigation: false, terrace: false, garden: false }; this.experience.reserveUsed = false; this.pendingRecap = null;
     this.campaign.stage++; this.campaign.claimed = []; this.campaign.rounds = 0; this.campaign.profit = 0; this.campaign.events = 0;
@@ -253,7 +253,7 @@ export class Game {
     const careerDone = new Set(this.goals.filter(g => g.done && MILESTONES.some(m => m.id === g.id)).map(g => g.id));
     this.goals = [...CFG.goals, ...MILESTONES].map(g => ({ id: g.id, done: careerDone.has(g.id) }));
     this.designMode = false; this.settings.speed = 1; this.applyRegion(); this.dirtySave = true;
-    this.notify('good', `Welcome to ${next.name}. Your restoration budget is ${fmtMoney(next.budget)}.`);
+    this.notify('good', `${next.name}: budget ${fmtMoney(next.budget)}. Place the clubhouse to begin.`);
     return true;
   }
 
@@ -454,7 +454,7 @@ export class Game {
     else if (sc.total >= (this.staff.host ? 70 : 76) && r.holes >= 2 && this.members.length < 30 && this.members.filter(m => m.joined === this.day).length < (this.staff.host ? 3 : 2)) {
       this.members.push({ name: r.name, type: r.type, visits: 1, happiness: Math.round(sc.total), joined: this.day });
       awardExperience(this, 12, `${this.campaign.stage}:member:${r.name}`);
-      this.notify('good', `${r.name} joined the club. Happy members pay daily dues and return to play.`);
+      this.notify('good', `${r.name} joined as a member. Members pay daily dues.`);
     }
     if (r.event && this.activeEvent) {
       this.activeEvent.rounds++;
@@ -621,7 +621,7 @@ export class Game {
       if (this.sim.golfers.length >= 40) break;
       if (this.sim.spawn(type, 0, { test: true, holes: [id] })) n++;
     }
-    if (n) this.notify('good', `${n} test golfers are heading to hole ${id}. Watch them play your layout.`);
+    if (n) this.notify('good', `${n} test golfers sent to hole ${id}.`);
     return n;
   }
 
@@ -648,7 +648,7 @@ export class Game {
       h.open = true;
       h.reopenedAt = this.total;
       this.world.version++;
-      this.notify('good', `Hole ${id}, ${h.name}, is open for play.`);
+      this.notify('good', `Hole ${id}, ${h.name}, is open.`);
       this.checkGoals();
       this.dirtySave = true;
     }
@@ -709,7 +709,7 @@ export class Game {
     this.afterTerrainChange(touched, before);
     if (plan.newHole) {
       this.selectedHole = plan.newHole.id;
-      this.notify('good', `${plan.newHole.name} is laid out. Check the fairway, then open it from the Holes tab.`);
+      this.notify('good', `Hole ${plan.newHole.id} built. Open it from the Course tab.`);
     }
     if (plan.removedHole && this.selectedHole === plan.removedHole.id) this.selectedHole = this.world.holes[0]?.id ?? 1;
     return { ok: true, message: `${plan.label}: ${plan.tiles.length} tiles, ${fmtMoney(plan.cost)}` };
@@ -786,7 +786,7 @@ export class Game {
     this.logEntry('Bought land parcel', -price);
     this.world.parcels[row * CFG.land.cols + col] = 1;
     this.world.version++;
-    this.notify('good', `Land purchased for ${fmtMoney(price)}. You can now build there.`);
+    this.notify('good', `Land bought for ${fmtMoney(price)}.`);
     this.checkGoals();
     this.dirtySave = true;
     return true;
@@ -812,7 +812,7 @@ export class Game {
     this.today.construction += next.cost;
     this.logEntry(`Clubhouse upgrade: ${next.name}`, -next.cost);
     this.clubLevel++;
-    this.notify('good', `${next.name} complete. Demand, spending and satisfaction all rise.`);
+    this.notify('good', `${next.name} built. Demand, spending and satisfaction rise.`);
     this.checkGoals();
     this.dirtySave = true;
     return true;

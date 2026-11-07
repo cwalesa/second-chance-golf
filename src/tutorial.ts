@@ -77,14 +77,14 @@ const clubReady = (c: Ctx) => !!c.g.world.clubhouse;
 /** A blank canvas: forest, creek and valleys, a clubhouse of the player's choosing, and one hole built from nothing. */
 const STEPS: Step[] = [
   {
-    short: () => 'Welcome. This land is yours to build on.',
-    more: () => 'Forest, a creek, a few ponds and quiet valleys, with nothing built yet. There are no timers and no rush. In a few minutes you will have a clubhouse and your first hole. Each step asks for one thing; the gold ring marks where to tap.',
-    nextLabel: "Let's begin",
+    short: () => 'Welcome to Willow Creek.',
+    more: () => 'Forest, a creek, ponds and valleys, nothing built. Time is paused while you set up. You will place the clubhouse and build one hole. The gold ring shows where to tap.',
+    nextLabel: 'Start',
     view: 'map',
   },
   {
     short: (c) => (touchWords(c) ? 'Drag one finger to move the map, then pinch to zoom.' : 'Drag to move the map, then scroll to zoom.'),
-    more: (c) => `Moving the map never changes anything. Notice the lighter meadows on the valley floors and the dark forest on the ridges.${isLandscape(c) ? '' : ' The + and − buttons zoom too.'}`,
+    more: (c) => `Moving the map changes nothing. Meadows sit in the valleys; the ridges are forest.${isLandscape(c) ? '' : ' The + and − buttons zoom too.'}`,
     view: 'map',
     enter: (c) => { c.mark.x = c.r.cam.x; c.mark.y = c.r.cam.y; c.mark.z = c.r.cam.zoom; },
     check: (c) => clubReady(c) || (Math.hypot(c.r.cam.x - (c.mark.x as number), c.r.cam.y - (c.mark.y as number)) * c.r.cam.zoom > 60 && Math.abs(c.r.cam.zoom / (c.mark.z as number) - 1) > 0.06),
@@ -96,16 +96,16 @@ const STEPS: Step[] = [
       const s = c.e.clubSpot;
       if (!s) return `${touchWords(c) ? 'Tap' : 'Click'} the ground where the clubhouse should stand.`;
       if (s.problem) return s.problem;
-      return c.e.clubLocked ? 'Happy with it? Tap Build here.' : `${touchWords(c) ? 'Tap' : 'Click'} to choose this spot.`;
+      return c.e.clubLocked ? 'Tap Build here.' : `${touchWords(c) ? 'Tap' : 'Click'} to choose this spot.`;
     },
-    more: () => 'Flat meadow works best, and any trees on the lot clear themselves. Not sure? Suggest a spot finds one. Guests will arrive along a road to the nearest edge of the property.',
+    more: () => 'Flat ground is best. Trees on the lot are cleared and an entrance road runs to the nearest edge, where golfers arrive. Suggest a spot picks one for you.',
     view: 'map',
     target: (c) => (c.e.clubSpot && !c.e.clubSpot.problem && c.e.clubLocked ? ['#clubOk'] : ['#clubSuggest']),
     check: (c) => clubReady(c),
   },
   {
-    short: () => 'Your clubhouse is open.',
-    more: () => 'A road runs from it to the edge of the property, and that is where guests will arrive. The clubhouse was a gift, so it cost nothing. Building holes costs money, and you start with plenty.',
+    short: () => 'Clubhouse built.',
+    more: () => 'Golfers arrive by the entrance road. The clubhouse is free; holes cost money.',
     view: 'map',
     enter: (c) => { const k = c.g.world.clubhouse; if (k) c.e.focusPoint({ x: k.x + 6, y: k.y + 2 }, 0.62); },
     nextLabel: 'Next',
@@ -120,7 +120,7 @@ const STEPS: Step[] = [
   },
   {
     short: (c) => (c.e.tool !== 'build' ? 'Tap Holes, then New hole.' : c.e.proposal ? 'Tap Build to lay out your hole.' : c.e.overlay.buildTee ? 'Tap where the green goes.' : 'Tap where the tee goes.'),
-    more: (c) => `${suggestion(c) ? 'The glowing Tee here and Green here markers suggest a short, gentle par 3 through the trees, but any spot you like will do. ' : ''}A gold preview shows the route, par and yardage. The fairway, tee box and green are laid out for you and trees in the way are cleared. Nothing is built until you tap Build.`,
+    more: (c) => `${suggestion(c) ? 'Tee here and Green here mark a short par 3; any spot works. ' : ''}The preview shows par and yardage. Fairway, tee and green are laid out and trees in the way are cleared. Nothing is built until you tap Build.`,
     view: 'map',
     enter: (c) => { c.mark.n = c.g.world.holes.length; const s = suggestion(c); if (s) c.e.focusPoints([s.tee, s.cup]); },
     target: (c) => toolTarget(c, 'build'),
@@ -128,15 +128,15 @@ const STEPS: Step[] = [
     check: (c) => c.g.world.holes.length > (c.mark.n as number) && !c.e.proposal,
   },
   {
-    short: () => 'Your first hole is built. Nice.',
-    more: (c) => { const h = newestHole(c); return `${h.name} is a par ${h.par}. Not quite right? Move tee and Move cup reshape it, and Undo gives your money back. Holes start closed so no golfer walks into half-finished work.`; },
+    short: () => 'Hole 1 built.',
+    more: (c) => { const h = newestHole(c); return `${h.name} is a par ${h.par}. Move tee and Move cup adjust it; Undo refunds the cost. New holes start closed.`; },
     view: 'map',
     enter: (c) => { c.e.selectHole(myId(c)); c.e.focusHole(); },
     nextLabel: 'Next',
   },
   {
     short: (c) => (c.e.tool !== 'bunker' ? 'Tap Terrain, then Bunker.' : c.e.proposal ? 'Tap Build to dig the bunker.' : 'Hold and drag beside the green.'),
-    more: () => 'Hazards give a hole character. Leave fairway open to the green or the hole cannot open. This step is optional.',
+    more: () => 'Keep a fairway route open to the green or the hole cannot open. Optional.',
     view: 'map',
     enter: (c) => { c.mark.sand = sandNear(c); const h = hole(c, myId(c)); if (h) c.e.focusPoint(h.cup, 0.95); },
     target: (c) => toolTarget(c, 'bunker'),
@@ -144,7 +144,7 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole.' : 'Tap Holes, then Open hole.'),
+    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole.' : 'Tap Course, then Open hole.'),
     more: () => "If it can't open, the panel says why and Show on map takes you there.",
     view: 'sheet',
     target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="open"]')),
@@ -152,8 +152,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'testgolfers',
-    short: () => 'Tap Test golfers.',
-    more: () => 'A beginner, a regular and a skilled golfer walk out from the clubhouse and play your hole for free. Their scores appear in the Holes panel.',
+    short: () => 'Tap Send test golfers.',
+    more: () => 'A beginner, a regular and a skilled golfer play the hole for free. Scores appear in the Course panel.',
     view: 'sheet',
     target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="testgolfers"]')),
     check: (c) => c.g.sim.golfers.some((x) => x.test && x.route.includes(myId(c))) || c.g.testResults.some((r) => r.hole === myId(c)),
@@ -167,8 +167,8 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: (c) => (c.g.owner.active ? 'Tap Start swing, then tap again in the middle.' : c.ui.tab === 'course' ? 'Tap Play it.' : 'Tap Holes, then Play it.'),
-    more: () => 'Pick a club first. Tap the map to aim somewhere else. The needle in the centre gives clean contact. This step is optional.',
+    short: (c) => (c.g.owner.active ? 'Tap Start swing, then tap again in the middle.' : c.ui.tab === 'course' ? 'Tap Play it.' : 'Tap Course, then Play it.'),
+    more: () => 'Pick a club, then tap the map to aim. Stop the needle in the middle for clean contact. Optional.',
     view: 'sheet',
     target: (c) => (c.g.owner.active ? ['[data-owner="hit"]'] : holeTarget(c, myId(c), panelTarget(c, '[data-act="practice"]'))),
     check: (c) => c.g.owner.active && c.g.owner.strokes >= 1,
@@ -180,9 +180,9 @@ const STEPS: Step[] = [
     check: (c) => !c.g.owner.active,
   },
   {
-    short: () => 'Open for business.',
-    more: () => 'You built a clubhouse and a hole from bare forest. Next, grow the course: up to nine holes, water, paths and trees. Goals lists rewards to chase, starting with opening three holes. Tap below to switch time on and welcome your first guests. Everything saves on this device.',
-    nextLabel: 'Open for business',
+    short: () => 'Open the course.',
+    more: () => 'Next: build up to nine holes. The Goals tab starts with opening three. Tap below to start the clock and let golfers in.',
+    nextLabel: 'Start clock',
   },
 ];
 
@@ -229,7 +229,7 @@ export class Tutorial {
       else if (act === 'fold') this.collapsed = !this.collapsed;
       else if (act === 'tools') this.toolsOpen = !this.toolsOpen;
       else if (act === 'skip') {
-        if (confirm('Skip the tutorial? You can keep designing freely, and replay it from the Menu.')) this.finish();
+        if (confirm('Skip the tutorial? You can replay it from the Menu.')) this.finish();
       }
       this.update(true);
       this.ui.onInsets();
