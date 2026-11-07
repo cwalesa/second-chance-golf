@@ -277,7 +277,9 @@ export function planMoveCup(world: World, hole: Hole, x: number, y: number): Edi
 }
 
 const HOLE_NAMES = ['Birch Bend', 'Heron Pond', 'The Long Acre', 'Lantern Hill', 'Sparrow Drop', 'Kettle Run', 'Windmill', 'The Narrows', 'Copper Ridge', 'Fern Hollow', 'Gull Point', 'Old Quarry', 'Larkspur', 'Thistle Way', 'The Lookout'];
-export const holeNameFor = (n: number) => HOLE_NAMES[(n - 4) % HOLE_NAMES.length] ?? `Hole ${n}`;
+/** Names for the first holes of a blank-canvas course; the classic course already has its own holes 1 to 3. */
+const FIRST_NAMES = ['Willow Bend', 'Mossy Hollow', 'Quiet Water'];
+export const holeNameFor = (n: number) => (n < 4 ? FIRST_NAMES[n - 1] : HOLE_NAMES[(n - 4) % HOLE_NAMES.length]) ?? `Hole ${n}`;
 
 /** Lay out a brand-new hole: tee box, a fairway corridor and a green. It starts closed. */
 export function planNewHole(world: World, id: number, tee: Pt, cup: Pt): EditPlan | string {

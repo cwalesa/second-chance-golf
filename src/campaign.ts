@@ -22,5 +22,7 @@ export const LOCATIONS: { id: string; name: string; region: RegionId; brief: str
   { id: 'prairie', name: 'Prairie Run', region: 'plains', brief: 'Affordable land gives you room to think big. Expand, host local events, and make the course a community fixture.', budget: 8500, objectives: [holes(5), objective('events', 'Finish two hosted events', 'Book events in the Events tab, meet their requirements, and complete their days.', 800, 2, g => g.campaign.events), members(6), profit(2500)] },
   { id: 'oasis', name: 'The Oasis', region: 'desert', brief: 'Your final restoration: a desert resort. Balance turf care with memorable design and build a club people will travel to play.', budget: 12000, objectives: [holes(6), design(90), members(10), profit(4000)] },
 ];
-export const activeLocation = (g: Game) => LOCATIONS[Math.min(LOCATIONS.length - 1, g.campaign.stage)];
+/** Level 1 for a club that began as blank forest: nothing to restore, so the brief is about building. */
+const BLANK_START: (typeof LOCATIONS)[number] = { id: 'willow', name: 'Willow Creek', region: 'parkland', brief: 'A quiet valley of forest, meadow and water with nothing built on it yet. Pick a spot for the clubhouse, shape your first holes through the trees, and open them to your first guests.', budget: 25000, objectives: [holes(3), rounds(12), profit(500)] };
+export const activeLocation = (g: Game) => (g.start === 'blank' && g.campaign.stage === 0 ? BLANK_START : LOCATIONS[Math.min(LOCATIONS.length - 1, g.campaign.stage)]);
 export const stageComplete = (g: Game) => activeLocation(g).objectives.every(o => g.campaign.claimed.includes(o.id));

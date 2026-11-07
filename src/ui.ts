@@ -319,6 +319,22 @@ export class UI {
 
   private updateConfirm() {
     const el = this.$('confirm');
+    const placing = this.editor.placingClub;
+    document.body.classList.toggle('placing-club', placing);
+    if (placing) {
+      const spot = this.editor.clubSpot;
+      const ok = !!spot && !spot.problem && this.editor.clubLocked;
+      const msg = !spot ? 'Tap or click the ground where it should stand.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'A fine spot. Trees on the lot clear themselves, and a road runs out to the nearest edge.' : 'Tap or click to choose this spot.';
+      const html = `<span class="cf-text"><b>Place your clubhouse</b><span class="cf-sub ${spot?.problem ? 'bad' : ''}">${escapeHtml(msg)}</span></span><button class="btn" id="clubSuggest">Suggest a spot</button><button class="btn primary" id="clubOk" ${ok ? '' : 'disabled'}>Build here</button>`;
+      if (this.cache.get('confirm') !== html) {
+        this.cache.set('confirm', html);
+        el.innerHTML = html;
+        el.style.display = 'flex';
+        (this.$('clubSuggest') as HTMLElement).onclick = () => this.editor.suggestClub();
+        (this.$('clubOk') as HTMLElement).onclick = () => this.editor.confirmClub();
+      }
+      return;
+    }
     const p = this.editor.proposal;
     const short = p ? p.cost - this.game.cash : 0;
     const what = p ? (p.tiles.length ? `${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}` : 'No terrain change') : '';
@@ -620,7 +636,7 @@ export class UI {
   }
 
   private allGoals() {
-    return [...CFG.goals, ...MILESTONES.filter((m) => !HIDDEN_GOALS.includes(m.id))].map((d) => ({ id: d.id, title: d.title, detail: d.detail, reward: d.reward }));
+    return [...CFG.goals.filter((x) => this.game.start !== 'blank' || (x.id !== 'green' && x.id !== 'reopen')), ...MILESTONES.filter((m) => !HIDDEN_GOALS.includes(m.id))].map((d) => ({ id: d.id, title: d.title, detail: d.detail, reward: d.reward }));
   }
   private renderGoalBar() {
     const g = this.game;
@@ -679,6 +695,9 @@ export class UI {
     const g = this.game;
     const w = g.world;
     const h = g.hole(g.selectedHole);
+    if (!h) {
+      return `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name.toUpperCase())}</span><h2>No holes yet</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${w.clubhouse ? 'Your clubhouse is ready. Build a hole from a tee box to a green and golfers will come.' : 'Choose a spot for your clubhouse first.'}</p></div>`;
+    }
     const cond = holeCondition(w, h);
     const v = g.validate(h.id);
     const yards = holeYards(h);

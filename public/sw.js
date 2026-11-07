@@ -1,5 +1,5 @@
 // Offline cache: the game is fully local, so cache the app shell and serve it when offline.
-const CACHE = 'scg-jewel-v6';
+const CACHE = 'scg-jewel-v7';
 self.addEventListener('install', (e) => {
   e.waitUntil(fetch('./precache.json').then((r) => { if (!r.ok) throw new Error('Precache unavailable'); return r.json(); }).then((files) => caches.open(CACHE).then((c) => c.addAll(files))).then(() => self.skipWaiting()));
 });

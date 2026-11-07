@@ -4,6 +4,7 @@ import type { Renderer } from './render';
 import type { UI } from './ui';
 import type { EditPlan, ToolId } from './editing';
 import { T, Pt } from './terrain';
+import { suggestFirstHole } from './wilderness';
 
 /** Saved progress through Level 1's guided walkthrough. */
 export interface TutorialState {
@@ -29,6 +30,10 @@ interface Step {
   enter?: (c: Ctx) => void;
   /** Steps without a check advance with a Next button. */
   nextLabel?: string;
+  /** Steps that wait for the player to do something can still be waved through. */
+  skippable?: boolean;
+  /** Glowing suggestions on the map: where a tee and a green might go. */
+  hint?: (c: Ctx) => { tee?: Pt; cup?: Pt } | null;
 }
 
 const NEW_HOLE_AREA = { x: 88, y: 46 };
@@ -62,7 +67,7 @@ const holeTarget = (c: Ctx, id: number, then: string[]) => (c.g.selectedHole !==
 
 const touchWords = (c: Ctx) => c.ui.mobile || matchMedia('(pointer: coarse)').matches;
 
-const STEPS: Step[] = [
+const RESTORE_STEPS: Step[] = [
   {
     title: 'Welcome to Willow Creek',
     body: () => `This is Level 1, your first course. It has seen better days. This walkthrough shows every control while you <b>restore two holes</b> and <b>build a brand-new one</b>. Each step tells you what to tap; the glowing ring shows where.`,
@@ -210,6 +215,129 @@ const STEPS: Step[] = [
   },
 ];
 
+/** The first hole the coach suggests, worked out once from the player's own clubhouse spot. */
+const suggestion = (c: Ctx) => {
+  if (!('hole' in c.mark)) c.mark.hole = suggestFirstHole(c.g.world);
+  return c.mark.hole as { tee: Pt; cup: Pt } | null;
+};
+/** Glow the suggested tee, then the suggested green once the tee is down. */
+const holeHint = (c: Ctx) => {
+  const s = suggestion(c);
+  if (!s || c.e.proposal) return null;
+  return c.e.overlay.buildTee ? { cup: s.cup } : { tee: s.tee };
+};
+const clubReady = (c: Ctx) => !!c.g.world.clubhouse;
+
+/** Blank canvas: forest, creek and valleys, a clubhouse of the player's choosing, and one hole built from nothing. */
+const BLANK_STEPS: Step[] = [
+  {
+    title: 'A blank canvas',
+    body: () => `This land is yours: forest, a creek, a few ponds and quiet valleys, with nothing built yet. There are no timers and no rush. In a few minutes you will have a <b>clubhouse</b> and your very first <b>hole</b>. Each step tells you what to tap, and the glowing ring shows where.`,
+    nextLabel: "Let's begin",
+  },
+  {
+    title: 'Look around',
+    body: (c) => touchWords(c)
+      ? `<b>Drag one finger</b> to move the map and <b>pinch</b> to zoom (or use <b>+</b> and <b>−</b>). Moving the map never changes anything. Notice the lighter meadows on the valley floors and the dark forest on the ridges.`
+      : `<b>Drag</b> to move the map and use the <b>mouse wheel</b> (or <b>+</b> and <b>−</b>) to zoom. Notice the lighter meadows on the valley floors and the dark forest on the ridges.`,
+    enter: (c) => { c.mark.x = c.r.cam.x; c.mark.y = c.r.cam.y; c.mark.z = c.r.cam.zoom; },
+    check: (c) => clubReady(c) || (Math.hypot(c.r.cam.x - (c.mark.x as number), c.r.cam.y - (c.mark.y as number)) * c.r.cam.zoom > 60 && Math.abs(c.r.cam.zoom / (c.mark.z as number) - 1) > 0.06),
+    skippable: true,
+  },
+  {
+    title: 'Choose the clubhouse spot',
+    body: (c) => {
+      const s = c.e.clubSpot;
+      const note = !s ? 'Pick a spot.' : s.problem ? s.problem : c.e.clubLocked ? 'Happy with it? Tap <b>Build here</b>.' : 'Tap to choose this spot.';
+      return `Where should guests arrive? ${touchWords(c) ? 'Tap' : 'Click'} the ground to move the clubhouse outline. <b>Flat meadow</b> works best, and any trees on the lot clear themselves. Not sure? Tap <b>Suggest a spot</b>.<br><span class="coach-note">${note}</span>`;
+    },
+    target: (c) => (c.e.clubSpot && !c.e.clubSpot.problem && c.e.clubLocked ? ['#clubOk'] : ['#clubSuggest']),
+    check: (c) => clubReady(c),
+  },
+  {
+    title: 'Your clubhouse is open',
+    body: () => `Welcome to the club. A road now runs from the clubhouse to the edge of the property, and that is where your guests will arrive. The clubhouse was a gift, so it cost nothing. Building holes costs money, and you start with plenty.`,
+    enter: (c) => { const k = c.g.world.clubhouse; if (k) c.e.focusPoint({ x: k.x + 6, y: k.y + 2 }, 0.62); },
+    nextLabel: 'Next',
+  },
+  {
+    title: 'Open the Design tools',
+    body: (c) => c.ui.mobile ? `Tap <b>Design</b> in the bottom bar. The tool tray opens above it.` : `The tool tray is along the bottom of the screen. Its groups are Terrain, Nature and Holes.`,
+    target: (c) => (c.ui.mobile ? ['#nav [data-nav="build"]'] : []),
+    check: (c) => !c.ui.mobile || c.ui.tab === 'build',
+    nextLabel: 'Next',
+  },
+  {
+    title: 'Plan your first hole',
+    body: (c) => {
+      const s = suggestion(c);
+      return `Time to build a hole. Open the <b>Holes</b> group and tap <b>New hole</b>. ${s ? 'The glowing <b>Tee here</b> and <b>Green here</b> markers suggest a short, gentle par 3 through the trees, but any spot you like will do.' : 'Choose open ground near the clubhouse.'}`;
+    },
+    enter: (c) => { c.mark.n = c.g.world.holes.length; const s = suggestion(c); if (s) c.e.focusPoints([s.tee, s.cup]); },
+    target: (c) => toolTarget(c, 'build'),
+    hint: holeHint,
+    check: (c) => c.e.tool === 'build' || c.g.world.holes.length > (c.mark.n as number),
+  },
+  {
+    title: 'Place the tee, then the green',
+    body: (c) => `${touchWords(c) ? 'Tap' : 'Click'} where the <b>tee</b> goes, then where the <b>green</b> goes. A gold preview shows the route, the par and the yardage. The fairway, tee box and green are all laid out for you, and trees in the way are cleared. Happy with it? Tap <b>Build</b>.${c.e.proposal ? '' : ' Nothing is built until you do.'}`,
+    target: (c) => (c.e.proposal ? ['#cfOk'] : []),
+    hint: holeHint,
+    check: (c) => c.g.world.holes.length > (c.mark.n as number) && !c.e.proposal,
+  },
+  {
+    title: 'Your first hole',
+    body: (c) => { const h = newestHole(c); return `<b>${h.name}</b> is built: a par ${h.par}. Not quite right? The <b>Move tee</b> and <b>Move cup</b> tools reshape it, and <b>Undo</b> gives your money back. Holes start <b>closed</b> so no golfer walks into half-finished work.`; },
+    enter: (c) => { c.e.selectHole(myId(c)); c.e.focusHole(); },
+    nextLabel: 'Next',
+  },
+  {
+    title: 'Add some character',
+    body: () => `A hazard makes a hole memorable. Choose <b>Terrain → Bunker</b> and paint a bunker or two beside the green (hold, then drag), then tap <b>Build</b>. You can also add water or plant trees later. Keep the fairway open to the green.`,
+    enter: (c) => { c.mark.sand = sandNear(c); const h = hole(c, myId(c)); if (h) c.e.focusPoint(h.cup, 0.95); },
+    target: (c) => toolTarget(c, 'bunker'),
+    check: (c) => sandNear(c) >= (c.mark.sand as number) + 3 && !c.e.proposal,
+    skippable: true,
+  },
+  {
+    title: 'Open your hole',
+    body: (c) => `${c.ui.mobile ? 'In <b>Holes</b>, tap' : 'Tap'} <b>Open hole</b>. If it can't open, the panel says why and <b>Show on map</b> takes you there.`,
+    target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="open"]')),
+    check: (c) => !!hole(c, myId(c))?.open,
+  },
+  {
+    title: 'Send test golfers',
+    body: () => `Let's watch real golfers try it. Tap <b>Send test golfers</b>. Three of them (a beginner, a regular and a skilled player) walk from the clubhouse and play your hole for free.`,
+    target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="testgolfers"]')),
+    check: (c) => c.g.sim.golfers.some((x) => x.test && x.route.includes(myId(c))) || c.g.testResults.some((r) => r.hole === myId(c)),
+  },
+  {
+    title: 'Speed up time',
+    body: (c) => `Use the speed buttons at the top: <b>II</b> pauses, <b>1×</b> is normal${c.ui.mobile && innerHeight > innerWidth ? '' : ', <b>3×</b> and <b>8×</b> are faster'}. Watch them play; their scores appear in the Holes panel.`,
+    target: (c) => (c.g.settings.speed < 3 ? ['#speed [data-speed="8"]', '#speed [data-speed="1"]'] : []),
+    check: (c) => c.g.testResults.some((r) => r.hole === myId(c)),
+    skippable: true,
+  },
+  {
+    title: 'Play it yourself',
+    body: () => `Now you try. In Holes, tap <b>Play it</b>. Pick a club, tap <b>Start swing</b>, then tap again as the needle crosses the middle. Tap the map to aim somewhere else.`,
+    target: (c) => (c.g.owner.active ? ['[data-owner="hit"]'] : holeTarget(c, myId(c), panelTarget(c, '[data-act="practice"]'))),
+    check: (c) => c.g.owner.active && c.g.owner.strokes >= 1,
+    skippable: true,
+  },
+  {
+    title: 'Finish your round',
+    body: () => `Play on as long as you like. Tap <b>Finish</b> to return to designing.`,
+    target: (c) => (c.g.owner.active ? ['[data-owner="stop"]'] : []),
+    check: (c) => !c.g.owner.active,
+  },
+  {
+    title: 'Open for business',
+    body: () => `You built a clubhouse and a hole from bare forest. Next, grow the course: add holes (up to nine), water, paths and trees. <b>Goals</b> lists rewards to chase, starting with opening three holes. Tap below to switch time on and welcome your first guests. Everything saves on this device automatically.`,
+    nextLabel: 'Open for business',
+  },
+];
+
 function sandNear(c: Ctx) {
   const h = hole(c, myId(c));
   if (!h) return 0;
@@ -221,6 +349,8 @@ function sandNear(c: Ctx) {
 }
 
 /** Level 1's coach: one card, one ring, one thing to do at a time. */
+const stepsFor = (g: Game): Step[] => (g.start === 'blank' ? BLANK_STEPS : RESTORE_STEPS);
+
 export class Tutorial {
   private card = document.createElement('div');
   private ctx: Ctx;
@@ -258,11 +388,14 @@ export class Tutorial {
   get active() {
     return !this.g.tutorial.done;
   }
+  private get steps() {
+    return stepsFor(this.g);
+  }
 
   private advance() {
     this.g.tutorial.step++;
     this.g.dirtySave = true;
-    if (this.g.tutorial.step >= STEPS.length) this.finish();
+    if (this.g.tutorial.step >= this.steps.length) this.finish();
   }
   private finish() {
     this.g.tutorial.done = true;
@@ -270,7 +403,11 @@ export class Tutorial {
     this.clearRing();
     this.card.hidden = true;
     document.body.classList.remove('coaching', 'coach-folded');
-    this.g.notify('good', 'Level 1 is yours. Keep designing Willow Creek.');
+    if (this.g.start === 'blank') {
+      // The walkthrough ran with the clock stopped; now the club opens its doors.
+      if (this.g.designMode) this.g.toggleDesignMode();
+      this.g.notify('good', 'Your club is open. Keep designing, and welcome your guests.');
+    } else this.g.notify('good', 'Level 1 is yours. Keep designing Willow Creek.');
   }
 
   /** Called a few times a second from the main loop. */
@@ -282,7 +419,7 @@ export class Tutorial {
     document.body.classList.add('coaching');
     this.card.hidden = this.ui.modalOpen;
     const t = this.g.tutorial;
-    const step = STEPS[t.step];
+    const step = this.steps[t.step];
     if (!step) { this.finish(); return; }
     const entering = this.entered !== t.step;
     if (entering) {
@@ -296,7 +433,7 @@ export class Tutorial {
       return;
     }
     const flash = performance.now() - this.doneFlash < 900;
-    const html = `<div class="coach-head"><span class="coach-count">${flash ? '✓ Done · ' : ''}Step ${t.step + 1} of ${STEPS.length}</span><span class="coach-tools"><button class="coach-skip" data-coach="skip">Skip</button><button class="coach-fold" data-coach="fold" aria-label="${this.collapsed ? 'Show instructions' : 'Hide instructions'}">${this.collapsed ? '▾' : '▴'}</button></span></div><h3>${step.title}</h3>${this.collapsed ? '' : `<p>${step.body(this.ctx)}</p>${step.check ? '' : `<div class="coach-actions"><button class="btn primary" data-coach="next">${step.nextLabel ?? 'Next'}</button></div>`}`}<div class="coach-bar"><i style="width:${(t.step / STEPS.length) * 100}%"></i></div>`;
+    const html = `<div class="coach-head"><span class="coach-count">${flash ? '✓ Done · ' : ''}Step ${t.step + 1} of ${this.steps.length}</span><span class="coach-tools"><button class="coach-skip" data-coach="skip">Skip</button><button class="coach-fold" data-coach="fold" aria-label="${this.collapsed ? 'Show instructions' : 'Hide instructions'}">${this.collapsed ? '▾' : '▴'}</button></span></div><h3>${step.title}</h3>${this.collapsed ? '' : `<p>${step.body(this.ctx)}</p>${step.check ? (step.skippable ? `<div class="coach-actions"><button class="coach-skip" data-coach="next">Skip this step</button></div>` : '') : `<div class="coach-actions"><button class="btn primary" data-coach="next">${step.nextLabel ?? 'Next'}</button></div>`}`}<div class="coach-bar"><i style="width:${(t.step / this.steps.length) * 100}%"></i></div>`;
     if (force || entering || html !== this.html) {
       const grew = this.html.length === 0 || entering || force;
       this.html = html;
@@ -308,6 +445,7 @@ export class Tutorial {
       if (grew) this.ui.onInsets();
     }
     if (entering) step.enter?.(this.ctx);
+    this.ctx.e.overlay.hint = step.hint?.(this.ctx) ?? null;
     this.pointAt(step.target?.(this.ctx) ?? []);
   }
 
@@ -336,4 +474,4 @@ export class Tutorial {
   }
 }
 
-export const TUTORIAL_STEPS = STEPS.length;
+export const TUTORIAL_STEPS = RESTORE_STEPS.length;

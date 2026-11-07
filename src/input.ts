@@ -3,7 +3,8 @@ import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
 import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
-import { Pt, idx, inBounds } from './terrain';
+import { CLUB_H, CLUB_W, Pt, idx, inBounds } from './terrain';
+import { clubhouseProblem, suggestClubhouse } from './wilderness';
 
 export interface Preview {
   tool: ToolId;
@@ -26,7 +27,7 @@ export const HOLD_MS = 320;
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
   /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
@@ -40,6 +41,10 @@ export class Editor {
   private rev = 0;
   private buildTee: Pt | null = null;
   preview: Preview | null = null;
+  /** Where the clubhouse would stand (top-left tile) and why it cannot, while the player is choosing. */
+  clubSpot: { x: number; y: number; problem: string | null } | null = null;
+  /** True once the player has clicked or tapped a spot, so wandering the mouse to the Build button does not move it. */
+  clubLocked = false;
   inspectTile: Pt | null = null;
   onChange: () => void = () => {};
   onSelect: (what: 'golfer' | 'hole') => void = () => {};
@@ -113,15 +118,17 @@ export class Editor {
   }
   focusHole() {
     const h = this.game.hole(this.game.selectedHole);
-    if (h) {
-      const width = this.r.cw - this.r.insets.l - this.r.insets.r - 40;
-      const height = this.r.ch - this.r.insets.t - this.r.insets.b - 60;
-      const points = [h.tee,h.cup,h.bend].map(p => projectGround(p.x * 32,p.y * 32));
-      const spanX = Math.max(...points.map(p => p.x))-Math.min(...points.map(p => p.x))+240;
-      const spanY = Math.max(...points.map(p => p.y))-Math.min(...points.map(p => p.y))+200;
-      const zoom = Math.max(.25, Math.min(.95,width / spanX,Math.max(180,height) / spanY));
-      this.r.focus((h.tee.x + h.cup.x) / 2 + .5, (h.tee.y + h.cup.y) / 2 + .5, zoom, this.game.world);
-    }
+    if (h) this.focusPoints([h.tee, h.cup, h.bend]);
+  }
+  /** Zoom and centre so every given tile is on screen, clear of the panels. */
+  focusPoints(pts: Pt[], maxZoom = 0.95) {
+    const width = this.r.cw - this.r.insets.l - this.r.insets.r - 40;
+    const height = this.r.ch - this.r.insets.t - this.r.insets.b - 60;
+    const points = pts.map((p) => projectGround(p.x * 32, p.y * 32));
+    const spanX = Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)) + 240;
+    const spanY = Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)) + 200;
+    const zoom = Math.max(0.25, Math.min(maxZoom, width / spanX, Math.max(180, height) / spanY));
+    this.r.focus((Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2 + 0.5, (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2 + 0.5, zoom, this.game.world);
   }
   setTool(t: ToolId) {
     this.cancelStroke();
@@ -283,7 +290,7 @@ export class Editor {
       this.mode = 'pan';
       return;
     }
-    if (this.tool === 'inspect') this.mode = 'inspect';
+    if (this.tool === 'inspect' || this.placingClub) this.mode = 'inspect';
     else if (this.touch && (this.isPaint || this.isPlacement || this.tool === 'land')) {
       // Touch: one finger drags the map. Only a clean tap, or a press-and-hold for painting, edits.
       this.mode = 'hold';
@@ -434,6 +441,10 @@ export class Editor {
   updateHover() {
     const world = this.game.world;
     const h = this.hover;
+    if (this.placingClub) {
+      if (h) this.aimClub(h, false);
+      return;
+    }
     this.overlay.tool = this.tool;
     if (this.pending && this.mode !== 'place' && this.isPlacement) {
       this.onChange();
@@ -496,6 +507,12 @@ export class Editor {
       };
     } else {
       const hole = this.game.hole(this.game.selectedHole);
+      if (!hole) {
+        this.overlay.hoverTiles = [];
+        this.preview = { tool: this.tool, label: '', tiles: 0, cost: 0, affordable: false, message: 'Build a hole first, then you can move its tee, cup or bend.', stroking: false, limited: false };
+        this.onChange();
+        return;
+      }
       const plan = this.tool === 'bend' ? planMoveBend(world, hole, h.x, h.y) : this.tool === 'tee' ? planMoveTee(world, hole, h.x, h.y) : planMoveCup(world, hole, h.x, h.y);
       if (typeof plan === 'string') {
         this.overlay.hoverTiles = this.tool === 'tee' ? boxTiles(world, h) : brushTiles(world, h.x, h.y, 2);
@@ -629,6 +646,10 @@ export class Editor {
       return;
     }
     const hole = this.game.hole(this.game.selectedHole);
+    if (!hole) {
+      this.game.notify('bad', 'Build a hole first, then you can move its tee, cup or bend.');
+      return;
+    }
     const plan = this.tool === 'bend' ? planMoveBend(this.game.world, hole, t.x, t.y) : this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
     if (typeof plan === 'string') {
       this.game.notify('bad', plan);
@@ -641,7 +662,49 @@ export class Editor {
     this.onChange();
   }
 
+  /** True until the player has chosen where the clubhouse goes. */
+  get placingClub() {
+    return this.game.world.clubhouse === null;
+  }
+  /** Centre the clubhouse footprint on a tile and check the ground. */
+  private aimClub(t: Pt, lock: boolean) {
+    if (this.clubLocked && !lock) return;
+    const c = { x: t.x - Math.floor(CLUB_W / 2), y: t.y - Math.floor(CLUB_H / 2) };
+    const problem = inBounds(this.game.world, c.x, c.y) && inBounds(this.game.world, c.x + CLUB_W, c.y + CLUB_H) ? clubhouseProblem(this.game.world, c) : 'Too close to the edge of the map.';
+    this.clubSpot = { ...c, problem };
+    if (lock) this.clubLocked = true;
+    this.overlay.club = this.clubSpot;
+    this.onChange();
+  }
+  /** Jump to the best-looking legal spot. */
+  suggestClub() {
+    const c = suggestClubhouse(this.game.world);
+    if (!c) {
+      this.game.notify('bad', 'No flat, dry spot found. Try scrolling to a meadow.');
+      return;
+    }
+    this.clubLocked = false;
+    this.aimClub({ x: c.x + Math.floor(CLUB_W / 2), y: c.y + Math.floor(CLUB_H / 2) }, true);
+    this.r.focus(c.x + CLUB_W / 2, c.y + CLUB_H / 2, Math.max(this.r.cam.zoom, 0.7), this.game.world);
+  }
+  /** Build the clubhouse where the ghost stands. */
+  confirmClub() {
+    const c = this.clubSpot;
+    if (!c || c.problem || !this.clubLocked) return;
+    if (this.game.buildClubhouse({ x: c.x, y: c.y })) {
+      this.clubSpot = null;
+      this.clubLocked = false;
+      this.overlay.club = null;
+      this.r.focus(c.x + CLUB_W / 2 + 4, c.y + CLUB_H / 2, 0.7, this.game.world);
+      this.onChange();
+    }
+  }
+
   private inspectAt(p: Pt) {
+    if (this.placingClub) {
+      this.aimClub(this.tileAt(p), true);
+      return;
+    }
     const w = this.r.toWorld(p.x, p.y);
     let best: { id: number; d: number } | null = null;
     for (const g of this.game.sim.golfers) {

@@ -1,6 +1,7 @@
 import { Experience, freshExperience, awardExperience, constructionFactor, archiveCourse } from './experience';
 import type { Feedback } from './feedback';
 import { createCampaignWorld } from './locations';
+import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, activeLocation, LOCATIONS, stageComplete } from './campaign';
 import { OwnerRound, OwnerRecord } from './owner';
@@ -61,7 +62,10 @@ export interface LifetimeStats {
   bestDaySat: number;
   years: number;
 }
+export type StartMode = 'blank' | 'restore';
 export interface NewGameOptions {
+  /** 'blank' (the default for new players) starts in untouched forest; 'restore' is the classic three-hole course. */
+  start?: StartMode;
   region?: RegionId;
   name?: string;
   logo?: Logo;
@@ -93,6 +97,8 @@ export class Game {
   heatmap = false;
   followGolfer = 0;
   designMode = false;
+  /** How this club began: from blank forest, or by restoring the classic course. Decides which tutorial runs. */
+  start: StartMode = 'restore';
   private designSpeed = 1;
   world: World;
   rng: Rng;
@@ -134,7 +140,11 @@ export class Game {
   private goalTimer = 0;
 
   constructor(world?: World, seed = 20250601, opts: NewGameOptions = {}) {
-    this.world = world ?? createStartingWorld(opts.region ?? 'parkland');
+    if (!world && opts.start === 'blank') {
+      this.start = 'blank';
+      this.selectedHole = 0;
+    }
+    this.world = world ?? (this.start === 'blank' ? createWilderness(newLandSeed(seed)) : createStartingWorld(opts.region ?? 'parkland'));
     this.region = this.world.region;
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
@@ -161,6 +171,20 @@ export class Game {
       },
     });
     this.applyRegion();
+  }
+
+  /** Blank-canvas start: put the clubhouse where the player chose. It is the club's first gift, so it costs nothing. */
+  buildClubhouse(at: { x: number; y: number }): boolean {
+    if (this.world.clubhouse) return false;
+    const why = placeClubhouse(this.world, at);
+    if (why) {
+      this.notify('bad', why);
+      return false;
+    }
+    this.onFeedback('build');
+    this.notify('good', `${this.name} clubhouse is open for business. Golfers will arrive by the road.`);
+    this.dirtySave = true;
+    return true;
   }
 
   /** First-course designer: all of Willow Creek is yours to build on from the start. */
@@ -248,6 +272,7 @@ export class Game {
   get avgCondition(): number {
     const open = this.openHoles;
     const list = open.length ? open : this.world.holes;
+    if (!list.length) return 0;
     return list.reduce((s, h) => s + holeCondition(this.world, h).overall, 0) / list.length;
   }
   get regionDef() {

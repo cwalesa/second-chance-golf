@@ -1,6 +1,6 @@
 import { CFG, GolferType } from './config';
 import { Rng } from './rng';
-import { Hole, Pt, SPAWN, DOOR, ENTRY, T, World, center, findPath, idx, inBounds } from './terrain';
+import { Hole, Pt, T, World, center, clubSites, findPath, idx, inBounds } from './terrain';
 import { ExecutedShot, ShotPlan, executeShot, isValidLie, lieAt, nearestValid, planShot, puttLeave, puttProbability } from './physics';
 
 export type Phase = 'arrive' | 'toTee' | 'queue' | 'toBall' | 'address' | 'swing' | 'flight' | 'holed' | 'toExit' | 'leave';
@@ -167,6 +167,11 @@ export class CourseSim {
 
   constructor(public world: World, public rng: Rng, public hooks: SimHooks) {}
 
+  /** Spawn point, door and entry for wherever this course's clubhouse stands. */
+  private get sites() {
+    return clubSites(this.world);
+  }
+
   private addFx(kind: Fx['kind'], x: number, y: number) {
     this.fx.push({ kind, x, y, t0: this.now });
     if (this.fx.length > 80) this.fx.shift();
@@ -226,8 +231,8 @@ export class CourseSim {
       type,
       returning: this.rng.next() < 0.4,
       speed: this.rng.range(0.9, 1.12),
-      x: SPAWN.x,
-      y: SPAWN.y,
+      x: this.sites.spawn.x,
+      y: this.sites.spawn.y,
       dir: 1,
       walkT: this.rng.next() * 6,
       phase: 'arrive',
@@ -257,13 +262,13 @@ export class CourseSim {
       scoreFlash: null,
       path: null,
       pathGoal: null,
-      px: SPAWN.x,
-      py: SPAWN.y,
+      px: this.sites.spawn.x,
+      py: this.sites.spawn.y,
       pbx: 0,
       pby: 0,
       pbz: 0,
-      rx: SPAWN.x,
-      ry: SPAWN.y,
+      rx: this.sites.spawn.x,
+      ry: this.sites.spawn.y,
       rbx: 0,
       rby: 0,
       rbz: 0,
@@ -602,7 +607,7 @@ export class CourseSim {
       this.updateGolfer(g, dt);
     }
     // golfers that left
-    if (this.golfers.some((g) => g.phase === 'leave' && g.x === SPAWN.x && g.y === SPAWN.y)) this.golfers = this.golfers.filter((g) => !(g.phase === 'leave' && g.x === SPAWN.x && g.y === SPAWN.y));
+    if (this.golfers.some((g) => g.phase === 'leave' && g.x === this.sites.spawn.x && g.y === this.sites.spawn.y)) this.golfers = this.golfers.filter((g) => !(g.phase === 'leave' && g.x === this.sites.spawn.x && g.y === this.sites.spawn.y));
     if (this.wearDirty && this.now - this.lastWearBump > 1) {
       this.world.version++;
       this.wearDirty = false;
@@ -615,10 +620,10 @@ export class CourseSim {
     switch (g.phase) {
       case 'arrive':
         if (g.timer === 0) {
-          if (this.walk(g, ENTRY.x, ENTRY.y, dt) || g.phaseTime > 30) g.timer = 1;
-        } else if (this.walk(g, DOOR.x, DOOR.y, dt) || g.phaseTime > 60) {
-          g.x = DOOR.x;
-          g.y = DOOR.y;
+          if (this.walk(g, this.sites.entry.x, this.sites.entry.y, dt) || g.phaseTime > 30) g.timer = 1;
+        } else if (this.walk(g, this.sites.door.x, this.sites.door.y, dt) || g.phaseTime > 60) {
+          g.x = this.sites.door.x;
+          g.y = this.sites.door.y;
           g.timer = 0;
           this.startNextHole(g);
         }
@@ -715,17 +720,17 @@ export class CourseSim {
         else if (!h) this.startNextHole(g);
         break;
       case 'toExit':
-        if (this.walk(g, DOOR.x, DOOR.y, dt) || g.phaseTime > 90) {
+        if (this.walk(g, this.sites.door.x, this.sites.door.y, dt) || g.phaseTime > 90) {
           g.timer = 0;
           this.finishRound(g);
         }
         break;
       case 'leave':
         if (g.timer === 0) {
-          if (this.walk(g, ENTRY.x, ENTRY.y, dt) || g.phaseTime > 30) g.timer = 1;
-        } else if (this.walk(g, SPAWN.x, SPAWN.y, dt) || g.phaseTime > 60) {
-          g.x = SPAWN.x;
-          g.y = SPAWN.y;
+          if (this.walk(g, this.sites.entry.x, this.sites.entry.y, dt) || g.phaseTime > 30) g.timer = 1;
+        } else if (this.walk(g, this.sites.spawn.x, this.sites.spawn.y, dt) || g.phaseTime > 60) {
+          g.x = this.sites.spawn.x;
+          g.y = this.sites.spawn.y;
         }
         break;
     }

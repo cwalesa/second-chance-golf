@@ -47,11 +47,25 @@ export interface World {
   region: RegionId;
   parcels: Uint8Array; // 1 when the parcel is owned
   dirty: Set<number>; // tile indices changed since the renderer last looked
+  /** Top-left tile of the 7x5 clubhouse. null while the player has not chosen a spot yet. */
+  clubhouse: Pt | null;
+  /** Where arriving golfers appear: the far end of the entrance road. */
+  gate: Pt;
+  /** Non-zero for a generated wilderness; seeds the valley shading and terrain. 0 for the classic course. */
+  landSeed: number;
 }
 
-export const SPAWN: Pt = { x: 0.5, y: 47.5 };
-export const DOOR: Pt = { x: 6.5, y: 40.6 };
-export const ENTRY: Pt = { x: 1.6, y: 40.6 };
+/** The clubhouse of the classic Willow Creek course. */
+export const LEGACY_CLUBHOUSE: Pt = { x: 3, y: 41 };
+export const LEGACY_GATE: Pt = { x: 0.5, y: 47.5 };
+export const CLUB_W = 7;
+export const CLUB_H = 5;
+
+/** Where golfers spawn, walk in and queue at the door, worked out from wherever the clubhouse stands. */
+export function clubSites(w: Pick<World, 'clubhouse' | 'gate'>): { spawn: Pt; door: Pt; entry: Pt } {
+  const c = w.clubhouse ?? LEGACY_CLUBHOUSE;
+  return { spawn: w.gate, door: { x: c.x + 3.5, y: c.y - 0.4 }, entry: { x: c.x - 1.4, y: c.y - 0.4 } };
+}
 
 export const idx = (w: World, x: number, y: number) => y * w.w + x;
 export const inBounds = (w: World, x: number, y: number) => x >= 0 && y >= 0 && x < w.w && y < w.h;
@@ -392,7 +406,7 @@ export function createStartingWorld(regionId: RegionId = 'parkland'): World {
     { id: 3, name: 'Foxglove Run', tee: { x: 10, y: 10 }, cup: { x: 42, y: 10 }, bend: { x: 26, y: 14 }, open: false, par: 4, fixedGreenAt: -1, reopenedAt: -1, stats: newStats() },
   ];
   for (const hole of holes) hole.par = parFor(holePathTiles(hole));
-  const world: World = { w, h, terrain: new Uint8Array(n), cond: new Float32Array(n), tree: new Uint8Array(n), zone: new Uint8Array(n), holes, version: 1, region: regionId, parcels: Uint8Array.from({ length: CFG.land.cols * CFG.land.rows }, (_, i) => (startsOwned(i % CFG.land.cols, Math.floor(i / CFG.land.cols)) ? 1 : 0)), dirty: new Set() };
+  const world: World = { w, h, terrain: new Uint8Array(n), cond: new Float32Array(n), tree: new Uint8Array(n), zone: new Uint8Array(n), holes, version: 1, region: regionId, parcels: Uint8Array.from({ length: CFG.land.cols * CFG.land.rows }, (_, i) => (startsOwned(i % CFG.land.cols, Math.floor(i / CFG.land.cols)) ? 1 : 0)), dirty: new Set(), clubhouse: { ...LEGACY_CLUBHOUSE }, gate: { ...LEGACY_GATE }, landSeed: 0 };
   computeZones(world);
   const set = (x: number, y: number, t: number, c: number) => {
     if (!inBounds(world, x, y)) return;

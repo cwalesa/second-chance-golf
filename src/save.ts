@@ -26,12 +26,16 @@ export function serialize(g: Game): string {
     region: g.region,
     name: g.name,
     logo: g.logo,
+    start: g.start,
     world: {
       terrain: Array.from(w.terrain).join(''),
       tree: Array.from(w.tree).join(''),
       cond: Array.from(w.cond, (c) => Math.round(c * 10) / 10),
       holes: w.holes,
       parcels: Array.from(w.parcels),
+      clubhouse: w.clubhouse,
+      gate: w.gate,
+      landSeed: w.landSeed,
     },
     cash: g.cash,
     cartFee: g.cartFee,
@@ -78,7 +82,16 @@ export function deserialize(text: string): LoadedSave | null {
       world.tree[i] = d.world.tree.charCodeAt(i) - 48;
       world.cond[i] = d.world.cond[i];
     }
-    if (!Array.isArray(world.holes) || world.holes.length < 1) return null;
+    const blank = d.start === 'blank';
+    if (!Array.isArray(world.holes) || (world.holes.length < 1 && !blank)) return null;
+    const okPt = (p: { x: number; y: number } | null | undefined) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.y >= 0 && p.x < base.w && p.y < base.h;
+    if (blank) {
+      if (d.world.clubhouse !== null && !okPt(d.world.clubhouse)) return null;
+      if (!okPt(d.world.gate) || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null;
+      world.clubhouse = d.world.clubhouse ? { x: d.world.clubhouse.x, y: d.world.clubhouse.y } : null;
+      world.gate = { x: d.world.gate.x, y: d.world.gate.y };
+      world.landSeed = d.world.landSeed;
+    }
     const seen = new Set<number>();
     for (const h of world.holes) {
       if (!Number.isInteger(h.id) || h.id < 1 || h.id > 255 || seen.has(h.id) || typeof h.name !== 'string' || ![3, 4, 5].includes(h.par)) return null;
@@ -88,6 +101,7 @@ export function deserialize(text: string): LoadedSave | null {
     computeZones(world);
     world.version = 2;
     const g = new Game(world);
+    if (blank) g.start = 'blank';
     if (d.experience) g.experience = { ...g.experience, ...d.experience, site: { ...g.experience.site, ...d.experience.site } };
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
@@ -130,7 +144,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.recent = d.recent;
     g.lastHour = d.lastHour;
     g.settings = { ...g.settings, ...d.settings };
-    g.selectedHole = d.selectedHole ?? world.holes[0].id;
+    g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
     return { game: g, savedAt: d.savedAt ?? Date.now() };
