@@ -42,8 +42,8 @@ export interface Region {
 }
 
 const base: Palette = {
-  roughGood: [52, 118, 62], roughBad: [118, 136, 68], fairGood: [108, 182, 80], fairWorn: [162, 146, 86], greenGood: [134, 214, 100], greenWorn: [156, 144, 90],
-  teeGood: [122, 196, 88], dirt: [146, 116, 78], sand: [248, 230, 186], sandRim: [196, 168, 110], water: [58, 178, 182], waterDeep: [18, 98, 148], path: [209, 198, 174],
+  roughGood: [54, 116, 60], roughBad: [104, 128, 64], fairGood: [100, 170, 74], fairWorn: [158, 146, 88], greenGood: [122, 198, 94], greenWorn: [156, 144, 90],
+  teeGood: [112, 186, 82], dirt: [146, 116, 78], sand: [242, 224, 180], sandRim: [196, 168, 110], water: [56, 162, 176], waterDeep: [24, 94, 140], path: [209, 198, 174],
 };
 
 export const REGIONS: Record<RegionId, Region> = {

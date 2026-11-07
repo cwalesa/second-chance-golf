@@ -327,28 +327,39 @@ export function makeTree(v: number): HTMLCanvasElement {
   return cv;
 }
 
-/** Soft ground shadow (and contact shadow) for a tree, cast toward the lower right. */
+/** Size of the tree shadow sprite and the trunk position inside it. */
+export const SHADOW_W = 176;
+export const SHADOW_H = 150;
+export const SHADOW_AX = 44;
+export const SHADOW_AY = 40;
+
+/**
+ * Soft ground shadow (and contact shadow) for a tree. It is cast along the same direction as the
+ * buildings' shadows (ground +x and a little +y, which is down and to the right on screen), so trees,
+ * clubhouse and props all agree on one sun in the upper left.
+ */
 export function makeTreeShadow(): HTMLCanvasElement {
   const cv = document.createElement('canvas');
-  cv.width = 192;
-  cv.height = 64;
+  cv.width = SHADOW_W;
+  cv.height = SHADOW_H;
   const c = cv.getContext('2d')!;
+  const ang = 0.68;
   c.save();
-  c.translate(104, 30);
-  c.rotate(0.1);
-  c.scale(1, 0.34);
-  const g = c.createRadialGradient(0, 0, 4, 0, 0, 88);
-  g.addColorStop(0, 'rgba(8,28,18,0.5)');
-  g.addColorStop(0.65, 'rgba(8,28,18,0.3)');
+  c.translate(SHADOW_AX + Math.cos(ang) * 48, SHADOW_AY + Math.sin(ang) * 48);
+  c.rotate(ang);
+  c.scale(1, 0.36);
+  const g = c.createRadialGradient(0, 0, 4, 0, 0, 80);
+  g.addColorStop(0, 'rgba(8,28,18,0.46)');
+  g.addColorStop(0.6, 'rgba(8,28,18,0.3)');
   g.addColorStop(1, 'rgba(8,28,18,0)');
   c.fillStyle = g;
   c.beginPath();
-  c.arc(0, 0, 88, 0, Math.PI * 2);
+  c.arc(0, 0, 80, 0, Math.PI * 2);
   c.fill();
   c.restore();
   // contact shadow right under the trunk
   c.save();
-  c.translate(58, 30);
+  c.translate(SHADOW_AX, SHADOW_AY);
   c.scale(1, 0.4);
   const g2 = c.createRadialGradient(0, 0, 1, 0, 0, 20);
   g2.addColorStop(0, 'rgba(4,16,10,0.6)');
