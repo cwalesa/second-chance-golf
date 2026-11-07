@@ -250,9 +250,24 @@ export class Renderer {
         }
       return s / n;
     };
-    mk('rough', (x, y) => add(mix(COL.roughBad, COL.roughGood, Math.max(0, Math.min(1, (roughCond(x, y) - 8) / 56))), jit(x, y)));
+    mk('rough', (x, y) => add(mix(COL.roughGood, COL.roughBad, 0.75 * (1 - Math.max(0, Math.min(1, (roughCond(x, y) - 8) / 56)))), jit(x, y)));
     // broad wear only tints a little; the actual damage is drawn as crisp patches (see wearStamp)
-    mk('grass', (x, y, i) => add(w.terrain[i] === T.FAIRWAY ? mix(COL.fairGood, COL.fairWorn, wearOf(w.cond[i]) * 0.45) : COL.fairGood, jit(x, y)));
+    // tiles off the fairway borrow their fairway neighbours' wear, so a worn fairway has no fresh-looking rim
+    const fairWear = (x: number, y: number, i: number) => {
+      if (w.terrain[i] === T.FAIRWAY) return wearOf(w.cond[i]);
+      let s = 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!inBounds(w, x + dx, y + dy)) continue;
+          const j = (y + dy) * w.w + x + dx;
+          if (w.terrain[j] !== T.FAIRWAY) continue;
+          s += wearOf(w.cond[j]);
+          n++;
+        }
+      return n ? s / n : 0;
+    };
+    mk('grass', (x, y, i) => add(mix(COL.fairGood, COL.fairWorn, fairWear(x, y, i) * 0.45), jit(x, y)));
     mk('green', (x, y, i) => add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i]) * 0.4) : COL.greenGood, jit(x, y) * 0.4));
     mk('tee', (x, y, i) => add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i]) * 0.4) : COL.teeGood, jit(x, y) * 0.4));
     mk('sand', (x, y) => add(COL.sand, jit(x, y) * 0.5));
@@ -460,6 +475,11 @@ export class Renderer {
     // local amount of surface at a wide scale: small for lone tiles and tiny groups, large next to big shapes
     const pc = pb ? blurred(1) : null;
     const lutB = Renderer.lut(tight, Renderer.SHRINK);
+    const lutT = Renderer.lut(tight);
+    // accuracy guard: however much the broad shape is smoothed or wobbled, it stays within a fixed band
+    // around the tile-accurate tight shape (no bleeding into neighbouring tiles, no eaten corners)
+    const over = 0.22 * Renderer.ENC;
+    const under = 0.3 * Renderer.ENC;
     // Edge wobble: only on contours of broad shapes (where the broad coverage is near one half), so it
     // never erodes a single tile or a thin strip, which are carried by the tight shape.
     const amp = Renderer.WARP[key] * Renderer.ENC;
@@ -486,6 +506,10 @@ export class Renderer {
             const q = this.warp[k0 + WW] + (this.warp[k0 + WW + 1] - this.warp[k0 + WW]) * wfx;
             a = Math.max(0, Math.min(255, Math.round(a + (p + (q - p) * wfy) * amp * wt)));
           }
+        }
+        if (pb) {
+          const exact = lutT[pb[o]];
+          a = Math.min(Math.max(a, exact - under), exact + over);
         }
         if (pb && pc) {
           // the tight shape only stands in for features the broad blur would lose (lone tiles, tiny groups);
@@ -877,6 +901,33 @@ export class Renderer {
         if (v > 0) any = true;
       }
     if (!any) return;
+    // cells off the turf borrow their turf neighbours' wear, so worn turf stays worn right up to its edge
+    const own = wear.slice();
+    for (let gy = 0; gy < gh; gy++)
+      for (let gx = 0; gx < gw; gx++) {
+        const x = tx0 - 1 + gx;
+        const y = ty0 - 1 + gy;
+        if (inBounds(w, x, y)) {
+          const t = w.terrain[y * w.w + x];
+          if (t === T.FAIRWAY || t === T.GREEN || t === T.TEE) continue;
+        }
+        let sum = 0;
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = gx + dx;
+            const ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+            const xx = x + dx;
+            const yy = y + dy;
+            if (!inBounds(w, xx, yy)) continue;
+            const t = w.terrain[yy * w.w + xx];
+            if (t !== T.FAIRWAY && t !== T.GREEN && t !== T.TEE) continue;
+            sum += own[ny * gw + nx];
+            n++;
+          }
+        wear[gy * gw + gx] = n ? sum / n : 0;
+      }
     const MP = Renderer.MP;
     const img = this.maskImg!;
     const px = img.data;
@@ -1178,12 +1229,14 @@ export class Renderer {
   private species = new Int8Array(0);
   private speciesFor: World | null = null;
   private speciesVersion = -1;
+  private speciesRegion = '';
 
   private treeSpecies(game: Game, x: number, y: number, i: number): number {
     const w = game.world;
-    if (this.speciesFor !== w || this.speciesVersion !== w.version || this.species.length !== w.terrain.length) {
+    if (this.speciesFor !== w || this.speciesVersion !== w.version || this.speciesRegion !== w.region || this.species.length !== w.terrain.length) {
       this.speciesFor = w;
       this.speciesVersion = w.version;
+      this.speciesRegion = w.region;
       if (this.species.length !== w.terrain.length) this.species = new Int8Array(w.terrain.length);
       this.species.fill(-1);
     }
@@ -1213,7 +1266,7 @@ export class Renderer {
     const w = game.world;
     const cond = w.cond[i];
     // neglected ground: some trees dead, more of them dry, both following the overgrown patches
-    if (cond < 24 && hh < 0.16) return 3;
+    if (cond < 20 && hh < 0.12) return 3;
     if (cond < 32 && hh < 0.34) return 4;
     const v = this.treeSpecies(game, x, y, i);
     // autumn turns whole stands of broadleaves, not single trees
