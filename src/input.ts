@@ -149,6 +149,10 @@ export class Editor {
   get isPaint() {
     return PAINT_TOOLS.includes(this.tool);
   }
+  /** New hole: true once the tee spot has been tapped. */
+  get buildStarted() {
+    return !!this.buildTee;
+  }
   get isPlacement() {
     return this.tool === 'tee' || this.tool === 'cup' || this.tool === 'bend' || this.tool === 'build';
   }

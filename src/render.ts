@@ -1,22 +1,33 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
-import { makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, TurfKind } from './art/textures';
+import { makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
 import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
-import { makeTree, makeTreeShadow, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
+import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer } from './sim';
-import { CLUB_H, CLUB_W, LEGACY_CLUBHOUSE, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
+import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { reliefAt, clubLot } from './wilderness';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
 
 interface Decor { x: number; y: number; kind: 'shrub' | 'rock' | 'flowers' | 'reeds'; v: number; i: number }
+/** Signed distance to a surface contour (tiles, positive inside) over one chunk plus margin; x0..y1 bound where it matters. */
+interface DistMap { d: Float32Array; DW: number; x0: number; y0: number; x1: number; y1: number }
+/** Coverage 0..1 at index `k` of a distance map. */
+type Shape = (d: Float32Array, k: number) => number;
+interface Rect { x: number; y: number; w: number; h: number }
+
+/** Top-left tile the clubhouse art in art/buildings.ts was drawn for; everything is shifted from here to the real spot. */
+const CLUB_ART_ORIGIN = { x: 3, y: 41 };
 
 export const TS = 32; // tile size in the cached terrain canvas
 
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
+/** Anti-aliased step (1.5 terrain px wide, so magnified edges stay smooth instead of stair-stepped): coverage of a contour at distance `o` (tiles) for a pixel at distance `d`. */
+const aa = (d: number, o: number) => clamp01((d - o) * (TS / 1.5) + 0.5);
 const css = (c: RGB, j = 0) => `rgb(${Math.max(0, Math.min(255, Math.round(c[0] + j)))},${Math.max(0, Math.min(255, Math.round(c[1] + j)))},${Math.max(0, Math.min(255, Math.round(c[2] + j)))})`;
 
 const COL: Palette = { ...REGIONS.parkland.palette };
@@ -45,8 +56,6 @@ export interface Overlay {
 export class Renderer {
   ctx: CanvasRenderingContext2D;
   terr = document.createElement('canvas');
-  base = document.createElement('canvas');
-  tctx: CanvasRenderingContext2D; // base layer
   tctx2: CanvasRenderingContext2D; // composed terrain
   cam = { x: 40 * TS, y: 26 * TS, zoom: 0.62 };
   cw = 800;
@@ -71,9 +80,6 @@ export class Renderer {
     this.ctx = canvas.getContext('2d')!;
     this.terr.width = CFG.grid.w * TS;
     this.terr.height = CFG.grid.h * TS;
-    this.base.width = this.terr.width;
-    this.base.height = this.terr.height;
-    this.tctx = this.base.getContext('2d')!;
     this.tctx2 = this.terr.getContext('2d')!;
     for (let v = 0; v < TREE_VARIANTS; v++) {
       const big = makeTree(v);
@@ -144,13 +150,19 @@ export class Renderer {
   }
 
   // ---------- terrain cache ----------
-  // Base layer (rough, paths) is drawn per tile. Fairways, greens, tees, sand and water are drawn as
-  // smooth organic shapes: tile masks are blurred and thresholded so edges flow instead of stepping.
+  // The ground is composed into one top-down canvas (TS px per tile) that the frame projects with a single
+  // affine draw. It is built in CH x CH tile chunks, and an edit or wear change only recomposes the chunks
+  // it touches.
+  //
+  // Surface shapes come from per-surface distance fields: the tile mask is blurred (a rounded, organic
+  // contour that still follows the tiles) and converted to an approximate signed distance from that
+  // contour, in tiles. Every edge, rim and inner shade is then a function of distance, rasterised at full
+  // terrain resolution with a one-pixel anti-aliased edge. That gives crisp, smooth outlines and bands of
+  // constant width (collars, lips, shorelines) instead of thresholded blur.
   private time = 0;
   private prevTerrain: Uint8Array | null = null;
   private composeAt = 0;
   private needCompose = false;
-  private layerCv = document.createElement('canvas');
 
   private syncTerrain(w: World) {
     const now = performance.now();
@@ -160,10 +172,7 @@ export class Renderer {
       Object.assign(COL, REGIONS[w.region].palette);
       this.fields.clear();
       this.patterns.clear();
-      this.base.width = CFG.grid.w * TS;
-      this.base.height = CFG.grid.h * TS;
-      this.layerCv.width = this.layerCv.height = Renderer.CH * TS;
-      for (let y = 0; y < w.h; y++) for (let x = 0; x < w.w; x++) this.drawTile(w, x, y);
+      this.buildWarp(w);
       this.rebuildMasks(w);
       this.allChunks(w);
       this.compose(w);
@@ -174,7 +183,6 @@ export class Renderer {
     if (w.dirty.size) {
       const nDirty = w.dirty.size;
       let typeChanged = false;
-      const todo = new Set<number>();
       const region = { x0: w.w, y0: w.h, x1: 0, y1: 0 };
       const keys = new Set<string>();
       for (const i of w.dirty) {
@@ -190,9 +198,7 @@ export class Renderer {
           for (const k of Renderer.fieldsFor(w.terrain[i])) keys.add(k);
         }
         this.markChunk(w, i);
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(w, x + dx, y + dy)) todo.add((y + dy) * w.w + x + dx);
       }
-      for (const i of todo) this.drawTile(w, i % w.w, Math.floor(i / w.w));
       if (typeChanged) {
         this.rebuildMasks(w, region, keys);
         this.prevTerrain = Uint8Array.from(w.terrain);
@@ -210,7 +216,10 @@ export class Renderer {
     }
   }
 
-  /** One pixel per tile, upscaled with smoothing, so colour changes blend instead of stepping. */
+  /**
+   * Surface colour maps: one pixel per tile, upscaled with smoothing. They carry only broad, gentle colour
+   * (condition, water depth); all fine detail comes from the textures, so there are no cloudy blotches.
+   */
   private buildColorMaps(w: World) {
     const mk = (key: string, color: (x: number, y: number, i: number) => RGB) => {
       let cv = this.cmaps[key];
@@ -233,7 +242,8 @@ export class Renderer {
         }
       cx.putImageData(img, 0, 0);
     };
-    const jit = (x: number, y: number) => (vnoise(x / 6.5, y / 6.5, 40) - 0.5) * 14 + (vnoise(x / 2.4, y / 2.4, 41) - 0.5) * 9;
+    // very low-frequency, low-amplitude variation so large lawns are not perfectly flat
+    const jit = (x: number, y: number) => (vnoise(x / 9, y / 9, 40) - 0.5) * 7;
     const add = (c: RGB, j: number): RGB => [c[0] + j, c[1] + j, c[2] + j];
     const wearOf = (cond: number) => Math.max(0, Math.min(1, (64 - cond) / 54));
     // Valleys and ridges: low ground is deeper green, high ground is sunnier, and slopes facing the light are brighter.
@@ -245,25 +255,63 @@ export class Renderer {
       const j = ((r - 0.5) * 46 + slope * 120) * k;
       return [c[0] + j * 1.05, c[1] + j * 0.9, c[2] + j * 0.45 - (0.5 - r) * 14 * k];
     };
-    mk('rough', (x, y, i) => lit(add(mix(COL.roughBad, COL.roughGood, Math.max(0, Math.min(1, (w.terrain[i] === T.ROUGH ? w.cond[i] : 62) / 70))), jit(x, y)), x, y, 1));
-    mk('grass', (x, y, i) => lit(add(w.terrain[i] === T.FAIRWAY ? mix(COL.fairGood, COL.fairWorn, wearOf(w.cond[i])) : COL.fairGood, jit(x, y) * 0.7), x, y, 0.55));
-    mk('green', (x, y, i) => lit(add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i])) : COL.greenGood, jit(x, y) * 0.6), x, y, 0.4));
-    mk('tee', (x, y, i) => lit(add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i])) : COL.teeGood, jit(x, y) * 0.5), x, y, 0.4));
-    mk('sand', (x, y) => add(COL.sand, (vnoise(x / 1.8, y / 1.8, 43) - 0.5) * 12));
-    mk('water', (x, y) => mix(COL.water, COL.waterDeep, vnoise(x / 2.2, y / 2.2, 210) * 0.7));
+    // rough colour follows condition averaged over the 3x3 neighbourhood: overgrown areas read as areas
+    const roughCond = (x: number, y: number) => {
+      let s = 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!inBounds(w, x + dx, y + dy)) continue;
+          const j = (y + dy) * w.w + x + dx;
+          s += w.terrain[j] === T.ROUGH ? w.cond[j] : 62;
+          n++;
+        }
+      return s / n;
+    };
+    mk('rough', (x, y) => lit(add(mix(COL.roughGood, COL.roughBad, 0.75 * (1 - Math.max(0, Math.min(1, (roughCond(x, y) - 8) / 56)))), jit(x, y)), x, y, 1));
+    // broad wear only tints a little; the actual damage is drawn as crisp patches (see wearStamp)
+    // tiles off the fairway borrow their fairway neighbours' wear, so a worn fairway has no fresh-looking rim
+    const fairWear = (x: number, y: number, i: number) => {
+      if (w.terrain[i] === T.FAIRWAY) return wearOf(w.cond[i]);
+      let s = 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!inBounds(w, x + dx, y + dy)) continue;
+          const j = (y + dy) * w.w + x + dx;
+          if (w.terrain[j] !== T.FAIRWAY) continue;
+          s += wearOf(w.cond[j]);
+          n++;
+        }
+      return n ? s / n : 0;
+    };
+    mk('grass', (x, y, i) => lit(add(mix(COL.fairGood, COL.fairWorn, fairWear(x, y, i) * 0.45), jit(x, y)), x, y, 0.55));
+    mk('green', (x, y, i) => lit(add(w.terrain[i] === T.GREEN ? mix(COL.greenGood, COL.greenWorn, wearOf(w.cond[i]) * 0.4) : COL.greenGood, jit(x, y) * 0.4), x, y, 0.4));
+    mk('tee', (x, y, i) => lit(add(w.terrain[i] === T.TEE ? mix(COL.teeGood, COL.fairWorn, wearOf(w.cond[i]) * 0.4) : COL.teeGood, jit(x, y) * 0.4), x, y, 0.4));
+    mk('sand', (x, y) => add(COL.sand, jit(x, y) * 0.5));
+    // water darkens with distance from the shore: light shallows, restrained deep centre
+    mk('water', (x, y, i) => {
+      if (w.terrain[i] !== T.WATER) return COL.water;
+      let best = 3.5;
+      for (let dy = -3; dy <= 3; dy++)
+        for (let dx = -3; dx <= 3; dx++) {
+          const tx = x + dx;
+          const ty = y + dy;
+          if (inBounds(w, tx, ty) && w.terrain[ty * w.w + tx] !== T.WATER) best = Math.min(best, Math.hypot(dx, dy));
+        }
+      const t = Math.max(0, Math.min(1, (best - 1) / 2.5));
+      return mix(COL.water, COL.waterDeep, t * t * (3 - 2 * t) * 0.85);
+    });
   }
   private drawSmooth(c: CanvasRenderingContext2D, key: string, tx0: number, ty0: number, tx1: number, ty1: number, w: World) {
-    const sx0 = Math.max(0, tx0 - 1);
-    const sy0 = Math.max(0, ty0 - 1);
-    const sx1 = Math.min(w.w, tx1 + 1);
-    const sy1 = Math.min(w.h, ty1 + 1);
     c.save();
     c.beginPath();
     c.rect(tx0 * TS, ty0 * TS, (tx1 - tx0) * TS, (ty1 - ty0) * TS);
     c.clip();
     c.imageSmoothingEnabled = true;
     c.imageSmoothingQuality = 'high';
-    c.drawImage(this.cmaps[key], sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * TS, sy0 * TS, (sx1 - sx0) * TS, (sy1 - sy0) * TS);
+    // draw the whole map (clipped) so sampling near a chunk border sees the real neighbours: no seams
+    c.drawImage(this.cmaps[key], 0, 0, w.w * TS, w.h * TS);
     c.restore();
   }
   // Seamless material overlays are generated once (see art/textures.ts) and stamped into the terrain cache.
@@ -280,16 +328,37 @@ export class Renderer {
     return this.pattern(c, 'turf-' + kind, () => makeTurfTexture(kind));
   }
 
-  // Organic edges: each surface is a tile mask blurred into a smooth field (stored as bytes), and every
-  // chunk thresholds that field after adding a little noise, so borders wobble like hand-mown turf.
+  // ---- distance fields ----
   private static readonly R = 16; // field pixels per tile
-  private static readonly M = 8; // margin (field pixels) around a chunk so shifted masks have data
+  /**
+   * Two blur radii (Gaussian sigma, tiles) per surface. The broad one rounds large shapes into flowing
+   * contours; the tight one keeps single tiles and 1-tile strips readable. A surface is the union of both,
+   * with the tight shape pulled in by SHRINK so it only shows where the broad one would lose a small feature.
+   */
+  private static readonly SIGMA: Record<string, [broad: number, tight: number]> = {
+    grass: [0.65, 0.3],
+    green: [0.72, 0.3],
+    tee: [0.3, 0.3],
+    bunker: [0.66, 0.3],
+    water: [0.7, 0.3],
+    path: [0.36, 0.3],
+  };
+  private static readonly SHRINK = 0.09;
+  /** Stored field byte = 128 + distance(tiles) * ENC, so the field spans about +-0.85 tiles. */
+  private static readonly ENC = 150;
+  /** How far outside a contour any rim or shade reaches, in tiles. */
+  private static readonly REACH = 0.5;
+  private static readonly CH = 8; // chunk size in tiles
+  private static readonly MP = 12; // margin (terrain px) around a chunk's distance map, for shifted lookups
   private fields = new Map<string, Uint8Array>();
   private fieldW = 0;
   private fieldH = 0;
-  private maskCv = document.createElement('canvas');
-  private maskImages = new Map<string, ImageData>();
-  private warpNoise = new Float32Array(0);
+  /** blurred coverage byte -> encoded signed distance, per sigma */
+  private static distLuts = new Map<number, Uint8Array>();
+  /** low-frequency edge wobble on a 4-per-tile grid, about -1..1 */
+  private warp = new Float32Array(0);
+  private warpW = 0;
+  private wearNoise = makeWearNoise();
 
   private static readonly FIELD_PRED: Record<string, (t: number) => boolean> = {
     grass: (t) => t === T.FAIRWAY || t === T.GREEN || t === T.TEE,
@@ -297,16 +366,66 @@ export class Renderer {
     tee: (t) => t === T.TEE,
     bunker: (t) => t === T.BUNKER,
     water: (t) => t === T.WATER,
+    path: (t) => t === T.PATH || t === T.BUILDING,
   };
+  /** How far each surface's contour may wander, in tiles. Tees and paving stay geometric. */
+  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, path: 0 };
 
-  /** Which blurred fields a terrain type feeds. */
+  /** Which distance fields a terrain type feeds. */
   private static fieldsFor(t: number): string[] {
-    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : [];
+    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : t === T.PATH || t === T.BUILDING ? ['path'] : [];
+  }
+
+  /** Coverage -> signed distance for a straight edge blurred by `sigma`: d = sigma * probit(coverage). */
+  private static lut(sigma: number, shrink = 0): Uint8Array {
+    const id = sigma * 1000 + shrink;
+    const cached = Renderer.distLuts.get(id);
+    if (cached) return cached;
+    // inverse normal CDF (Acklam's rational approximation)
+    const probit = (p: number) => {
+      const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+      const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+      const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+      const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+      const lo = 0.02425;
+      if (p < lo) {
+        const q = Math.sqrt(-2 * Math.log(p));
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+      }
+      if (p > 1 - lo) {
+        const q = Math.sqrt(-2 * Math.log(1 - p));
+        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+      }
+      const q = p - 0.5;
+      const r = q * q;
+      return ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q) / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+    };
+    const lut = new Uint8Array(256);
+    for (let v = 0; v < 256; v++) {
+      const p = Math.max(0.3 / 255, Math.min(1 - 0.3 / 255, v / 255));
+      const dist = sigma * probit(p) - shrink;
+      lut[v] = Math.max(0, Math.min(255, Math.round(128 + dist * Renderer.ENC)));
+    }
+    Renderer.distLuts.set(id, lut);
+    return lut;
+  }
+
+  private buildWarp(w: World) {
+    const G = 4;
+    this.warpW = w.w * G + 2;
+    const wh = w.h * G + 3;
+    this.warp = new Float32Array(this.warpW * wh);
+    for (let j = 0; j < wh; j++)
+      for (let i = 0; i < this.warpW; i++) {
+        const tx = i / G;
+        const ty = j / G;
+        this.warp[j * this.warpW + i] = (vnoise(tx / 2.6, ty / 2.6, 6) - 0.5) * 1.6 + (vnoise(tx / 1.2, ty / 1.2, 7) - 0.5) * 0.5;
+      }
   }
 
   /**
-   * Blur the tile mask for one surface into its byte field. With a region (in tiles) only that part is
-   * recomputed, so painting a few tiles does not re-blur the whole map.
+   * Blur the tile mask for one surface and store it as an encoded distance field. With a region (in
+   * tiles) only that part is recomputed, so painting a few tiles does not re-blur the whole map.
    */
   private updateField(w: World, key: string, region?: { x0: number; y0: number; x1: number; y1: number }) {
     const R = Renderer.R;
@@ -329,6 +448,7 @@ export class Renderer {
     cv.height = sh;
     const sc = cv.getContext('2d')!;
     sc.fillStyle = '#fff';
+    const has = (x: number, y: number) => inBounds(w, x, y) && pred(w.terrain[y * w.w + x]);
     for (let y = src.y0; y < src.y1; y++) {
       let x = src.x0;
       while (x < src.x1) {
@@ -339,21 +459,91 @@ export class Renderer {
         x = x2;
       }
     }
-    const blur = document.createElement('canvas');
-    blur.width = sw;
-    blur.height = sh;
-    const bc = blur.getContext('2d')!;
-    bc.filter = `blur(${R * 0.55}px)`;
-    bc.drawImage(cv, 0, 0);
-    bc.filter = 'none';
-    const ox = (copy.x0 - src.x0) * R;
-    const oy = (copy.y0 - src.y0) * R;
+    if (key === 'path') {
+      // paths drawn as diagonal staircases touch only at corners: bridge those so the walk stays continuous
+      for (let y = src.y0; y < src.y1 - 1; y++)
+        for (let x = src.x0; x < src.x1 - 1; x++) {
+          const a = has(x, y);
+          const b = has(x + 1, y);
+          const c = has(x, y + 1);
+          const d = has(x + 1, y + 1);
+          if ((a && d && !b && !c) || (b && c && !a && !d)) {
+            sc.beginPath();
+            sc.arc((x + 1 - src.x0) * R, (y + 1 - src.y0) * R, R * 0.5, 0, Math.PI * 2);
+            sc.fill();
+          }
+        }
+    }
+    const [broad, tight] = Renderer.SIGMA[key];
+    const blurred = (sigma: number) => {
+      const blur = document.createElement('canvas');
+      blur.width = sw;
+      blur.height = sh;
+      const bc = blur.getContext('2d', { willReadFrequently: true })!;
+      bc.filter = `blur(${R * sigma}px)`;
+      bc.drawImage(cv, 0, 0);
+      bc.filter = 'none';
+      const rgba = bc.getImageData((copy.x0 - src.x0) * R, (copy.y0 - src.y0) * R, (copy.x1 - copy.x0) * R, (copy.y1 - copy.y0) * R).data;
+      // keep only the coverage channel: a quarter of the memory while several blurs are alive
+      const alpha = new Uint8Array(rgba.length >> 2);
+      for (let k = 0; k < alpha.length; k++) alpha[k] = rgba[k * 4 + 3];
+      blur.width = blur.height = 0;
+      return alpha;
+    };
     const cw = (copy.x1 - copy.x0) * R;
     const ch = (copy.y1 - copy.y0) * R;
-    const px = bc.getImageData(ox, oy, cw, ch).data;
+    const pa = blurred(broad);
+    const lutA = Renderer.lut(broad);
+    const pb = broad !== tight ? blurred(tight) : null;
+    // local amount of surface at a wide scale: small for lone tiles and tiny groups, large next to big shapes
+    const pc = pb ? blurred(1) : null;
+    cv.width = cv.height = 0;
+    const lutB = Renderer.lut(tight, Renderer.SHRINK);
+    const lutT = Renderer.lut(tight);
+    // accuracy guard: however much the broad shape is smoothed or wobbled, it stays within a fixed band
+    // around the tile-accurate tight shape (no bleeding into neighbouring tiles, no eaten corners)
+    const over = 0.22 * Renderer.ENC;
+    const under = 0.3 * Renderer.ENC;
+    // Edge wobble: only on contours of broad shapes (where the broad coverage is near one half), so it
+    // never erodes a single tile or a thin strip, which are carried by the tight shape.
+    const amp = Renderer.WARP[key] * Renderer.ENC;
+    const G = 4 / R; // warp cells per field px
+    const WW = this.warpW;
     for (let j = 0; j < ch; j++) {
-      const row = (copy.y0 * R + j) * FW + copy.x0 * R;
-      for (let i = 0; i < cw; i++) field[row + i] = px[(j * cw + i) * 4 + 3];
+      const fy = copy.y0 * R + j;
+      const row = fy * FW + copy.x0 * R;
+      const wy = (fy + 0.5) * G;
+      const wy0 = wy | 0;
+      const wfy = wy - wy0;
+      for (let i = 0; i < cw; i++) {
+        const o = j * cw + i;
+        let a = lutA[pa[o]];
+        if (amp) {
+          const cov = pa[o] / 255;
+          const wt = cov <= 0.26 ? 0 : cov >= 0.44 ? 1 : ((cov - 0.26) / 0.18) ** 2 * (3 - 2 * ((cov - 0.26) / 0.18));
+          if (wt > 0) {
+            const wx = (copy.x0 * R + i + 0.5) * G;
+            const wx0 = wx | 0;
+            const wfx = wx - wx0;
+            const k0 = wy0 * WW + wx0;
+            const p = this.warp[k0] + (this.warp[k0 + 1] - this.warp[k0]) * wfx;
+            const q = this.warp[k0 + WW] + (this.warp[k0 + WW + 1] - this.warp[k0 + WW]) * wfx;
+            a = Math.max(0, Math.min(255, Math.round(a + (p + (q - p) * wfy) * amp * wt)));
+          }
+        }
+        if (pb) {
+          const exact = lutT[pb[o]];
+          a = Math.min(Math.max(a, exact - under), exact + over);
+        }
+        if (pb && pc) {
+          // the tight shape only stands in for features the broad blur would lose (lone tiles, tiny groups);
+          // next to a large shape it is pulled in, so it cannot add slivers at the stair-steps of its edge
+          const area = pc[o] / 255;
+          const t = area <= 0.2 ? 0 : area >= 0.36 ? 1 : (area - 0.2) / 0.16;
+          a = Math.max(a, lutB[pb[o]] - t * t * (3 - 2 * t) * 0.4 * Renderer.ENC);
+        }
+        field[row + i] = a;
+      }
     }
   }
 
@@ -379,85 +569,25 @@ export class Renderer {
         if (t === T.WATER) {
           const shoreRough = near((n) => n === T.ROUGH);
           if (shoreRough && h < 0.2) list.push({ x: jx, y: jy, kind: 'reeds', v: Math.floor(hash2(x, y, 953) * 2), i });
-          else if (near((n) => n !== T.WATER) && h > 0.93) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(hash2(x, y, 953) * 2), i });
+          else if (near((n) => n !== T.WATER) && h > 0.95) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(hash2(x, y, 953) * 2), i });
         } else if (t === T.ROUGH && !w.tree[i]) {
           const edge = near((n) => n !== T.ROUGH && n !== T.PATH && n !== T.BUILDING);
+          const wooded = w.tree[i - 1] || w.tree[i + 1] || w.tree[i - w.w] || w.tree[i + w.w];
           const kind = hash2(x, y, 954);
           if (edge) {
+            if (h < 0.04) list.push({ x: jx, y: jy, kind: 'shrub', v: Math.floor(kind * 4), i });
+            else if (h < 0.055) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
+            else if (h < 0.07) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
+          } else if (wooded) {
+            // undergrowth belongs to the woods, not to open lawn
             if (h < 0.05) list.push({ x: jx, y: jy, kind: 'shrub', v: Math.floor(kind * 4), i });
-            else if (h < 0.075) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
-            else if (h < 0.1) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
-          } else if (h < 0.012) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
-          else if (h > 0.992) list.push({ x: jx, y: jy, kind: 'shrub', v: Math.floor(kind * 4), i });
-          else if (h > 0.986) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
-        } else if (t === T.BUNKER && h > 0.985) {
-          list.push({ x: jx, y: jy, kind: 'rock', v: 1, i });
+            else if (h < 0.06) list.push({ x: jx, y: jy, kind: 'flowers', v: Math.floor(kind * 3), i });
+          } else if (h > 0.996) list.push({ x: jx, y: jy, kind: 'rock', v: Math.floor(kind * 2), i });
         }
       }
     this.decor = list;
   }
 
-  /** How much each surface's edge wanders (in field alpha units). Tee boxes stay tidy. */
-  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.15, tee: 0.03, bunker: 0.3, water: 0.26 };
-
-  /** Threshold the blurred field into a chunk-sized soft-edged alpha mask (drawn into the shared scratch canvas). */
-  private chunkMask(key: string, th: number, soft: number, tx0: number, ty0: number, tx1: number, ty1: number): HTMLCanvasElement {
-    const R = Renderer.R;
-    const M = Renderer.M;
-    const mw = (tx1 - tx0) * R + 2 * M;
-    const mh = (ty1 - ty0) * R + 2 * M;
-    const field = this.fields.get(key)!;
-    const warp = Renderer.WARP[key] ?? 0.15;
-    const imgKey = mw + 'x' + mh;
-    let img = this.maskImages.get(imgKey);
-    if (!img) {
-      img = new ImageData(mw, mh);
-      this.maskImages.set(imgKey, img);
-    }
-    const px = new Uint32Array(img.data.buffer);
-    const fx0 = tx0 * R - M;
-    const fy0 = ty0 * R - M;
-    const lo = th - soft;
-    const inv = 1 / (2 * soft);
-    for (let j = 0; j < mh; j++) {
-      const fy = Math.max(0, Math.min(this.fieldH - 1, fy0 + j));
-      const row = fy * this.fieldW;
-      for (let i = 0; i < mw; i++) {
-        const fx = Math.max(0, Math.min(this.fieldW - 1, fx0 + i));
-        const f = field[row + fx] / 255;
-        // noise only wobbles existing edges; it never conjures a surface out of empty ground
-        const a = f + warp * this.warpNoise[j * mw + i] * (f * 12 > 1 ? 1 : f * 12);
-        let t = (a - lo) * inv;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        px[j * mw + i] = (Math.round(t * t * (3 - 2 * t) * 255) << 24) | 0x00ffffff;
-      }
-    }
-    const cv = this.maskCv;
-    if (cv.width !== mw || cv.height !== mh) {
-      cv.width = mw;
-      cv.height = mh;
-    }
-    cv.getContext('2d')!.putImageData(img, 0, 0);
-    return cv;
-  }
-
-  private prepareWarp(tx0: number, ty0: number, tx1: number, ty1: number) {
-    const R = Renderer.R;
-    const M = Renderer.M;
-    const mw = (tx1 - tx0) * R + 2 * M;
-    const mh = (ty1 - ty0) * R + 2 * M;
-    if (this.warpNoise.length !== mw * mh) this.warpNoise = new Float32Array(mw * mh);
-    const fx0 = tx0 * R - M;
-    const fy0 = ty0 * R - M;
-    for (let j = 0; j < mh; j++)
-      for (let i = 0; i < mw; i++) {
-        const gx = (fx0 + i) / R;
-        const gy = (fy0 + j) / R;
-        this.warpNoise[j * mw + i] = (vnoise(gx * 0.5, gy * 0.5, 6) - 0.5) * 1.3 + (vnoise(gx * 1.3, gy * 1.3, 7) - 0.5) * 0.7 + (vnoise(gx * 3.3, gy * 3.3, 8) - 0.5) * 0.3;
-      }
-  }
-
-  private static readonly CH = 16; // chunk size in tiles for partial recomposition
   private dirtyChunks = new Set<number>();
   allChunks(w: World) {
     for (let cy = 0; cy * Renderer.CH < w.h; cy++) for (let cx = 0; cx * Renderer.CH < w.w; cx++) this.dirtyChunks.add(cy * 1000 + cx);
@@ -479,10 +609,128 @@ export class Renderer {
     this.dirtyChunks.clear();
   }
 
+  // ---- chunk compositor ----
+  private layerCv = document.createElement('canvas');
+  private maskCv = document.createElement('canvas');
+  private maskImg: ImageData | null = null;
+  private distBufs = new Map<string, Float32Array>();
+
+  /**
+   * Signed distance (tiles, positive inside) for one surface over a chunk plus margin, at terrain
+   * resolution (bilinear from the field). Returns null when the surface is nowhere near.
+   */
+  private chunkDist(key: string, X: number, Y: number, CW: number, CHH: number): DistMap | null {
+    const MP = Renderer.MP;
+    const ENC = Renderer.ENC;
+    const field = this.fields.get(key)!;
+    const FW = this.fieldW;
+    const FH = this.fieldH;
+    const cut = 128 - Renderer.REACH * ENC;
+    // quick reject at field resolution
+    const fx0 = Math.max(0, Math.floor((X - MP) / 2));
+    const fx1 = Math.min(FW, Math.ceil((X + CW + MP) / 2));
+    const fy0 = Math.max(0, Math.floor((Y - MP) / 2));
+    const fy1 = Math.min(FH, Math.ceil((Y + CHH + MP) / 2));
+    let any = false;
+    for (let fy = fy0; fy < fy1 && !any; fy++) {
+      const row = fy * FW;
+      for (let fx = fx0; fx < fx1; fx++)
+        if (field[row + fx] > cut) {
+          any = true;
+          break;
+        }
+    }
+    if (!any) return null;
+    const DW = CW + 2 * MP;
+    const DH = CHH + 2 * MP;
+    let d = this.distBufs.get(key);
+    if (!d || d.length !== DW * DH) {
+      d = new Float32Array(DW * DH);
+      this.distBufs.set(key, d);
+    }
+    const inv = 1 / ENC;
+    const reach = -Renderer.REACH;
+    let x0 = DW;
+    let y0 = DH;
+    let x1 = 0;
+    let y1 = 0;
+    for (let j = 0; j < DH; j++) {
+      const py = Y - MP + j;
+      // field pixel centres sit at 2k+1 in terrain px
+      const v = Math.max(0, Math.min(FH - 1.001, py / 2 - 0.25));
+      const v0 = v | 0;
+      const fv = v - v0;
+      const ra = v0 * FW;
+      const rb = Math.min(FH - 1, v0 + 1) * FW;
+      for (let i = 0; i < DW; i++) {
+        const px = X - MP + i;
+        const u = Math.max(0, Math.min(FW - 1.001, px / 2 - 0.25));
+        const u0 = u | 0;
+        const fu = u - u0;
+        const u1 = u0 + 1 < FW ? u0 + 1 : u0;
+        const top = field[ra + u0] + (field[ra + u1] - field[ra + u0]) * fu;
+        const bot = field[rb + u0] + (field[rb + u1] - field[rb + u0]) * fu;
+        const dist = (top + (bot - top) * fv - 128) * inv;
+        d[j * DW + i] = dist;
+        if (dist > reach) {
+          if (i < x0) x0 = i;
+          if (i >= x1) x1 = i + 1;
+          if (j < y0) y0 = j;
+          if (j >= y1) y1 = j + 1;
+        }
+      }
+    }
+    if (x1 <= x0) return null;
+    return { d, DW, x0, y0, x1, y1 };
+  }
+
+  /**
+   * Rasterise an alpha shape over the chunk into the shared mask image, coloured `rgb` with opacity
+   * `alpha`. Returns the chunk-local rect that has any coverage, or null.
+   */
+  private rasterise(D: DistMap, CW: number, CHH: number, shape: Shape, rgb: RGB, alpha: number): Rect | null {
+    const MP = Renderer.MP;
+    const img = this.maskImg!;
+    const px = img.data;
+    const i0 = Math.max(D.x0, MP);
+    const i1 = Math.min(D.x1, MP + CW);
+    const j0 = Math.max(D.y0, MP);
+    const j1 = Math.min(D.y1, MP + CHH);
+    if (i0 >= i1 || j0 >= j1) return null;
+    const [r, g, b] = rgb;
+    const k255 = alpha * 255;
+    let bx0 = CW;
+    let by0 = CHH;
+    let bx1 = 0;
+    let by1 = 0;
+    const d = D.d;
+    for (let j = j0; j < j1; j++) {
+      let o = ((j - MP) * CW + (i0 - MP)) * 4;
+      let k = j * D.DW + i0;
+      let rowHit = false;
+      for (let i = i0; i < i1; i++, k++, o += 4) {
+        const a = shape(d, k);
+        if (a > 0.003) {
+          px[o] = r;
+          px[o + 1] = g;
+          px[o + 2] = b;
+          px[o + 3] = a * k255;
+          if (i - MP < bx0) bx0 = i - MP;
+          if (i - MP >= bx1) bx1 = i - MP + 1;
+          rowHit = true;
+        } else px[o + 3] = 0;
+      }
+      if (rowHit) {
+        if (j - MP < by0) by0 = j - MP;
+        by1 = j - MP + 1;
+      }
+    }
+    if (bx1 <= bx0 || by1 <= by0) return null;
+    return { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 };
+  }
+
   private composeChunk(w: World, cx: number, cy: number) {
     const C = Renderer.CH;
-    const R = Renderer.R;
-    const M = Renderer.M;
     const tx0 = cx * C;
     const ty0 = cy * C;
     const tx1 = Math.min(w.w, tx0 + C);
@@ -491,54 +739,58 @@ export class Renderer {
     const Y = ty0 * TS;
     const CW = (tx1 - tx0) * TS;
     const CHH = (ty1 - ty0) * TS;
-    const k = R / TS; // field pixels per terrain pixel
     const t = this.tctx2;
-    this.prepareWarp(tx0, ty0, tx1, ty1);
+    if (this.layerCv.width !== CW || this.layerCv.height !== CHH) {
+      this.layerCv.width = this.maskCv.width = CW;
+      this.layerCv.height = this.maskCv.height = CHH;
+    }
+    if (!this.maskImg || this.maskImg.width !== CW || this.maskImg.height !== CHH) this.maskImg = new ImageData(CW, CHH);
+    const lc = this.layerCv.getContext('2d')!;
+    const mc = this.maskCv.getContext('2d')!;
+    const DW = CW + 2 * Renderer.MP;
+    /** index offset for a lookup shifted by (sx, sy) terrain px */
+    const off = (sx: number, sy: number) => sy * DW + sx;
+
+    // ---- rough base: broad colour, coarse texture, per-tile tufts
     t.globalCompositeOperation = 'source-over';
-    // rough: darker, longer, with big soft dapples of sun and shade
+    t.globalAlpha = 1;
     this.drawSmooth(t, 'rough', tx0, ty0, tx1, ty1, w);
+    t.save();
+    t.beginPath();
+    t.rect(X, Y, CW, CHH);
+    t.clip();
     t.fillStyle = this.turfPattern(t, 'rough');
     t.fillRect(X, Y, CW, CHH);
-    t.drawImage(this.base, X, Y, CW, CHH, X, Y, CW, CHH);
-    const lc = this.layerCv.getContext('2d')!;
-    // work in a chunk-sized scratch canvas: full-size scratch copies make software canvases crawl
-    type Shift = [number, number];
-    interface Cut { th: number; soft?: number; shift: Shift }
-    // largest field value per surface inside this chunk (plus margin): lets us skip layers that cannot appear here
-    const peak = new Map<string, number>();
-    for (const key of Object.keys(Renderer.FIELD_PRED)) {
-      const field = this.fields.get(key)!;
-      let max = 0;
-      const fy0 = Math.max(0, ty0 * R - M);
-      const fy1 = Math.min(this.fieldH, ty1 * R + M);
-      const fx0 = Math.max(0, tx0 * R - M);
-      const fx1 = Math.min(this.fieldW, tx1 * R + M);
-      for (let fy = fy0; fy < fy1 && max < 255; fy++) {
-        const row = fy * this.fieldW;
-        for (let fx = fx0; fx < fx1; fx++) if (field[row + fx] > max) max = field[row + fx];
-      }
-      peak.set(key, max / 255);
-    }
-    const stamp = (fill: (c: CanvasRenderingContext2D) => void, key: string, th: number, soft = 0.09, cut?: Cut) => {
-      const top = peak.get(key)!;
-      if (top < 0.01 || top + (Renderer.WARP[key] ?? 0.15) * 0.9 < th - soft) return;
+    for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.ROUGH) this.roughTufts(t, w, x, y);
+    t.restore();
+
+    const flatStamp = (D: DistMap | null, shape: Shape, rgb: RGB, alpha: number) => {
+      if (!D) return;
+      const r = this.rasterise(D, CW, CHH, shape, rgb, alpha);
+      if (!r) return;
+      mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
+      t.drawImage(this.maskCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
+    };
+    const fillStamp = (D: DistMap | null, shape: Shape, fill: (c: CanvasRenderingContext2D) => void) => {
+      if (!D) return;
+      const r = this.rasterise(D, CW, CHH, shape, [255, 255, 255], 1);
+      if (!r) return;
+      mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
       lc.setTransform(1, 0, 0, 1, 0, 0);
       lc.globalCompositeOperation = 'source-over';
-      lc.clearRect(0, 0, this.layerCv.width, this.layerCv.height);
+      lc.globalAlpha = 1;
+      lc.clearRect(r.x, r.y, r.w, r.h);
+      lc.save();
+      lc.beginPath();
+      lc.rect(r.x, r.y, r.w, r.h);
+      lc.clip();
       lc.setTransform(1, 0, 0, 1, -X, -Y);
       fill(lc);
-      const dx = X - M / k;
-      const dy = Y - M / k;
+      lc.restore();
       lc.globalCompositeOperation = 'destination-in';
-      let mask = this.chunkMask(key, th, soft, tx0, ty0, tx1, ty1);
-      lc.drawImage(mask, dx, dy, mask.width / k, mask.height / k);
-      if (cut) {
-        mask = this.chunkMask(key, cut.th, cut.soft ?? soft, tx0, ty0, tx1, ty1);
-        lc.globalCompositeOperation = 'destination-out';
-        lc.drawImage(mask, dx + cut.shift[0], dy + cut.shift[1], mask.width / k, mask.height / k);
-      }
+      lc.drawImage(this.maskCv, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
       lc.globalCompositeOperation = 'source-over';
-      t.drawImage(this.layerCv, 0, 0, CW, CHH, X, Y, CW, CHH);
+      t.drawImage(this.layerCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
     };
     const flat = (col: string) => (c: CanvasRenderingContext2D) => {
       c.fillStyle = col;
@@ -550,140 +802,218 @@ export class Renderer {
       c.fillRect(X, Y, CW, CHH);
       c.globalAlpha = 1;
     };
-    const eachTile = (types: number[], draw: (c: CanvasRenderingContext2D, x: number, y: number, i: number) => void) => (c: CanvasRenderingContext2D) => {
-      for (let y = ty0; y < ty1; y++)
-        for (let x = tx0; x < tx1; x++) {
-          const i = y * w.w + x;
-          if (types.includes(w.terrain[i])) draw(c, x, y, i);
-        }
-    };
     const layers = (...fns: Array<(c: CanvasRenderingContext2D) => void>) => (c: CanvasRenderingContext2D) => fns.forEach((f) => f(c));
-    const tex = (cmap: string, kind: TurfKind, extra?: (c: CanvasRenderingContext2D) => void) => (c: CanvasRenderingContext2D) => {
-      this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w);
-      pat(this.turfPattern(c, kind))(c);
-      extra?.(c);
+    const surface = (cmap: string, kind: TurfKind, stripes?: CanvasPattern) =>
+      layers((c) => this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w), pat(this.turfPattern(t, kind)), ...(stripes ? [pat(stripes)] : []));
+
+    const dist = (key: string) => this.chunkDist(key, X, Y, CW, CHH);
+
+    // Shapes. `d[k]` is the signed distance at this pixel; shifted lookups read d[k - offset].
+    const inside: Shape = (d, k) => aa(d[k], 0);
+    const band = (a: number, b: number): Shape => (d, k) => aa(d[k], a) - aa(d[k], b);
+    /** darkening just outside an edge, strongest at the edge and fading out over `width` */
+    const falloff = (width: number): Shape => (d, k) => {
+      const v = d[k];
+      return v < -width ? 0 : (1 - aa(v, 0)) * clamp01((v + width) / width);
+    };
+    /** inner side of a depression that faces away from the sun (-x): `shift` px toward +x, fading over `width` */
+    const innerShade = (sx: number, sy: number, width: number, gamma: number): Shape => {
+      const o = off(sx, sy);
+      return (d, k) => {
+        const v = d[k];
+        if (v <= -0.03) return 0;
+        const s = clamp01(-d[k - o] / width);
+        return s > 0 ? aa(v, 0) * Math.pow(s, gamma) : 0;
+      };
     };
 
-    // ---- fairway family: soft shade just outside, a lighter first cut, then the striped body
-    stamp(flat('rgba(18,58,30,0.26)'), 'grass', 0.14, 0.14);
-    stamp(flat('rgba(132,196,88,0.62)'), 'grass', 0.3, 0.12);
-    const fairwayWear = eachTile([T.FAIRWAY, T.GREEN, T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i));
-    stamp(layers(tex('grass', 'fairway'), pat(this.pattern(t, 'stripe-fw', () => makeStripeTexture(100, 0.3))), fairwayWear), 'grass', 0.5, 0.075);
-    // slim darker line where the cut turns: reads as the edge of the mown area
-    stamp(flat('rgba(20,84,36,0.22)'), 'grass', 0.52, 0.04, { th: 0.6, shift: [0, 0] });
+    // ---- fairway family (fairway, plus the ground under greens and tees)
+    const grass = dist('grass');
+    flatStamp(grass, falloff(0.1), [14, 50, 26], 0.3);
+    fillStamp(grass, inside, surface('grass', 'fairway', this.pattern(t, 'stripe-fw', () => makeStripeTexture(64, 0.075, 'x'))));
+    // a fine pale cut line just inside the edge of the mown area
+    flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
 
-    // ---- green: collar, defining edge, brightest finest turf
-    stamp(layers(flat('rgba(146,212,102,0.9)'), pat(this.turfPattern(t, 'fairway'), 0.8), pat(this.pattern(t, 'stripe-collar', () => makeStripeTexture(16, 0.18)), 0.7)), 'green', 0.28, 0.1);
-    stamp(flat('rgba(30,106,44,0.4)'), 'green', 0.46, 0.06);
-    stamp(layers(tex('green', 'green'), pat(this.pattern(t, 'stripe-green', () => makeStripeTexture(48, 0.16))), eachTile([T.GREEN], (c, x, y, i) => this.grassTile(c, w, x, y, i))), 'green', 0.54, 0.05);
+    // ---- green: fringe collar with its own cut line, crisp perimeter, finest turf
+    const green = dist('green');
+    if (green) {
+      const collar = mix(COL.fairGood, COL.greenGood, 0.45);
+      fillStamp(green, band(-0.24, 0), layers(flat(css(collar)), pat(this.turfPattern(t, 'green'))));
+      fillStamp(green, inside, surface('green', 'green', this.pattern(t, 'stripe-green', () => makeStripeTexture(32, 0.05, 'y'))));
+      flatStamp(green, band(-0.02, 0.025), [22, 82, 38], 0.3);
+    }
 
-    // ---- tee box: flat, tight, crisp, with its own pale cut lines
-    stamp(flat('rgba(24,92,40,0.45)'), 'tee', 0.46, 0.035);
-    stamp(layers(tex('tee', 'tee'), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(TS, 0.2))), eachTile([T.TEE], (c, x, y, i) => this.grassTile(c, w, x, y, i))), 'tee', 0.52, 0.03);
+    // ---- tee box: geometric, tight, with a lit rim
+    const tee = dist('tee');
+    if (tee) {
+      flatStamp(tee, falloff(0.07), [14, 50, 26], 0.32);
+      fillStamp(tee, inside, surface('tee', 'tee', this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))));
+      flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
+    }
 
-    // ---- bunkers: grass lip, shaded NW inner wall, fine grain, raked furrows, a few footprints
-    stamp(flat('rgba(40,92,36,0.6)'), 'bunker', 0.22, 0.12);
-    stamp(flat('rgba(160,214,108,0.85)'), 'bunker', 0.36, 0.1);
-    const sandSurface = layers(
-      (c) => {
-        this.drawSmooth(c, 'sand', tx0, ty0, tx1, ty1, w);
-        pat(this.pattern(c, 'sand', () => makeSandTexture()))(c);
-      },
-      (c) => this.rakeLines(c, X, Y, CW, CHH),
-      eachTile([T.BUNKER], (c, x, y) => this.sandDetail(c, x, y)),
-    );
-    stamp(sandSurface, 'bunker', 0.5, 0.065);
-    // the lip shades the side facing away from the sun (upper left on screen, -x on the ground)
-    stamp(flat('rgba(118,84,42,0.7)'), 'bunker', 0.5, 0.065, { th: 0.5, soft: 0.2, shift: [6, 2.5] });
-    stamp(flat('rgba(255,250,226,0.4)'), 'bunker', 0.5, 0.2, { th: 0.5, soft: 0.065, shift: [-4, -1.6] });
-    stamp(flat('rgba(120,86,44,0.55)'), 'bunker', 0.52, 0.03, { th: 0.58, shift: [0, 0] });
+    // ---- worn turf: crisp patches that grow from where condition is lowest
+    if (grass) this.wearStamp(w, grass, tx0, ty0, tx1, ty1, X, Y, CW, CHH);
 
-    // ---- water: wet bank, pale pebbled shore, depth bands (light shallows -> dark centre), bank shadow
-    stamp(flat('rgba(72,84,44,0.5)'), 'water', 0.2, 0.1);
-    stamp(flat('rgba(214,212,166,0.82)'), 'water', 0.34, 0.08);
-    const waterSurface = layers(
-      (c) => {
-        this.drawSmooth(c, 'water', tx0, ty0, tx1, ty1, w);
-        pat(this.pattern(c, 'water', () => makeWaterTexture()))(c);
-      },
-      eachTile([T.WATER], (c, x, y, i) => this.waterDetail(c, w, x, y, i)),
-    );
-    stamp(waterSurface, 'water', 0.5, 0.065);
-    stamp(flat('rgba(24,128,176,0.3)'), 'water', 0.62, 0.12);
-    stamp(flat('rgba(14,94,150,0.36)'), 'water', 0.78, 0.12);
-    stamp(flat('rgba(8,58,112,0.42)'), 'water', 0.92, 0.1);
-    stamp(flat('rgba(178,248,222,0.42)'), 'water', 0.5, 0.08, { th: 0.58, soft: 0.1, shift: [0, 0] });
-    stamp(flat('rgba(6,40,60,0.5)'), 'water', 0.5, 0.065, { th: 0.5, soft: 0.2, shift: [7, 2.8] });
-    stamp(flat('rgba(40,70,50,0.45)'), 'water', 0.5, 0.03, { th: 0.56, shift: [0, 0] });
+    // ---- bunkers: turf lip, warm sand, crisp edge, shaded inner wall on the side away from the sun
+    const bunker = dist('bunker');
+    if (bunker) {
+      flatStamp(bunker, falloff(0.07), [28, 66, 30], 0.42);
+      fillStamp(
+        bunker,
+        inside,
+        layers(
+          (c) => {
+            this.drawSmooth(c, 'sand', tx0, ty0, tx1, ty1, w);
+            pat(this.pattern(c, 'sand', () => makeSandTexture()))(c);
+          },
+        ),
+      );
+      flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
+      flatStamp(bunker, innerShade(-6, -2, 0.18, 1), [255, 251, 234], 0.45);
+      flatStamp(bunker, band(-0.005, 0.03), [122, 88, 46], 0.55);
+    }
+
+    // ---- water: wet bank, a thin pale shoreline, depth from the colour map, bank shadow on the sun side
+    const water = dist('water');
+    if (water) {
+      flatStamp(water, falloff(0.11), [58, 74, 38], 0.45);
+      flatStamp(water, band(-0.035, 0.005), [204, 198, 150], 0.7);
+      fillStamp(
+        water,
+        inside,
+        layers(
+          (c) => {
+            this.drawSmooth(c, 'water', tx0, ty0, tx1, ty1, w);
+            pat(this.pattern(c, 'water', () => makeWaterTexture()))(c);
+          },
+          (c) => {
+            for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.WATER) this.waterDetail(c, w, x, y);
+          },
+        ),
+      );
+      flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.18), [156, 228, 216], 0.26);
+      flatStamp(water, innerShade(7, 3, 0.22, 1.2), [10, 46, 72], 0.4);
+    }
+
+    // ---- paths and paving: contact shadow, flagstones at a fixed scale, a kerb of constant width
+    const path = dist('path');
+    if (path) {
+      flatStamp(path, falloff(0.06), [24, 40, 22], 0.32);
+      fillStamp(path, inside, pat(this.pattern(t, 'paving', () => makePavingTexture(COL.path))));
+      flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
+      flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
+    }
   }
 
-  /** Curved rake furrows: continuous across tiles because they depend only on world position. */
-  private rakeLines(c: CanvasRenderingContext2D, X: number, Y: number, CW: number, CHH: number) {
-    c.lineWidth = 1.1;
-    c.lineCap = 'round';
-    const gap = 9;
-    for (let y = Math.floor(Y / gap) * gap - 20; y < Y + CHH + 20; y += gap) {
-      const row = Math.round(y / gap);
-      const furrow = (dy: number) => {
-        c.beginPath();
-        for (let x = X - 8; x <= X + CW + 8; x += 8) {
-          const bend = Math.sin(x / 46 + row * 0.5) * 7 + Math.sin(x / 120 - y / 70) * 11;
-          if (x === X - 8) c.moveTo(x, y + dy + bend);
-          else c.lineTo(x, y + dy + bend);
+  /**
+   * Worn turf as localized damage: per-tile wear is interpolated smoothly, compared against a patch noise,
+   * and drawn as thin yellowed turf with bare earth at the core. Healthy turf gets nothing at all.
+   */
+  private wearStamp(w: World, grass: DistMap, tx0: number, ty0: number, tx1: number, ty1: number, X: number, Y: number, CW: number, CHH: number) {
+    const gw = tx1 - tx0 + 2;
+    const gh = ty1 - ty0 + 2;
+    const wear = new Float32Array(gw * gh);
+    let any = false;
+    for (let y = ty0 - 1; y <= ty1; y++)
+      for (let x = tx0 - 1; x <= tx1; x++) {
+        if (!inBounds(w, x, y)) continue;
+        const i = y * w.w + x;
+        const t = w.terrain[i];
+        if (t !== T.FAIRWAY && t !== T.GREEN && t !== T.TEE) continue;
+        const v = Math.max(0, Math.min(1, (58 - w.cond[i]) / 46));
+        wear[(y - ty0 + 1) * gw + (x - tx0 + 1)] = v;
+        if (v > 0) any = true;
+      }
+    if (!any) return;
+    // cells off the turf borrow their turf neighbours' wear, so worn turf stays worn right up to its edge
+    const own = wear.slice();
+    for (let gy = 0; gy < gh; gy++)
+      for (let gx = 0; gx < gw; gx++) {
+        const x = tx0 - 1 + gx;
+        const y = ty0 - 1 + gy;
+        if (inBounds(w, x, y)) {
+          const t = w.terrain[y * w.w + x];
+          if (t === T.FAIRWAY || t === T.GREEN || t === T.TEE) continue;
         }
-        c.stroke();
-      };
-      // broken furrows read as raked marks rather than ruled lines
-      c.setLineDash([26 + (row % 5) * 6, 8, 44, 10 + (row % 3) * 4]);
-      c.lineDashOffset = row * 17;
-      c.strokeStyle = 'rgba(140,102,58,0.2)';
-      furrow(0);
-      c.strokeStyle = 'rgba(255,252,232,0.32)';
-      furrow(1.4);
-    }
-    c.setLineDash([]);
-  }
-
-  /** Footprints and pebbles scattered on sand tiles. */
-  private sandDetail(c: CanvasRenderingContext2D, x: number, y: number) {
-    const px = x * TS;
-    const py = y * TS;
-    if (hash2(x, y, 910) < 0.16) {
-      const fx = px + 6 + hash2(x, y, 911) * (TS - 12);
-      const fy = py + 6 + hash2(x, y, 912) * (TS - 12);
-      const ang = hash2(x, y, 913) * Math.PI * 2;
-      c.fillStyle = 'rgba(120,88,48,0.4)';
-      for (let s = 0; s < 4; s++) {
-        const ox = Math.cos(ang) * s * 7 + (s % 2 ? 1.6 : -1.6) * -Math.sin(ang);
-        const oy = Math.sin(ang) * s * 7 + (s % 2 ? 1.6 : -1.6) * Math.cos(ang);
-        c.beginPath();
-        c.ellipse(fx + ox, fy + oy, 2.4, 1.4, ang, 0, Math.PI * 2);
-        c.fill();
-        c.fillStyle = 'rgba(255,250,228,0.3)';
-        c.fillRect(fx + ox - 2, fy + oy - 1.6, 2, 0.9);
-        c.fillStyle = 'rgba(120,88,48,0.4)';
+        let sum = 0;
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = gx + dx;
+            const ny = gy + dy;
+            if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+            const xx = x + dx;
+            const yy = y + dy;
+            if (!inBounds(w, xx, yy)) continue;
+            const t = w.terrain[yy * w.w + xx];
+            if (t !== T.FAIRWAY && t !== T.GREEN && t !== T.TEE) continue;
+            sum += own[ny * gw + nx];
+            n++;
+          }
+        wear[gy * gw + gx] = n ? sum / n : 0;
+      }
+    const MP = Renderer.MP;
+    const img = this.maskImg!;
+    const px = img.data;
+    const noise = this.wearNoise;
+    const thin = COL.fairWorn;
+    const dirt = mix(COL.dirt, COL.fairWorn, 0.3);
+    const d = grass.d;
+    let bx0 = CW;
+    let by0 = CHH;
+    let bx1 = 0;
+    let by1 = 0;
+    for (let j = 0; j < CHH; j++) {
+      // tile-centre interpolation: wear fades out halfway into healthy neighbours
+      const gy = (j + 0.5) / TS + 0.5;
+      const gy0 = Math.min(gh - 2, gy | 0);
+      const fy = gy - gy0;
+      for (let i = 0; i < CW; i++) {
+        const o = (j * CW + i) * 4;
+        const gx = (i + 0.5) / TS + 0.5;
+        const gx0 = Math.min(gw - 2, gx | 0);
+        const fx = gx - gx0;
+        const a = wear[gy0 * gw + gx0];
+        const b = wear[gy0 * gw + gx0 + 1];
+        const c = wear[(gy0 + 1) * gw + gx0];
+        const e = wear[(gy0 + 1) * gw + gx0 + 1];
+        const lv = a + (b - a) * fx + (c - a) * fy + (a - b - c + e) * fx * fy;
+        if (lv <= 0.01) {
+          px[o + 3] = 0;
+          continue;
+        }
+        const n = noise[((Y + j) & 127) * 128 + ((X + i) & 127)];
+        const L = lv * 1.15;
+        const cover = aa(d[(j + MP) * grass.DW + i + MP], 0.04);
+        const fade = Math.min(1, lv * 6);
+        const a1 = clamp01((L + 0.05 - n) * 8) * 0.42 * fade * cover;
+        const a2 = clamp01((L - 0.35 - n) * 10) * 0.72 * fade * cover;
+        const oa = a2 + a1 * (1 - a2);
+        if (oa < 0.004) {
+          px[o + 3] = 0;
+          continue;
+        }
+        const k1 = (a1 * (1 - a2)) / oa;
+        const k2 = a2 / oa;
+        px[o] = thin[0] * k1 + dirt[0] * k2;
+        px[o + 1] = thin[1] * k1 + dirt[1] * k2;
+        px[o + 2] = thin[2] * k1 + dirt[2] * k2;
+        px[o + 3] = oa * 255;
+        if (i < bx0) bx0 = i;
+        if (i >= bx1) bx1 = i + 1;
+        if (j < by0) by0 = j;
+        by1 = j + 1;
       }
     }
-    if (hash2(x, y, 914) < 0.14) {
-      for (let s = 0; s < 3; s++) {
-        const bx = px + hash2(x, y, 915 + s) * TS;
-        const by = py + hash2(x, y, 920 + s) * TS;
-        c.fillStyle = 'rgba(96,84,72,0.4)';
-        c.beginPath();
-        c.ellipse(bx + 0.8, by + 0.7, 1.8, 1.2, 0, 0, Math.PI * 2);
-        c.fill();
-        c.fillStyle = s % 2 ? '#b8ab94' : '#cfc3ac';
-        c.beginPath();
-        c.ellipse(bx, by, 1.7, 1.2, 0, 0, Math.PI * 2);
-        c.fill();
-      }
-    }
+    if (bx1 <= bx0) return;
+    const mc = this.maskCv.getContext('2d')!;
+    mc.putImageData(img, 0, 0, bx0, by0, bx1 - bx0, by1 - by0);
+    this.tctx2.drawImage(this.maskCv, bx0, by0, bx1 - bx0, by1 - by0, X + bx0, Y + by0, bx1 - bx0, by1 - by0);
   }
 
-  /** Lily pads on open water, painted flat into the terrain. */
-  private waterDetail(c: CanvasRenderingContext2D, w: World, x: number, y: number, i: number) {
-    void i;
-    if (hash2(x, y, 930) > 0.1) return;
+  /** Occasional lily pads on open water, painted flat into the terrain. */
+  private waterDetail(c: CanvasRenderingContext2D, w: World, x: number, y: number) {
+    if (hash2(x, y, 930) > 0.06) return;
     for (let dy = -1; dy <= 1; dy++)
       for (let dx = -1; dx <= 1; dx++) if (!inBounds(w, x + dx, y + dy) || w.terrain[(y + dy) * w.w + x + dx] !== T.WATER) return;
     const n = 1 + Math.floor(hash2(x, y, 931) * 3);
@@ -692,143 +1022,33 @@ export class Renderer {
     for (let k = 0; k < n; k++) paintLilyPad(c, cx + (hash2(x, y, 934 + k) - 0.5) * 12, cy + (hash2(x, y, 938 + k) - 0.5) * 9, 4 + hash2(x, y, 942 + k) * 2.5, x * 7 + y * 13 + k);
   }
 
-  /** Worn turf stays readable: dirt scuffs and thin patches appear as condition drops. */
-  private grassTile(c: CanvasRenderingContext2D, w: World, x: number, y: number, i: number) {
-    const cond = w.cond[i];
+  /** A few coarse grass tufts per rough tile; overgrown rough grows taller, paler seed heads. */
+  private roughTufts(c: CanvasRenderingContext2D, w: World, x: number, y: number) {
+    const cond = w.cond[y * w.w + x];
     const px = x * TS;
     const py = y * TS;
-    if (cond < 44) {
-      const n = cond < 25 ? 3 : 2;
-      for (let k = 0; k < n; k++) {
-        const ex = px + hash2(x, y, 50 + k) * TS;
-        const ey = py + hash2(x, y, 60 + k) * TS;
-        const r = TS * (0.34 + hash2(x, y, 70 + k) * 0.34);
-        const g = c.createRadialGradient(ex, ey, 1, ex, ey, r);
-        const a = 0.3 + (44 - cond) / 110;
-        g.addColorStop(0, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},${a})`);
-        g.addColorStop(0.6, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},${a * 0.5})`);
-        g.addColorStop(1, `rgba(${COL.dirt[0]},${COL.dirt[1]},${COL.dirt[2]},0)`);
-        c.fillStyle = g;
-        c.fillRect(ex - r, ey - r, r * 2, r * 2);
-      }
-      c.fillStyle = 'rgba(96,74,42,0.4)';
-      for (let k = 0; k < 6; k++) c.fillRect(px + hash2(x, y, 100 + k) * TS, py + hash2(x, y, 110 + k) * TS, 1.6, 1.3);
-      c.fillStyle = 'rgba(224,196,140,0.35)';
-      for (let k = 0; k < 3; k++) c.fillRect(px + hash2(x, y, 160 + k) * TS, py + hash2(x, y, 170 + k) * TS, 1.3, 1.3);
-    }
-  }
-
-  /** Base layer: rough tufts, paved paths with stone edging, and the clubhouse footprint. */
-  private drawTile(w: World, x: number, y: number) {
-    const c = this.tctx;
-    const i = y * w.w + x;
-    const t = w.terrain[i];
-    const px = x * TS;
-    const py = y * TS;
-    const cond = t === T.ROUGH ? w.cond[i] : 62;
-    c.clearRect(px, py, TS, TS);
-    if (t === T.ROUGH) {
-      const tall = cond < 45;
-      const n = tall ? 5 : 3;
-      for (let k = 0; k < n; k++) {
-        const bx = px + hash2(x, y, 140 + k) * TS;
-        const by = py + 4 + hash2(x, y, 150 + k) * (TS - 4);
-        c.strokeStyle = tall ? (k % 2 ? 'rgba(168,176,104,0.48)' : 'rgba(92,124,66,0.46)') : k % 2 ? 'rgba(104,170,76,0.62)' : 'rgba(28,86,40,0.58)';
-        c.lineWidth = 1.2;
-        c.beginPath();
-        c.moveTo(bx, by);
-        c.quadraticCurveTo(bx + (hash2(x, y, 160 + k) - 0.5) * 5, by - (tall ? 3 : 1.5), bx + (hash2(x, y, 165 + k) - 0.5) * 6, by - (tall ? 6 + hash2(x, y, 170 + k) * 4 : 3.5));
-        c.stroke();
-      }
-      if (cond < 32 && hash2(x, y, 180) < 0.16) {
-        c.fillStyle = ['#f3efe2', '#f1d24f', '#b98bd6'][Math.floor(hash2(x, y, 181) * 3)];
-        c.beginPath();
-        c.arc(px + 5 + hash2(x, y, 182) * (TS - 10), py + 5 + hash2(x, y, 183) * (TS - 10), 1.7, 0, Math.PI * 2);
-        c.fill();
-      }
-    } else if (t === T.PATH || t === T.BUILDING) {
-      this.paveTile(c, w, x, y);
-    }
-  }
-
-  /** Flagstone paving: tinted pavers, grout, a lit top-left edge on every stone, and stone edging where it meets turf. */
-  private paveTile(c: CanvasRenderingContext2D, w: World, x: number, y: number) {
-    const px = x * TS;
-    const py = y * TS;
-    const jit = (vnoise(x / 3.2, y / 3.2, 41) - 0.5) * 16;
-    c.fillStyle = css(COL.path, jit - 6);
-    c.fillRect(px, py, TS, TS);
-    const rows = [0, 11, 21, 32];
-    for (let r = 0; r < 3; r++) {
-      const y0 = py + rows[r];
-      const y1 = py + rows[r + 1];
-      const off = hash2(x, y, 700 + r) * 10;
-      let sx = px - 10 + off;
-      let k = 0;
-      while (sx < px + TS) {
-        const wd = 12 + hash2(x, y, 710 + r * 5 + k) * 8;
-        const x0 = Math.max(px, sx);
-        const x1 = Math.min(px + TS, sx + wd);
-        if (x1 > x0 + 1) {
-          const tint = (hash2(x, y, 730 + r * 5 + k) - 0.5) * 18;
-          c.fillStyle = css(COL.path, jit + tint + 4);
-          c.fillRect(x0 + 0.7, y0 + 0.7, x1 - x0 - 1.4, y1 - y0 - 1.4);
-          c.fillStyle = 'rgba(255,250,232,0.34)';
-          c.fillRect(x0 + 0.7, y0 + 0.7, x1 - x0 - 1.4, 1);
-          c.fillRect(x0 + 0.7, y0 + 0.7, 1, y1 - y0 - 1.4);
-          c.fillStyle = 'rgba(96,86,70,0.28)';
-          c.fillRect(x0 + 0.7, y1 - 1.3, x1 - x0 - 1.4, 0.8);
-        }
-        sx += wd;
-        k++;
-      }
-    }
-    c.fillStyle = 'rgba(110,100,86,0.25)';
-    for (let k = 0; k < 4; k++) c.fillRect(px + hash2(x, y, 230 + k) * (TS - 1), py + hash2(x, y, 240 + k) * (TS - 1), 1.3, 1.3);
-    if (hash2(x, y, 250) < 0.22) {
-      c.strokeStyle = 'rgba(70,64,52,0.5)';
-      c.lineWidth = 0.9;
-      const sx = px + hash2(x, y, 251) * TS;
+    const tall = cond < 40;
+    const n = tall ? 4 : 2;
+    c.lineWidth = 1.1;
+    c.lineCap = 'round';
+    for (let k = 0; k < n; k++) {
+      const bx = px + 3 + hash2(x, y, 140 + k) * (TS - 6);
+      const by = py + 3 + hash2(x, y, 150 + k) * (TS - 6);
+      const len = tall ? 4 + hash2(x, y, 170 + k) * 3 : 2.5 + hash2(x, y, 170 + k) * 1.5;
+      // shaded blades lean away from the sun (+x), a lit blade toward it
+      c.strokeStyle = tall ? 'rgba(150,150,86,0.42)' : 'rgba(20,70,34,0.4)';
       c.beginPath();
-      c.moveTo(sx, py);
-      c.lineTo(sx + 4, py + TS * 0.4);
-      c.lineTo(sx - 2, py + TS * 0.75);
+      c.moveTo(bx, by);
+      c.lineTo(bx - len * 0.4, by - len);
+      c.moveTo(bx, by);
+      c.lineTo(bx - len * 0.7, by - len * 0.7);
       c.stroke();
-      c.fillStyle = 'rgba(90,150,64,0.85)';
-      c.fillRect(sx + 2.5, py + TS * 0.4 - 1, 2, 2.5);
+      c.strokeStyle = tall ? 'rgba(206,196,128,0.38)' : 'rgba(132,186,96,0.3)';
+      c.beginPath();
+      c.moveTo(bx, by);
+      c.lineTo(bx - len * 0.95, by - len * 0.35);
+      c.stroke();
     }
-    // stone edging along every side that borders something other than paving
-    const solid = (tx: number, ty: number) => {
-      if (!inBounds(w, tx, ty)) return true;
-      const n = w.terrain[ty * w.w + tx];
-      return n === T.PATH || n === T.BUILDING;
-    };
-    const edge = (dx: number, dy: number) => {
-      if (solid(x + dx, y + dy)) return;
-      const along = dx === 0 ? [1, 0] : [0, 1];
-      for (let s = 0; s < 4; s++) {
-        const a = (s + 0.5) * (TS / 4);
-        const ex = px + (dx === 0 ? a : dx > 0 ? TS - 2.6 : 2.6);
-        const ey = py + (dy === 0 ? a : dy > 0 ? TS - 2.6 : 2.6);
-        const tone = 168 + hash2(x * 4 + s, y, 760 + dx * 3 + dy) * 40;
-        c.fillStyle = 'rgba(70,64,50,0.45)';
-        c.beginPath();
-        c.ellipse(ex + 0.8, ey + 0.9, along[0] ? 4.4 : 3, along[1] ? 4.4 : 3, 0, 0, Math.PI * 2);
-        c.fill();
-        c.fillStyle = `rgb(${tone},${tone - 8},${tone - 26})`;
-        c.beginPath();
-        c.ellipse(ex, ey, along[0] ? 4.2 : 2.8, along[1] ? 4.2 : 2.8, 0, 0, Math.PI * 2);
-        c.fill();
-        c.fillStyle = 'rgba(255,252,236,0.45)';
-        c.beginPath();
-        c.ellipse(ex - 0.8, ey - 0.8, along[0] ? 2.4 : 1.2, along[1] ? 2.4 : 1.2, 0, 0, Math.PI * 2);
-        c.fill();
-      }
-    };
-    edge(-1, 0);
-    edge(1, 0);
-    edge(0, -1);
-    edge(0, 1);
   }
 
   // ---------- frame ----------
@@ -850,8 +1070,11 @@ export class Renderer {
     const z = this.cam.zoom;
     const o = this.toScreen(0, 0);
     ctx.imageSmoothingEnabled = true;
+    // magnified ground uses cubic filtering so anti-aliased contours stay smooth instead of showing the pixel grid
+    ctx.imageSmoothingQuality = 'low';
     // Only the ground is projected. Trees, people, roofs and signs stay upright.
     ctx.save(); ctx.transform(ISO_X * z, ISO_Y * z, -ISO_X * z, ISO_Y * z, o.x, o.y); ctx.drawImage(this.terr, 0, 0); ctx.restore();
+    ctx.imageSmoothingQuality = 'low';
     const ts = this.ts;
     const corners = [[0,0],[this.cw,0],[0,this.ch],[this.cw,this.ch]].map(([x,y]) => this.toWorld(x,y));
     const x0 = Math.max(0, Math.floor(Math.min(...corners.map(p => p.x))) - 5);
@@ -900,25 +1123,12 @@ export class Renderer {
           { y: club.y + 17, draw: () => this.drawStructures(game, time) },
         ]
       : [];
-    const wts = REGIONS[w.region].trees;
-    const wsum = wts.reduce((a, b) => a + b, 0) || 1;
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * w.w + x;
         if (!w.tree[i]) continue;
         const hh = hash2(x, y, 400);
-        const dead = w.cond[i] < 30 && hh < 0.28;
-        let variant = dead ? 3 : w.cond[i] < 38 && hh < 0.6 ? 4 : 0;
-        if (variant === 0) {
-          let r = hash2(x, y, 401) * wsum;
-          for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { variant = k; break; }
-        }
-        if (variant === 0 && game.region !== 'desert') {
-          if (hh > .96) variant = 9;
-          else if (hh > .82) variant = 7;
-          else if (hh > .5) variant = 8;
-        }
-        if (variant === 0 && game.season.index === 2 && hh < .2) variant = 4;
+        const variant = this.treeVariant(game, x, y, i, hh);
         items.push({ y: x + y + 1, draw: () => this.drawTree(x, y, variant, hh) });
       }
     for (const d of this.decor) {
@@ -1039,6 +1249,65 @@ export class Renderer {
     }
   }
 
+  // Tree species are chosen from low-frequency noise so neighbouring trees share a species and woods read
+  // as stands (oak wood, pine belt, birch grove) rather than confetti. Accent species are placed on purpose:
+  // blossom only near the clubhouse and tees, red maples as rare small groups. Only the per-tile health
+  // (dry or dead trees on neglected ground) is read live; the species itself is cached per world version.
+  private species = new Int8Array(0);
+  private speciesFor: World | null = null;
+  private speciesVersion = -1;
+  private speciesRegion = '';
+
+  private treeSpecies(game: Game, x: number, y: number, i: number): number {
+    const w = game.world;
+    if (this.speciesFor !== w || this.speciesVersion !== w.version || this.speciesRegion !== w.region || this.species.length !== w.terrain.length) {
+      this.speciesFor = w;
+      this.speciesVersion = w.version;
+      this.speciesRegion = w.region;
+      if (this.species.length !== w.terrain.length) this.species = new Int8Array(w.terrain.length);
+      this.species.fill(-1);
+    }
+    if (this.species[i] >= 0) return this.species[i];
+    const wts = REGIONS[w.region].trees;
+    const sum = wts.reduce((a, b) => a + b, 0) || 1;
+    // value noise clusters around 0.5: stretch and wrap it so each species gets its share of stands
+    const n = vnoise(x / 7, y / 7, 410);
+    let r = (((n - 0.5) * 2.6 + 0.5 + (hash2(x, y, 401) - 0.5) * 0.12) % 1 + 1) % 1;
+    r *= sum;
+    let v = 0;
+    for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { v = k; break; }
+    if (v === 0 && game.region !== 'desert') {
+      const hh = hash2(x, y, 402);
+      const club = Math.hypot(x - 8, y - 43);
+      let nearTee = 99;
+      for (const h of w.holes) nearTee = Math.min(nearTee, Math.hypot(x - h.tee.x, y - h.tee.y));
+      if ((club < 14 || nearTee < 5) && hh > 0.62) v = 7; // ornamental blossom framing the clubhouse and tees
+      else if (vnoise(x / 5, y / 5, 420) > 0.66) v = 8; // birch groves
+      else if (vnoise(x / 4, y / 4, 430) > 0.74 && hh > 0.55 && this.treeNeighbours(w, x, y) >= 2) v = 9; // a few maples inside a stand, never a lone red tree
+    }
+    this.species[i] = v;
+    return v;
+  }
+
+  private treeNeighbours(w: World, x: number, y: number): number {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inBounds(w, x + dx, y + dy) && w.tree[(y + dy) * w.w + x + dx]) n++;
+    return n;
+  }
+
+  private treeVariant(game: Game, x: number, y: number, i: number, hh: number): number {
+    const w = game.world;
+    const cond = w.cond[i];
+    // neglected ground: some trees dead, more of them dry, both following the overgrown patches
+    if (cond < 20 && hh < 0.12) return 3;
+    if (cond < 32 && hh < 0.34) return 4;
+    const v = this.treeSpecies(game, x, y, i);
+    // autumn turns whole stands of broadleaves, not single trees
+    if (game.season.index === 2 && (v === 0 || v === 8) && vnoise(x / 6, y / 6, 440) > 0.5) return 4;
+    return v;
+  }
+
   private drawTree(x: number, y: number, v: number, hh: number) {
     const ctx = this.ctx;
     const ts = this.ts;
@@ -1047,7 +1316,8 @@ export class Renderer {
     const s = size / TREE_W;
     // sun is upper left: the cast shadow stretches toward the lower right, with a tight contact shadow at the trunk
     const reach = v === 2 ? 1.05 : v === 6 ? 0.5 : 0.85;
-    ctx.drawImage(this.treeShadow, p.x - 58 * s * reach - size * 0.02, p.y - 30 * s * reach, 192 * s * reach, 64 * s * reach);
+    const k = s * reach;
+    ctx.drawImage(this.treeShadow, p.x - SHADOW_AX * k, p.y - SHADOW_AY * k, SHADOW_W * k, SHADOW_H * k);
     const small = size * this.dpr < 80;
     const spr = small ? this.treesSmall[v] : this.trees[v];
     const h = size * (TREE_H / TREE_W);
@@ -1367,8 +1637,8 @@ export class Renderer {
   }
   /** The clubhouse art is drawn for the classic course's spot; this shifts it to wherever the player put the clubhouse. */
   private clubPainter(at: Pt): Painter {
-    const dx = at.x - LEGACY_CLUBHOUSE.x;
-    const dy = at.y - LEGACY_CLUBHOUSE.y;
+    const dx = at.x - CLUB_ART_ORIGIN.x;
+    const dy = at.y - CLUB_ART_ORIGIN.y;
     return { ctx: this.ctx, ts: this.ts, toScreen: (x: number, y: number) => this.toScreen(x + dx, y + dy) };
   }
   private drawBuilding(game: Game, time: number) {
@@ -1528,15 +1798,6 @@ export class Renderer {
         else ctx.ellipse(x, y, 3.2, 1.8, time + k, 0, Math.PI * 2);
         ctx.fill();
       }
-    }
-    // drifting cloud shadows
-    ctx.fillStyle = 'rgba(10,25,20,0.07)';
-    for (let k = 0; k < 4; k++) {
-      const x = ((time * (7 + k * 2) + k * 520) % (this.cw + 700)) - 350;
-      const y = ((k * 233 + 60) % this.ch) + Math.sin(time * 0.1 + k) * 20;
-      ctx.beginPath();
-      ctx.ellipse(x, y, 260 + k * 30, 90 + k * 14, 0.2, 0, Math.PI * 2);
-      ctx.fill();
     }
     const key = `${this.cw}x${this.ch}`;
     if (!this.vignette || this.vigSize !== key) {

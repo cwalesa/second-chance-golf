@@ -2,6 +2,7 @@
 // player to choose for the clubhouse. Everything here is deterministic from the land seed, so the valley
 // shading can be rebuilt on load without saving anything extra.
 import { CFG } from './config';
+import { REGIONS, RegionId } from './progression';
 import { CLUB_H, CLUB_W, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
 
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
@@ -74,7 +75,7 @@ export function reliefAt(seed: number, x: number, y: number): number {
 export const newLandSeed = (n: number) => 1 + (Math.floor(Math.abs(n)) % 99991);
 
 /** Untouched wilderness: no holes, no clubhouse, every tile ready to build on. */
-export function createWilderness(landSeed: number): World {
+export function createWilderness(landSeed: number, region: RegionId = 'parkland'): World {
   const { w, h } = CFG.grid;
   const n = w * h;
   const s = landSeed;
@@ -88,7 +89,7 @@ export function createWilderness(landSeed: number): World {
     zone: new Uint8Array(n),
     holes: [],
     version: 1,
-    region: 'parkland',
+    region,
     parcels: new Uint8Array(CFG.land.cols * CFG.land.rows).fill(1),
     dirty: new Set(),
     clubhouse: null,
@@ -111,7 +112,7 @@ export function createWilderness(landSeed: number): World {
       // Meadows gather on valley floors; ridges and slopes are forest.
       const valley = smooth(0.62, 0.34, relief);
       const open = clamp(0.1 + 0.6 * valley + 1.15 * (vnoise(x / 10, y / 10, s + 7) - 0.5));
-      let p = 0.04 + 0.64 * (1 - open);
+      let p = (0.04 + 0.64 * (1 - open)) * Math.min(1.35, REGIONS[region].treeDensity);
       const shore = Math.min(d - 1.2, ...land.ponds.map((q) => Math.hypot(x + 0.5 - q.x, y + 0.5 - q.y) - q.r));
       if (shore < 2.2) p *= 0.45;
       const edge = Math.min(x, y, w - 1 - x, h - 1 - y);

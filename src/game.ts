@@ -1,13 +1,12 @@
 import { Experience, freshExperience, awardExperience, constructionFactor, archiveCourse } from './experience';
 import type { Feedback } from './feedback';
-import { createCampaignWorld } from './locations';
 import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, activeLocation, LOCATIONS, stageComplete } from './campaign';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
-import { World, Hole, createStartingWorld, computeZones, holeCondition, validateHole, Validation } from './terrain';
+import { World, Hole, computeZones, holeCondition, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
@@ -62,10 +61,7 @@ export interface LifetimeStats {
   bestDaySat: number;
   years: number;
 }
-export type StartMode = 'blank' | 'restore';
 export interface NewGameOptions {
-  /** 'blank' (the default for new players) starts in untouched forest; 'restore' is the classic three-hole course. */
-  start?: StartMode;
   region?: RegionId;
   name?: string;
   logo?: Logo;
@@ -97,8 +93,6 @@ export class Game {
   heatmap = false;
   followGolfer = 0;
   designMode = false;
-  /** How this club began: from blank forest, or by restoring the classic course. Decides which tutorial runs. */
-  start: StartMode = 'restore';
   private designSpeed = 1;
   world: World;
   rng: Rng;
@@ -140,11 +134,8 @@ export class Game {
   private goalTimer = 0;
 
   constructor(world?: World, seed = 20250601, opts: NewGameOptions = {}) {
-    if (!world && opts.start === 'blank') {
-      this.start = 'blank';
-      this.selectedHole = 0;
-    }
-    this.world = world ?? (this.start === 'blank' ? createWilderness(newLandSeed(seed)) : createStartingWorld(opts.region ?? 'parkland'));
+    this.world = world ?? createWilderness(newLandSeed(seed), opts.region ?? 'parkland');
+    if (!world) this.selectedHole = 0;
     this.region = this.world.region;
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
@@ -250,14 +241,15 @@ export class Game {
     this.campaign.stage++; this.campaign.claimed = []; this.campaign.rounds = 0; this.campaign.profit = 0; this.campaign.events = 0;
     const next = activeLocation(this);
     // The portfolio persists; the new property starts with its own budget and operating history.
-    this.world = createCampaignWorld(next.region); this.region = next.region; this.name = next.name;
+    // Every property starts as untouched land: the player chooses where the clubhouse goes.
+    this.world = createWilderness(newLandSeed(this.rng.next() * 1e9), next.region); this.region = next.region; this.name = next.name;
     this.sim.world = this.world; this.sim.golfers = []; this.sim.queues.clear(); this.sim.tee.clear(); this.sim.fx = [];
     this.cash = next.budget; this.day = 1; this.clock = 0; this.lastHour = 0;
     this.upgrades = noUpgrades(); this.staff = { gardener: false, ranger: false, host: false }; this.members = [];
     this.clubLevel = 0; this.fees = { early: 34, mid: 30, twilight: 20 };
     this.today = emptyLedger(); this.days = []; this.log = []; this.recent = []; this.comments = []; this.undoStack = [];
     this.bookings = []; this.activeEvent = null; this.lastEvent = null; this.lastAway = null; this.ownerRecords = [];
-    this.selectedHole = 1; this.selectedGolfer = 0; this.followGolfer = 0; this.landings = [];
+    this.selectedHole = 0; this.selectedGolfer = 0; this.followGolfer = 0; this.landings = [];
     const careerDone = new Set(this.goals.filter(g => g.done && MILESTONES.some(m => m.id === g.id)).map(g => g.id));
     this.goals = [...CFG.goals, ...MILESTONES].map(g => ({ id: g.id, done: careerDone.has(g.id) }));
     this.designMode = false; this.settings.speed = 1; this.applyRegion(); this.dirtySave = true;
@@ -593,10 +585,6 @@ export class Game {
   }
 
   checkGoals() {
-    const h2 = this.world.holes.find((h) => h.id === 2);
-    const h3 = this.world.holes.find((h) => h.id === 3);
-    if (!this.goalDone('green') && h2 && holeCondition(this.world, h2).green >= 75) this.completeGoal('green');
-    if (!this.goalDone('reopen') && h3?.open) this.completeGoal('reopen');
     const ctx = this.goalCtx();
     for (const m of MILESTONES) {
       if (this.goalDone(m.id) || HIDDEN_GOALS.includes(m.id)) continue;

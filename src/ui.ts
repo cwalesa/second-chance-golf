@@ -153,7 +153,7 @@ export class UI {
       <div class="spacer"></div>
       <span class="saved hide-m" id="saved"></span>
       <div class="seg" id="speed">${speeds.map(([s, l]) => `<button data-speed="${s}">${l}</button>`).join('')}</div>
-      <button class="btn menu" id="menuBtn" aria-label="Menu">Menu</button>`;
+      <button class="btn menu" id="menuBtn" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>`;
     const top = this.$('top');
     top.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
@@ -188,8 +188,10 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-heading"><span id="sheetTitle">Your course</span><button id="sheetClose" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
-    this.$('sheetClose').onclick = () => { this.tab = 'none'; this.refresh(true); this.onInsets(); };
+    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Your course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    this.$('sheetClose').onclick = (e) => { e.stopPropagation(); this.tab = 'none'; this.refresh(true); this.onInsets(); };
+    this.$('sheetSize').onclick = (e) => { e.stopPropagation(); this.setSheet(this.sheet === 'full' ? 'half' : 'full'); };
+    this.bindSheetDrag();
     this.$('side').addEventListener('click', (e) => {
       const el = (e.target as HTMLElement).closest('[data-tab],[data-act],[data-hole]') as HTMLElement | null;
       if (!el) return;
@@ -275,6 +277,7 @@ export class UI {
       if (!b) return;
       const t = b.dataset.nav as Tab;
       this.tab = this.tab === t ? 'none' : t;
+      if (this.tab === t && t !== 'build') this.sheet = 'half';
       if (t === 'build' && this.tab === 'build' && (this.editor.tool === 'inspect' || this.editor.tool === 'pan')) this.editor.setTool('fairway');
       this.cache.delete('side');
       this.refresh(true);
@@ -292,6 +295,82 @@ export class UI {
   }
 
   get landscape() { return this.mobile && window.innerWidth > window.innerHeight && window.innerHeight <= 600; }
+  /** Phone portrait panels are bottom sheets with three resting heights. */
+  get portraitSheet() { return this.mobile && !this.landscape; }
+  sheet: 'peek' | 'half' | 'full' = 'half';
+  private sheetDragH: number | null = null;
+
+  /** Heights the sheet can rest at, measured from the top of the bottom navigation. */
+  private sheetHeights() {
+    const nav = this.$('nav').getBoundingClientRect();
+    const topBottom = this.$('top').getBoundingClientRect().bottom;
+    const room = Math.max(160, nav.top - topBottom - 8);
+    return { peek: 58, half: Math.round(Math.min(room, Math.max(260, room * 0.5))), full: Math.round(room) };
+  }
+  /**
+   * Publish where the header ends and where the bottom controls begin, so docked pieces
+   * (confirm bar, coach, toasts, map buttons) sit in the space that is actually free.
+   */
+  layoutVars() {
+    const root = document.documentElement.style, H = window.innerHeight;
+    const vis = (id: string) => { const el = document.getElementById(id); if (!el || el.style.display === 'none' || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.height > 0 ? r : null; };
+    const top = vis('top');
+    let dockTop = H;
+    if (this.mobile && !this.landscape) for (const id of ['nav', 'tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    if (this.mobile && this.landscape) { const r = vis('tools'); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    const side = this.mobile && this.landscape ? vis('side') : null;
+    const vals = `${Math.round(top ? top.bottom : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(window.innerWidth - side.left) : 0}`;
+    if (vals === this.layoutKey) return;
+    this.layoutKey = vals;
+    const [hdr, dock, sw] = vals.split('|');
+    root.setProperty('--hdr', `${hdr}px`);
+    root.setProperty('--dock', `${dock}px`);
+    root.setProperty('--side-w', `${sw}px`);
+  }
+  private layoutKey = '';
+  setSheet(s: 'peek' | 'half' | 'full') {
+    this.sheet = s;
+    this.sheetDragH = null;
+    this.applySheet();
+    this.onInsets();
+  }
+  private applySheet() {
+    const side = this.$('side');
+    if (!this.portraitSheet) { side.style.height = ''; side.dataset.sheet = ''; return; }
+    const h = this.sheetDragH ?? this.sheetHeights()[this.sheet];
+    side.style.height = `${h}px`;
+    side.dataset.sheet = this.sheetDragH === null ? this.sheet : 'drag';
+    this.$('sheetSize').textContent = this.sheet === 'full' ? '▾' : '▴';
+  }
+  /** Drag the header to resize; a short tap steps between half and full. Touches never reach the map. */
+  private bindSheetDrag() {
+    const head = this.$('sheetHead');
+    let startY = 0, startH = 0, id = -1, moved = false;
+    head.addEventListener('pointerdown', (e) => {
+      if (!this.portraitSheet || (e.target as HTMLElement).closest('button')) return;
+      id = e.pointerId; startY = e.clientY; startH = this.$('side').getBoundingClientRect().height; moved = false;
+      head.setPointerCapture(id);
+    });
+    head.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
+      const dy = e.clientY - startY;
+      if (Math.abs(dy) > 6) moved = true;
+      if (!moved) return;
+      const hs = this.sheetHeights();
+      this.sheetDragH = Math.max(hs.peek, Math.min(hs.full, startH - dy));
+      this.applySheet();
+    });
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      id = -1;
+      if (!moved) { this.setSheet(this.sheet === 'peek' ? 'half' : this.sheet === 'half' ? 'full' : 'half'); return; }
+      const hs = this.sheetHeights(), h = this.sheetDragH ?? startH;
+      const near = (['peek', 'half', 'full'] as const).reduce((a, k) => (Math.abs(hs[k] - h) < Math.abs(hs[a] - h) ? k : a), 'half' as 'peek' | 'half' | 'full');
+      this.setSheet(near);
+    };
+    head.addEventListener('pointerup', end);
+    head.addEventListener('pointercancel', end);
+  }
 
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
@@ -299,7 +378,8 @@ export class UI {
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
     const c = coach.getBoundingClientRect();
-    if (this.landscape) return { ...base, l: Math.max(base.l, c.right + 10) };
+    // The coach docks just above the bottom controls, so the map frames itself above it.
+    if (c.top + c.height / 2 > window.innerHeight / 2) return { ...base, b: Math.max(base.b, window.innerHeight - c.top + 8) };
     return { ...base, t: Math.max(base.t, c.bottom + 8) };
   }
   private panelInsets() {
@@ -319,9 +399,9 @@ export class UI {
 
   private updateConfirm() {
     const el = this.$('confirm');
-    const placing = this.editor.placingClub;
-    document.body.classList.toggle('placing-club', placing);
-    if (placing) {
+    const choosingClub = this.editor.placingClub;
+    document.body.classList.toggle('placing-club', choosingClub);
+    if (choosingClub) {
       const spot = this.editor.clubSpot;
       const ok = !!spot && !spot.problem && this.editor.clubLocked;
       const msg = !spot ? 'Tap or click the ground where it should stand.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'A fine spot. Trees on the lot clear themselves, and a road runs out to the nearest edge.' : 'Tap or click to choose this spot.';
@@ -338,12 +418,18 @@ export class UI {
     const p = this.editor.proposal;
     const short = p ? p.cost - this.game.cash : 0;
     const what = p ? (p.tiles.length ? `${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}` : 'No terrain change') : '';
-    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span></span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>` : '';
+    const placing = !p && this.editor.isPlacement && !this.game.owner.active && (!this.mobile || this.tab === 'build' || this.tab === 'none');
+    const hn = this.game.selectedHole;
+    const hint = this.editor.tool === 'tee' ? `Tap where hole ${hn}'s new tee goes` : this.editor.tool === 'cup' ? `Tap where hole ${hn}'s new green goes` : this.editor.tool === 'bend' ? `Tap a new turning point for hole ${hn}` : this.editor.buildStarted ? 'Now tap where the green goes' : 'Tap where the new tee goes';
+    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span></span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
+      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span></span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
-    el.style.display = p ? 'flex' : 'none';
-    document.body.classList.toggle('has-proposal', !!p);
+    el.style.display = p || placing ? 'flex' : 'none';
+    el.classList.toggle('placing', placing);
+    document.body.classList.toggle('has-proposal', !!p || placing);
+    if (placing) (this.$('cfStop') as HTMLElement).onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
     if (p) {
       (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
       (this.$('cfNo') as HTMLElement).onclick = () => this.editor.discard();
@@ -435,7 +521,7 @@ export class UI {
   }
   removeModal(id: number) {
     const h = this.game.hole(id);
-    const m = this.modal(`<h2>Remove hole ${id}?</h2><p>${escapeHtml(h.name)} will be taken off the scorecard. Its fairway and green stay as they are. This cannot be undone.</p><div class="actions"><button class="btn" id="rmNo">Keep it</button><button class="btn danger" id="rmOk">Remove hole</button></div>`);
+    const m = this.modal(`<h2>Remove hole ${id}?</h2><p>${escapeHtml(h.name)} will be taken off the scorecard. Its fairway and green stay as they are. Undo brings it back.</p><div class="actions"><button class="btn" id="rmNo">Keep it</button><button class="btn danger" id="rmOk">Remove hole</button></div>`);
     (m.querySelector('#rmNo') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#rmOk') as HTMLElement).onclick = () => {
       this.game.removeHole(id);
@@ -575,9 +661,15 @@ export class UI {
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
     document.body.dataset.journalView = this.journalView;
-    this.$('sheetTitle').textContent = this.tab === 'journey' ? 'Your restoration' : this.tab[0].toUpperCase() + this.tab.slice(1);
+    const titleHole = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
+    this.$('sheetTitle').textContent = titleHole ? titleHole.name : this.tab === 'none' ? '' : TAB_LABEL[this.tab] ?? this.tab;
     const sideOpen = this.tab !== 'none' && this.tab !== 'build';
     this.$('side').style.display = sideOpen ? '' : 'none';
+    if (sideOpen) this.applySheet();
+    this.layoutVars();
+    const sh = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
+    this.$('sheetSub').textContent = sh ? `Hole ${sh.id} · ${sh.open ? 'Open' : g.validate(sh.id).ok ? 'Ready to open' : 'Closed'}` : '';
+    document.body.dataset.sheet = sideOpen && this.portraitSheet ? this.sheet : '';
     this.$('tools').style.display = !this.mobile || this.tab === 'build' ? '' : 'none';
     this.updateConfirm();
     (this.$('view') as HTMLElement).classList.toggle('pan', this.editor.tool === 'pan');
@@ -636,7 +728,7 @@ export class UI {
   }
 
   private allGoals() {
-    return [...CFG.goals.filter((x) => this.game.start !== 'blank' || (x.id !== 'green' && x.id !== 'reopen')), ...MILESTONES.filter((m) => !HIDDEN_GOALS.includes(m.id))].map((d) => ({ id: d.id, title: d.title, detail: d.detail, reward: d.reward }));
+    return [...CFG.goals, ...MILESTONES.filter((m) => !HIDDEN_GOALS.includes(m.id))].map((d) => ({ id: d.id, title: d.title, detail: d.detail, reward: d.reward }));
   }
   private renderGoalBar() {
     const g = this.game;
@@ -709,8 +801,7 @@ export class UI {
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
     const dogleg = Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
     const nHoles = w.holes.length;
-    let html = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name.toUpperCase())}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div>`;
-    html += `<div class="sec"><h3>Hole ${h.id}</h3><div class="card hole-detail"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><button class="btn sm" data-act="rename" aria-label="Rename hole">Rename</button></div>
+    let html = `<div class="sec"><h3>Hole ${h.id}</h3><div class="card hole-detail"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><button class="btn sm" data-act="rename" aria-label="Rename hole">Rename</button></div>
       <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>`;
     if (h.open) {
       for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
@@ -721,9 +812,17 @@ export class UI {
     } else {
       html += `<div class="why-closed"><b>This hole cannot open yet</b>${v.issues.map((it, i) => `<div class="issue"><p>${it.text}</p><div class="btnrow">${it.at ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="show">Show on map</button>` : ''}${it.fix ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="fix">Fix with ${TOOL_INFO[it.fix].label}</button>` : ''}</div></div>`).join('')}</div>`;
     }
-    html += `<div class="btnrow">${h.open ? `<button class="btn" data-act="close" data-id="${h.id}">Close hole</button>` : `<button class="btn primary" data-act="open" data-id="${h.id}">Open hole</button>`}<button class="btn" data-act="practice">Play it</button><button class="btn" data-act="testgolfers" ${h.open ? '' : 'disabled'}>Send test golfers</button></div>
-      <div class="btnrow tools-row"><button class="btn" data-act="holetool" data-id="tee">Move tee</button><button class="btn" data-act="holetool" data-id="cup">Move cup</button><button class="btn" data-act="holetool" data-id="bend">Dogleg</button><button class="btn" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>Remove</button></div>${h.open ? '' : '<p class="dim small">Play it opens practice mode. Test golfers need the hole open.</p>'}</div></div>`;
-    html += `<div class="sec"><h3>All holes · routing order</h3><div class="hole-list">${w.holes.map((x) => {
+    html += `<div class="btnrow hole-actions">${h.open ? `<button class="btn" data-act="close" data-id="${h.id}">Close hole</button>` : `<button class="btn primary" data-act="open" data-id="${h.id}">Open hole</button>`}<button class="btn" data-act="practice">Play it</button><button class="btn" data-act="testgolfers" ${h.open ? '' : 'disabled'}>Test golfers</button></div>${h.open ? '' : '<p class="dim small">Test golfers play open holes only.</p>'}</div></div>`;
+    const icon = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    html += `<div class="sec edit-hole"><h3>Edit hole ${h.id}</h3><p class="dim small">Pick an action, then tap the map. You'll see a preview and the price before anything is built.</p><div class="edit-grid">
+      <button class="edit-act" data-act="holetool" data-id="tee">${icon('<path d="M8 21l4-7 4 7"/><circle cx="12" cy="10" r="3"/>')}<span><b>Move tee</b><small>New tee box</small></span></button>
+      <button class="edit-act" data-act="holetool" data-id="cup">${icon('<path d="M12 21V4l7 3-7 3"/><ellipse cx="12" cy="21" rx="5" ry="1.5"/>')}<span><b>Move cup</b><small>New green</small></span></button>
+      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Dogleg</b><small>Turning point</small></span></button>
+      <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
+      <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>
+    </div></div>`;
+    const summary = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name.toUpperCase())}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div>`;
+    html += summary + `<div class="sec"><h3>All holes · routing order</h3><div class="hole-list">${w.holes.map((x) => {
       const hs = this.holeState(x);
       return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${hs.cls}">${hs.text}</span></button>`;
     }).join('')}</div></div>`;

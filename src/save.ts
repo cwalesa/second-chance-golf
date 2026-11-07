@@ -1,5 +1,6 @@
 import { Game } from './game';
-import { World, computeZones, createStartingWorld } from './terrain';
+import { World, computeZones } from './terrain';
+import { createWilderness } from './wilderness';
 import { Rng } from './rng';
 import { noUpgrades } from './economy';
 import { REGIONS } from './progression';
@@ -26,7 +27,6 @@ export function serialize(g: Game): string {
     region: g.region,
     name: g.name,
     logo: g.logo,
-    start: g.start,
     world: {
       terrain: Array.from(w.terrain).join(''),
       tree: Array.from(w.tree).join(''),
@@ -73,7 +73,8 @@ export function deserialize(text: string): LoadedSave | null {
     if (!Array.isArray(d.days) || !Array.isArray(d.log) || !Array.isArray(d.recent) || !d.today) return null;
     if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || d.campaign.stage > 4 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
     if (d.experience && (!Number.isFinite(d.experience.xp) || d.experience.xp < 0 || !Array.isArray(d.experience.earned) || !Array.isArray(d.experience.archives))) return null;
-    const base = createStartingWorld(d.region);
+    if (!d.world.gate || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null; // saves from before the blank-canvas start have no land to rebuild
+    const base = createWilderness(d.world.landSeed, d.region);
     const n = base.terrain.length;
     if (d.world.terrain.length !== n || d.world.tree.length !== n || d.world.cond.length !== n || d.world.parcels.length !== base.parcels.length) return null;
     const world: World = { ...base, terrain: new Uint8Array(n), tree: new Uint8Array(n), cond: new Float32Array(n), holes: d.world.holes, zone: new Uint8Array(n), parcels: Uint8Array.from(d.world.parcels) };
@@ -82,16 +83,13 @@ export function deserialize(text: string): LoadedSave | null {
       world.tree[i] = d.world.tree.charCodeAt(i) - 48;
       world.cond[i] = d.world.cond[i];
     }
-    const blank = d.start === 'blank';
-    if (!Array.isArray(world.holes) || (world.holes.length < 1 && !blank)) return null;
+    if (!Array.isArray(world.holes)) return null;
     const okPt = (p: { x: number; y: number } | null | undefined) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.y >= 0 && p.x < base.w && p.y < base.h;
-    if (blank) {
-      if (d.world.clubhouse !== null && !okPt(d.world.clubhouse)) return null;
-      if (!okPt(d.world.gate) || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null;
-      world.clubhouse = d.world.clubhouse ? { x: d.world.clubhouse.x, y: d.world.clubhouse.y } : null;
-      world.gate = { x: d.world.gate.x, y: d.world.gate.y };
-      world.landSeed = d.world.landSeed;
-    }
+    if (d.world.clubhouse !== null && !okPt(d.world.clubhouse)) return null;
+    if (!okPt(d.world.gate)) return null;
+    world.clubhouse = d.world.clubhouse ? { x: d.world.clubhouse.x, y: d.world.clubhouse.y } : null;
+    world.gate = { x: d.world.gate.x, y: d.world.gate.y };
+    world.landSeed = d.world.landSeed;
     const seen = new Set<number>();
     for (const h of world.holes) {
       if (!Number.isInteger(h.id) || h.id < 1 || h.id > 255 || seen.has(h.id) || typeof h.name !== 'string' || ![3, 4, 5].includes(h.par)) return null;
@@ -101,7 +99,6 @@ export function deserialize(text: string): LoadedSave | null {
     computeZones(world);
     world.version = 2;
     const g = new Game(world);
-    if (blank) g.start = 'blank';
     if (d.experience) g.experience = { ...g.experience, ...d.experience, site: { ...g.experience.site, ...d.experience.site } };
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;

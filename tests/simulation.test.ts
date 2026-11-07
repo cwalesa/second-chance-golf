@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
 import { Rng } from '../src/rng';
 import { CFG } from '../src/config';
-import { T, createStartingWorld, idx } from '../src/terrain';
+import { T, idx } from '../src/terrain';
 import { executeShot, isValidLie, lieAt, planShot, resolveShot } from '../src/physics';
 import { run } from './helpers';
+import { createTestCourse } from './fixtures/classic-course';
 
 describe('starting course', () => {
   it('has two playable holes and one closed hole that fails validation', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     expect(g.world.holes.map((h) => h.open)).toEqual([true, true, false]);
     expect(g.validate(1).ok).toBe(true);
     expect(g.validate(2).ok).toBe(true);
@@ -18,7 +19,7 @@ describe('starting course', () => {
   });
 
   it('lets golfers finish holes and pay revenue within one day', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     run(g, CFG.day.seconds + 5);
     const d = g.days[0];
     expect(d).toBeDefined();
@@ -30,7 +31,7 @@ describe('starting course', () => {
 });
 
 describe('shot physics', () => {
-  const world = createStartingWorld();
+  const world = createTestCourse();
   const avg = (tx: number, ty: number, type: 'beginner' | 'regular' | 'skilled') => {
     const rng = new Rng(7);
     let sum = 0;
@@ -45,7 +46,7 @@ describe('shot physics', () => {
   };
   it('fairway lies travel farther than rough or sand', () => {
     // find three same-row spots with open terrain ahead: use a scratch world
-    const w = createStartingWorld();
+    const w = createTestCourse();
     for (let y = 0; y < w.h; y++) for (let x = 0; x < w.w; x++) {
       const i = idx(w, x, y);
       if (y >= 20 && y <= 26 && x < 60) { w.terrain[i] = T.FAIRWAY; w.tree[i] = 0; w.cond[i] = 90; }
@@ -64,7 +65,7 @@ describe('shot physics', () => {
     expect(avg(9, 33, 'skilled')).toBeGreaterThan(avg(9, 33, 'beginner'));
   });
   it('worn turf shortens shots', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     w.terrain[idx(w, 20, 20)] = T.FAIRWAY;
     w.cond[idx(w, 20, 20)] = 95;
     const good = lieAt(w, 20.5, 20.5);
@@ -74,7 +75,7 @@ describe('shot physics', () => {
     expect(worn.dispF).toBeGreaterThan(good.dispF);
   });
   it('water costs a stroke and the drop is always a legal lie', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     const h2 = w.holes[1];
     const from = { x: h2.tee.x + 0.5, y: h2.tee.y + 0.5 };
     // aim straight at the pond centre
@@ -85,7 +86,7 @@ describe('shot physics', () => {
     expect(isValidLie(w, r.end.x, r.end.y)).toBe(true);
   });
   it('a tree directly in front blocks a full shot', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     for (let x = 0; x < 30; x++) for (let y = 20; y < 24; y++) { w.terrain[idx(w, x, y)] = T.FAIRWAY; w.tree[idx(w, x, y)] = 0; }
     const clear = resolveShot(w, { x: 5.5, y: 21.5 }, 0, 15);
     expect(clear.kind).toBe('ok');
@@ -95,7 +96,7 @@ describe('shot physics', () => {
     expect(blocked.end.x).toBeLessThan(8);
   });
   it('beginners lay up instead of attempting a carry beyond their reach', () => {
-    const w = createStartingWorld();
+    const w = createTestCourse();
     const h2 = w.holes[1];
     const from = { x: h2.tee.x + 0.5, y: h2.tee.y + 0.5 };
     const beginner = planShot(w, h2, 'beginner', from);
@@ -110,7 +111,7 @@ describe('shot physics', () => {
 
 describe('golfers never get stuck', () => {
   it('everyone leaves after all holes close mid-play', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     run(g, 120);
     expect(g.sim.golfers.length).toBeGreaterThan(0);
     g.closeHole(1);
@@ -119,7 +120,7 @@ describe('golfers never get stuck', () => {
     expect(g.sim.golfers.length).toBe(0);
   });
   it('editing an open hole closes it and golfers carry on', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     run(g, 100);
     const green = g.hole(1).cup;
     const i = idx(g.world, green.x, green.y);
@@ -135,7 +136,7 @@ describe('golfers never get stuck', () => {
     for (const gg of g.sim.golfers) expect(gg.holeId).not.toBe(1);
   });
   it('golfers survive terrain edits under their ball', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     run(g, 60);
     for (let k = 0; k < 6; k++) {
       for (const gg of g.sim.golfers) {

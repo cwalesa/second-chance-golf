@@ -6,10 +6,11 @@ import { T, idx, holeCondition } from '../src/terrain';
 import { deserialize, serialize } from '../src/save';
 import { arrivalsPerDay, scoreRound, fairFee } from '../src/economy';
 import { repairGreen2, restoreHole3, run, tilesIn } from './helpers';
+import { createTestCourse } from './fixtures/classic-course';
 
 describe('construction costs', () => {
   it('charges only for tiles that actually change, exactly once', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const fw = tilesIn(g, 14, 31, 18, 35, (i) => g.world.terrain[i] === T.FAIRWAY);
     const none = planPaint(g.world, 'fairway', fw);
     expect(none.tiles.length).toBe(0);
@@ -27,7 +28,7 @@ describe('construction costs', () => {
   });
 
   it('refuses an unaffordable edit without changing anything', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.cash = 50;
     const rough = tilesIn(g, 14, 25, 17, 27, (i) => g.world.terrain[i] === T.ROUGH && !g.world.tree[i]);
     const plan = planPaint(g.world, 'fairway', rough);
@@ -39,7 +40,7 @@ describe('construction costs', () => {
   });
 
   it('undo restores tiles and refunds exactly once', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const rough = tilesIn(g, 14, 25, 17, 27, (i) => g.world.terrain[i] === T.ROUGH && !g.world.tree[i]);
     const plan = planPaint(g.world, 'bunker', rough);
     const snap = Array.from(g.world.terrain);
@@ -53,7 +54,7 @@ describe('construction costs', () => {
   });
 
   it('moving a cup keeps tee and cup tied to the same hole and updates the green', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const h = g.hole(1);
     const plan = planMoveCup(g.world, h, 40, 30);
     expect(typeof plan).not.toBe('string');
@@ -68,7 +69,7 @@ describe('construction costs', () => {
 
 describe('moving a tee', () => {
   it('builds a new tee box for the same hole and refuses water', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const h = g.hole(1);
     const plan = planMoveTee(g.world, h, 12, 33);
     expect(typeof plan).not.toBe('string');
@@ -82,20 +83,16 @@ describe('moving a tee', () => {
 });
 
 describe('goals and income', () => {
-  it('repairing the damaged green completes goal 1 and pays the bonus exactly once', () => {
-    const g = new Game();
+  it('keeps an exact ledger through a repair', () => {
+    const g = new Game(createTestCourse());
     expect(holeCondition(g.world, g.hole(2)).green).toBeLessThan(30);
     const { res, plan } = repairGreen2(g);
     expect(res.ok).toBe(true);
-    const cashAfterRepair = g.cash;
     expect(g.hole(2).open).toBe(false); // editing closed it
     run(g, 2);
-    expect(g.goalDone('green')).toBe(true);
-    const bonus = CFG.goals[0].reward;
-    expect(g.today.bonus).toBe(bonus);
-    expect(g.cash).toBeGreaterThan(cashAfterRepair);
+    expect(g.today.bonus).toBe(0);
     run(g, 5);
-    expect(g.today.bonus).toBe(bonus);
+    expect(g.today.bonus).toBe(0);
     // every dollar is accounted for exactly once
     const l = g.today;
     expect(g.cash).toBe(CFG.economy.startCash - l.maintenance - l.construction + l.fees + l.shop + l.bonus);
@@ -103,7 +100,7 @@ describe('goals and income', () => {
   });
 
   it('charges maintenance once per game hour', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.closeHole(1);
     g.closeHole(2);
     const rate = g.maintenanceRate;
@@ -112,7 +109,7 @@ describe('goals and income', () => {
   });
 
   it('rolls the day over once with a summary', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     run(g, CFG.day.seconds + 1);
     expect(g.day).toBe(2);
     expect(g.days.length).toBe(1);
@@ -138,15 +135,15 @@ describe('satisfaction and pricing', () => {
 
 describe('speed and persistence', () => {
   it('sim state only advances through step(), so speed is just how many steps run', () => {
-    const a = new Game();
-    const b = new Game();
+    const a = new Game(createTestCourse());
+    const b = new Game(createTestCourse());
     run(a, 40);
     run(b, 40);
     expect(a.cash).toBe(b.cash);
     expect(a.sim.golfers.length).toBe(b.sim.golfers.length);
   });
   it('save and load keeps property, money, goals and upgrades; golfers restart cleanly', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     repairGreen2(g);
     run(g, 60);
     g.buyUpgrade('crew');
@@ -155,7 +152,6 @@ describe('speed and persistence', () => {
     expect(h).not.toBeNull();
     expect(h.cash).toBe(g.cash);
     expect(h.day).toBe(g.day);
-    expect(h.goalDone('green')).toBe(true);
     expect(h.upgrades.crew).toBe(true);
     expect(Array.from(h.world.terrain)).toEqual(Array.from(g.world.terrain));
     expect(h.sim.golfers.length).toBe(0);
@@ -169,8 +165,8 @@ describe('speed and persistence', () => {
 });
 
 describe('restoring the closed hole', () => {
-  it('can be validated, opened, played, and pays its goal once', () => {
-    const g = new Game();
+  it('can be validated, opened and played once its fairway is bridged', () => {
+    const g = new Game(createTestCourse());
     expect(g.validate(3).ok).toBe(false);
     const open = g.openHole(3);
     expect(open.ok).toBe(false);
@@ -184,9 +180,6 @@ describe('restoring the closed hole', () => {
     expect(g.openHole(3).ok).toBe(true);
     expect(g.hole(3).open).toBe(true);
     run(g, 1);
-    expect(g.goalDone('reopen')).toBe(true);
-    const paid = () => g.log.filter((l) => l.label === `Goal bonus: ${CFG.goals[1].title}`).length;
-    expect(paid()).toBe(1);
     const cashNow = g.cash;
     run(g, CFG.day.seconds * 2);
     expect(g.cash).toBeGreaterThan(cashNow - 700); // no second payout path, only normal flows
@@ -197,7 +190,7 @@ describe('restoring the closed hole', () => {
 describe('terrain changes shot outcomes and satisfaction', () => {
   it('repairing worn turf improves the satisfaction golfers report', () => {
     const avg = (fix: boolean) => {
-      const g = new Game(undefined, 99);
+      const g = new Game(createTestCourse(), 99);
       if (fix) {
         repairGreen2(g);
         g.openHole(2);
@@ -216,7 +209,7 @@ describe('terrain changes shot outcomes and satisfaction', () => {
 
 describe('improvements and pricing', () => {
   it('each improvement is bought once, costs upkeep, and changes income', () => {
-    const g = new Game(undefined, 3);
+    const g = new Game(createTestCourse(), 3);
     g.cash = 5000;
     const base = g.maintenanceRate;
     expect(g.buyUpgrade('snackBar')).toBe(true);
@@ -227,14 +220,14 @@ describe('improvements and pricing', () => {
     g.setCartFee(10);
     run(g, 100);
     expect(g.log.some((l) => l.label.startsWith('Cart rental'))).toBe(true);
-    const arrivals = new Game(undefined, 3);
+    const arrivals = new Game(createTestCourse(), 3);
     const before = arrivals.arrivalRate;
     arrivals.cash = 5000;
     arrivals.buyUpgrade('range');
     expect(arrivals.arrivalRate).toBeGreaterThan(before * (CFG.extras.rangeDemand - 0.02)); // range plus the rating bump it brings
   });
   it('old saves without new improvements still load', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     const d = JSON.parse(serialize(g));
     d.upgrades = { proShop: true, crew: false };
     delete d.cartFee;
@@ -246,7 +239,7 @@ describe('improvements and pricing', () => {
 
 describe('events', () => {
   it('books for a future day, charges setup only when it starts, and brings paying golfers', () => {
-    const g = new Game(undefined, 8);
+    const g = new Game(createTestCourse(), 8);
     const cash = g.cash;
     expect(g.bookEvent('scramble')).toBe(true);
     expect(g.bookings).toEqual([{ id: 'scramble', day: 2, fee: 45 }]);
@@ -263,7 +256,7 @@ describe('events', () => {
     expect(g.bookings.length).toBe(0);
   });
   it('higher entry fees reduce turnout, and unmet requirements block booking or cancel with no charge', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.setEventFee('scramble', 45);
     const cheap = g.expectedGuests('scramble');
     g.setEventFee('scramble', 90);
@@ -287,7 +280,7 @@ describe('events', () => {
     expect(g.cash).not.toBe(before);
   });
   it('bookings survive save and load; cancel is free', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     g.bookEvent('clinic');
     const h = deserialize(serialize(g))!.game;
     expect(h.bookings.length).toBe(1);

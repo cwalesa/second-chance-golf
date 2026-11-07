@@ -47,18 +47,14 @@ export function startScreen(): Promise<NewGameOptions> {
       <div class="start-route"><span>Level 1 · Willow Creek · a blank canvas, with a gentle walkthrough</span></div>
       <label class="eyebrow" for="newClubName">NAME YOUR FIRST CLUB</label><input id="newClubName" maxlength="28" value="Willow Creek" aria-label="Club name" />
       <details class="identity"><summary>Customize your club crest</summary><div id="logoBox" class="logo-box"></div></details>
-      <button class="btn primary start-play" id="startBtn">Start with a blank canvas <span>→</span></button><button class="start-alt" id="startRestore">Prefer a ready-made course to repair? Start the restoration walkthrough.</button><p class="start-foot">Your design saves on this device. No timers, no ads. Just golf.</p></div></div>`;
+      <button class="btn primary start-play" id="startBtn">Start with a blank canvas <span>→</span></button><p class="start-foot">Your design saves on this device. No timers, no ads. Just golf.</p></div></div>`;
     const lg = root.querySelector('#logoBox') as HTMLElement;
     logoDesigner(lg, logo, () => name, () => {});
     const input = root.querySelector('#newClubName') as HTMLInputElement;
     input.oninput = () => { name = input.value; logo.initials = initialsOf(name); };
-    (root.querySelector('#startRestore') as HTMLElement).onclick = () => {
-      root.hidden = true;
-      resolve({ start: 'restore', region: 'parkland', name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) } });
-    };
     (root.querySelector('#startBtn') as HTMLElement).onclick = () => {
       root.hidden = true;
-      resolve({ start: 'blank', region: 'parkland', name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) } });
+      resolve({ region: 'parkland', name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) } });
     };
   });
 }

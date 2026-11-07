@@ -99,8 +99,6 @@ export const CFG = {
   },
 
   goals: [
-    { id: 'green', title: 'Repair the damaged green', detail: 'Hole 2 has a worn-out green. Close it, repair the turf, and reopen.', reward: 250 },
-    { id: 'reopen', title: 'Reopen the closed hole', detail: 'Hole 3 is overgrown. Connect a fairway, repair the tee and green, then open it.', reward: 300 },
     { id: 'day', title: 'Complete a profitable day with happy golfers', detail: 'Finish a day with positive operating profit, at least 8 finished rounds and average guest satisfaction of 80 or more.', reward: 400 },
   ],
 

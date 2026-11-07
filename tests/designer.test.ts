@@ -4,9 +4,10 @@ import { CFG } from '../src/config';
 import { T, idx, holeYards, validateHole } from '../src/terrain';
 import { EditPlan, mergeEdit, planMoveTee, planNewHole, planPaint, planTile, planRemoveHole, stagedState } from '../src/editing';
 import { deserialize, serialize } from '../src/save';
+import { createTestCourse } from './fixtures/classic-course';
 
 const freshGame = () => {
-  const g = new Game();
+  const g = new Game(createTestCourse());
   g.openProperty();
   return g;
 };
@@ -102,7 +103,7 @@ describe('first-course designer', () => {
     expect(Array.from(g.world.terrain)).toEqual(terrain);
     expect(g.undo()).toBe(true);
     expect(g.world.holes.some((x) => x.id === h.id)).toBe(true);
-    expect(planRemoveHole(new Game().world, 99)).toBeTypeOf('string');
+    expect(planRemoveHole(new Game(createTestCourse()).world, 99)).toBeTypeOf('string');
   });
 
   it('will not remove the last hole', () => {
@@ -203,14 +204,14 @@ describe('first-course designer', () => {
 
 describe('Level 1 walkthrough state', () => {
   it('starts new games at step 0 and keeps progress through save and reload', () => {
-    const g = new Game();
+    const g = new Game(createTestCourse());
     expect(g.tutorial).toEqual({ step: 0, done: false });
     g.tutorial.step = 7;
     const back = deserialize(serialize(g))!.game;
     expect(back.tutorial).toEqual({ step: 7, done: false });
   });
   it('treats saves from before the walkthrough as already finished', () => {
-    const d = JSON.parse(serialize(new Game()));
+    const d = JSON.parse(serialize(new Game(createTestCourse())));
     delete d.tutorial;
     expect(deserialize(JSON.stringify(d))!.game.tutorial.done).toBe(true);
   });

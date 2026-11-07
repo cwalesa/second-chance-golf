@@ -82,11 +82,11 @@ async function boot() {
   renderer.resize();
   renderer.insets = ui.insets();
   const club = game.world.clubhouse;
-  if (game.start === 'blank') {
-    // Blank canvas: open on a meadow worth looking at, or on the clubhouse once it exists.
+  {
+    // Open on a meadow worth looking at, or on the clubhouse once it exists.
     const look = club ? { x: club.x + 8, y: club.y + 2 } : (() => { const c = suggestClubhouse(game.world); return c ? { x: c.x + 4, y: c.y + 3 } : { x: game.world.w / 2, y: game.world.h / 2 }; })();
     renderer.focus(look.x, look.y, ui.mobile ? .5 : .6, game.world);
-  } else renderer.focus(ui.mobile ? 11 : 21, ui.mobile ? 40 : 35, ui.mobile ? .58 : .7, game.world);
+  }
 
   if (loaded?.recovered) ui.toast('Your previous save was recovered from the automatic backup.', 'info');
   if (away) {

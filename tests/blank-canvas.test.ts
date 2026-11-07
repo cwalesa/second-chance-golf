@@ -7,9 +7,10 @@ import { planNewHole } from '../src/editing';
 import { activeLocation } from '../src/campaign';
 import { deserialize, serialize } from '../src/save';
 import { run } from './helpers';
+import { createTestCourse } from './fixtures/classic-course';
 
 const SEEDS = [1, 7, 4242, 99990];
-const blank = (seed = 20250601) => new Game(undefined, seed, { start: 'blank' });
+const blank = (seed = 20250601) => new Game(undefined, seed);
 
 /** What the tutorial has the player do: pick the suggested spot, build the suggested hole, open it. */
 function startClub(g: Game) {
@@ -59,7 +60,6 @@ describe('blank canvas world', () => {
 
   it('a new blank game has no holes, so no time passes and no money is spent until there is a clubhouse', () => {
     const g = blank();
-    expect(g.start).toBe('blank');
     expect(g.world.holes).toHaveLength(0);
     expect(g.selectedHole).toBe(0);
     expect(g.cash).toBe(CFG.economy.startCash);
@@ -171,7 +171,6 @@ describe('saving a blank canvas club', () => {
   it('round-trips before any clubhouse exists', () => {
     const g = blank(99990);
     const back = deserialize(serialize(g))!.game;
-    expect(back.start).toBe('blank');
     expect(back.world.clubhouse).toBeNull();
     expect(back.world.holes).toHaveLength(0);
     expect(back.world.landSeed).toBe(g.world.landSeed);
@@ -192,19 +191,18 @@ describe('saving a blank canvas club', () => {
     expect(clubSites(back.world)).toEqual(clubSites(g.world));
   });
 
-  it('still rejects a classic save with no holes', () => {
-    const g = new Game();
-    const raw = JSON.parse(serialize(g));
-    raw.world.holes = [];
+  it('does not load a save from the old pre-built course, which has no land to rebuild', () => {
+    const raw = JSON.parse(serialize(new Game(createTestCourse())));
+    delete raw.world.landSeed;
+    delete raw.world.gate;
     expect(deserialize(JSON.stringify(raw))).toBeNull();
   });
 
-  it('classic saves keep the classic clubhouse', () => {
-    const g = new Game();
-    expect(g.start).toBe('restore');
-    const back = deserialize(serialize(g))!.game;
-    expect(back.start).toBe('restore');
-    expect(back.world.clubhouse).toEqual({ x: 3, y: 41 });
-    expect(back.world.gate).toEqual({ x: 0.5, y: 47.5 });
+  it('is the only way a game starts: no pre-built holes anywhere', () => {
+    for (const seed of [1, 2, 3]) {
+      const g = new Game(undefined, seed);
+      expect(g.world.holes).toEqual([]);
+      expect(g.world.clubhouse).toBeNull();
+    }
   });
 });
