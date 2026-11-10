@@ -214,11 +214,15 @@ export function suggestClubhouse(world: World): Pt | null {
       const lot = clubLot(c);
       let trees = 0;
       for (let yy = lot.y0; yy <= lot.y1; yy++) for (let xx = lot.x0; xx <= lot.x1; xx++) if (world.tree[idx(world, xx, yy)] || world.terrain[idx(world, xx, yy)] === T.BUNKER) trees++;
+      // a view of water: some within sight, but not right under the clubhouse
       let nearWater = 0;
-      for (const p of landOf(world.landSeed || 1, world).ponds) {
-        const d = Math.hypot(x + 3.5 - p.x, y + 2.5 - p.y) - p.r;
-        if (d > 5 && d < 16) nearWater = 12;
-      }
+      for (let ry = -24; ry <= 24 && !nearWater; ry += 4)
+        for (let rx = -24; rx <= 24; rx += 4) {
+          const d = Math.hypot(rx, ry);
+          if (d < 8 || d > 24) continue;
+          const xx = x + 3 + rx, yy = y + 2 + ry;
+          if (inBounds(world, xx, yy) && world.terrain[idx(world, xx, yy)] === T.WATER) { nearWater = 12; break; }
+        }
       // Holes will fan out from the clubhouse, so sitting near the middle of the map gives the most room.
       const middle = Math.hypot(x + 3.5 - world.w * 0.45, y + 2.5 - world.h * 0.5);
       const score = -trees - middle * 0.6 + nearWater - slopeAt(world, c) * 60;
