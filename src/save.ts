@@ -74,7 +74,7 @@ export function deserialize(text: string): LoadedSave | null {
     if (!d.world || typeof d.world.terrain !== 'string' || typeof d.world.tree !== 'string' || !Array.isArray(d.world.cond) || !Array.isArray(d.world.parcels)) return null;
     if (!/^[0-8]+$/.test(d.world.terrain) || !/^[01]+$/.test(d.world.tree) || d.world.cond.some((v: number) => !Number.isFinite(v) || v < 0 || v > 100)) return null;
     if (!Array.isArray(d.days) || !Array.isArray(d.log) || !Array.isArray(d.recent) || !d.today) return null;
-    if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || d.campaign.stage > 4 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
+    if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
     if (d.experience && (!Number.isFinite(d.experience.xp) || d.experience.xp < 0 || !Array.isArray(d.experience.earned) || !Array.isArray(d.experience.archives))) return null;
     if (!d.world.gate || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null; // saves from before the blank-canvas start have no land to rebuild
     // Maps used to be 120x80. Saves that predate the bigger map carry no size, so infer it from their length and keep playing them at that size.

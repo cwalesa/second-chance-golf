@@ -354,6 +354,20 @@ body.owner-playing #tools,body.owner-playing #side,body.owner-playing #goalbar,b
 .identity summary { cursor:pointer; }
 #start .logo-box { background:#244734; margin-top:12px; color:#f2ead6; border-radius:10px; padding:10px; }
 #start .start-play { background:#214b37; color:#f6edda; display:flex; justify-content:space-between; width:100%; font-size:13px; min-height:48px; border:0; }
+.lbl-row { margin:0 0 8px; }
+.regions { display:grid; gap:8px; margin-bottom:10px; }
+.region { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; align-items:center; text-align:left; min-height:56px; padding:10px 12px; border-radius:12px; border:2px solid #c9c8b2; background:#fffaf0; color:#18392b; font:inherit; cursor:pointer; touch-action:manipulation; }
+.region.on { border-color:#214b37; background:#e6efd9; box-shadow:0 0 0 2px #214b3733; }
+.region .swatch { grid-row:1 / span 2; display:grid; grid-template-columns:1fr 1fr; width:38px; height:38px; border-radius:9px; overflow:hidden; }
+.region .swatch i { display:block; }
+.region .rname { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.region .rname b { font-size:15px; }
+.region .rblurb { font-size:12px; line-height:1.4; color:#5b6853; }
+.region .lvl { font-style:normal; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:2px 7px; border-radius:99px; background:#d9e6c4; color:#2d5a2f; }
+.region .lvl.l2 { background:#e5e8b8; color:#555c1a; } .region .lvl.l3 { background:#f1e3a8; color:#6d5a10; } .region .lvl.l4 { background:#f0c9a0; color:#7a3d10; } .region .lvl.l5 { background:#eeaaa0; color:#8a2318; }
+.region-note { font-size:11px; color:#7f8875; margin:0 0 12px; line-height:1.5; }
+.tut-toggle { display:flex; align-items:center; gap:10px; min-height:44px; font-size:13px; color:#37523e; margin-bottom:12px; }
+#start .tut-toggle input { width:22px; height:22px; margin:0; padding:0; accent-color:#214b37; }
 .start-foot { font-size:10px; color:#7f8875; margin:15px 0 0; line-height:1.6; }
 #intro { top:172px; }
 @media(max-width:1000px) { #top { gap:10px; } #top .brand span { max-width:130px; overflow:hidden; text-overflow:ellipsis; } #side { width:320px; } }

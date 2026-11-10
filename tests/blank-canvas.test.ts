@@ -4,7 +4,7 @@ import { CFG } from '../src/config';
 import { CLUB_H, CLUB_W, T, clubSites, idx } from '../src/terrain';
 import { createWilderness, clubhouseProblem, landOf, placeClubhouse, reliefAt, suggestClubhouse, suggestFirstHole } from '../src/wilderness';
 import { planNewHole } from '../src/editing';
-import { activeLocation } from '../src/campaign';
+import { GOALS } from '../src/campaign';
 import { deserialize, serialize } from '../src/save';
 import { run } from './helpers';
 import { createTestCourse } from './fixtures/classic-course';
@@ -65,7 +65,7 @@ describe('blank canvas world', () => {
     expect(g.cash).toBe(CFG.economy.startCash);
     expect(g.avgCondition).toBe(0);
     expect(g.designRating).toBe(0);
-    expect(activeLocation(g).objectives.map((o) => o.id)).toEqual(['holes', 'rounds', 'profit']);
+    expect(GOALS.length).toBeGreaterThan(3); // optional milestones, not chapters
     run(g, 40);
     expect(g.sim.golfers).toHaveLength(0);
   });

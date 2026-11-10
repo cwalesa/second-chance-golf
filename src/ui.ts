@@ -1,8 +1,8 @@
 import { paintToolTile } from './classic-art';
-import { journalPanel, JournalView, drawJournalArchives, paintArchive } from './journal';
+import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
-import { activeLocation } from './campaign';
+import { GOALS } from './campaign';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
@@ -208,7 +208,6 @@ export class UI {
           if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
         }
         else if (el.dataset.act === 'project') this.projectModal(el.dataset.id!);
-        else if (el.dataset.act === 'archive') this.archiveModal(el.dataset.id!);
         else if (el.dataset.act === 'reserve') useOperatingReserve(this.game);
         else if (el.dataset.act === 'claim') this.game.claimObjective(el.dataset.id!);
         else if (el.dataset.act === 'hire') this.game.hire(el.dataset.id as StaffId);
@@ -554,12 +553,6 @@ export class UI {
       this.closeModal(); this.refresh(true);
     };
   }
-  private archiveModal(id: string) {
-    const a = this.game.experience.archives.find(a => a.id === id); if (!a) return;
-    const m = this.modal(`<span class="eyebrow">Completed course</span><h2>${escapeHtml(a.name)}</h2><canvas id="archiveMap" width="720" height="480" aria-label="Preserved course plan"></canvas><div class="archive-summary"><div><b>${a.holes}</b><small>Open holes</small></div><div><b>${a.design}</b><small>Design rating</small></div><div><b>${a.members}</b><small>Members</small></div></div><p class="dim">Preserved on day ${a.day} · ${a.rounds} rounds · ${fmtMoney(a.profit)} operating profit.</p><p class="dim">This is a record of your completed course. Your active property stays unchanged.</p><div class="actions"><button class="btn primary" id="archiveClose">Back to portfolio</button></div>`);
-    paintArchive(m.querySelector('#archiveMap') as HTMLCanvasElement, a);
-    (m.querySelector('#archiveClose') as HTMLElement).onclick = () => this.closeModal();
-  }
   private settingsModal() {
     const prefs = this.game.preferences;
     const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
@@ -701,7 +694,6 @@ export class UI {
       this.cache.set('side', html);
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
-      drawJournalArchives(body, g);
     }
   }
 
@@ -747,9 +739,8 @@ export class UI {
   }
   private renderGoalBar() {
     const g = this.game;
-    const loc = activeLocation(g);
-    const next = loc.objectives.find(o => !g.campaign.claimed.includes(o.id));
-    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${loc.name}</div><div class="p">Keep refining your course.</div>`;
+    const next = GOALS.find(o => !g.campaign.claimed.includes(o.id));
+    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${escapeHtml(g.name)}</div><div class="p">Keep refining your course.</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;

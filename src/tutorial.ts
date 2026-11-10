@@ -5,6 +5,7 @@ import type { UI } from './ui';
 import type { ToolId } from './editing';
 import { T, Pt } from './terrain';
 import { suggestFirstHole } from './wilderness';
+import { REGIONS } from './progression';
 
 /** Saved progress through Level 1's guided walkthrough. */
 export interface TutorialState {
@@ -74,11 +75,11 @@ const holeHint = (c: Ctx) => {
 };
 const clubReady = (c: Ctx) => !!c.g.world.clubhouse;
 
-/** A blank canvas: forest, creek and valleys, a clubhouse of the player's choosing, and one hole built from nothing. */
+/** Untouched land in any region: the player picks the clubhouse spot, then builds one hole from nothing. */
 const STEPS: Step[] = [
   {
-    short: () => 'Welcome to Willow Creek.',
-    more: () => 'Forest, a creek, ponds and valleys, nothing built. Time is paused while you set up. You will place the clubhouse and build one hole. The gold ring shows where to tap.',
+    short: (c) => `Welcome to ${c.g.name}.`,
+    more: (c) => `${REGIONS[c.g.region].blurb.split('.')[0]}. Nothing is built yet. Time is paused while you set up. You will place the clubhouse and build one hole. The gold ring shows where to tap.`,
     nextLabel: 'Start',
     view: 'map',
   },

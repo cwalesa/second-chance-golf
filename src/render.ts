@@ -1483,7 +1483,8 @@ export class Renderer {
     for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { v = k; break; }
     if (v === 0 && game.region !== 'desert') {
       const hh = hash2(x, y, 402);
-      const club = Math.hypot(x - 8, y - 43);
+      const cl = w.clubhouse;
+      const club = cl ? Math.hypot(x - cl.x - 3, y - cl.y - 2) : 99;
       let nearTee = 99;
       for (const h of w.holes) nearTee = Math.min(nearTee, Math.hypot(x - h.tee.x, y - h.tee.y));
       if ((club < 14 || nearTee < 5) && hh > 0.62) v = 7; // ornamental blossom framing the clubhouse and tees

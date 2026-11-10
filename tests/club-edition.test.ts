@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Game } from '../src/game';
 import { careerLevel, awardExperience, commissionProject, projectOffers, constructionFactor, useOperatingReserve } from '../src/experience';
-import { activeLocation } from '../src/campaign';
 import { deserialize, serialize, saveGame, loadGame, clearSave, importSave } from '../src/save';
 import { SwingMeter } from '../src/swing';
 import { run } from './helpers';
@@ -66,19 +65,15 @@ describe('restoration projects and progression', () => {
     expect(g.cash).toBe(750); expect(g.today.bonus).toBe(650);
     g.cash = 0; expect(useOperatingReserve(g)).toBe(false);
   });
-  it('preserves a completed course plan while resetting local improvements at travel', () => {
-    const g = new Game(createTestCourse()); g.name = 'My restored course'; commissionProject(g, 'garden');
-    g.campaign.claimed = activeLocation(g).objectives.map(o => o.id);
-    const terrain = Array.from(g.world.terrain).join('');
-    const xp = g.experience.xp;
-    expect(g.travel()).toBe(true);
-    expect(g.experience.archives[0].name).toBe('My restored course');
-    expect(g.experience.archives[0].terrain).toBe(terrain);
-    expect(g.experience.site.garden).toBe(false); expect(g.experience.xp).toBe(xp);
-    g.world.terrain.fill(0);
-    expect(g.experience.archives[0].terrain).toBe(terrain);
-    const loaded = deserialize(serialize(g))!.game;
-    expect(loaded.experience.archives).toEqual(g.experience.archives);
+  it('old saves with chapter data (campaign stage, archives) still load and are kept', () => {
+    const g = new Game(createTestCourse());
+    const d = JSON.parse(serialize(g));
+    d.campaign.stage = 3; d.campaign.completed = ['willow', 'dunes', 'pine'];
+    d.experience.archives = [{ id: 'willow', name: 'Old', region: 'parkland', day: 3, design: 70, rounds: 5, profit: 100, members: 1, holes: 3, terrain: '0', trees: '0', pins: [] }];
+    const loaded = deserialize(JSON.stringify(d))!.game;
+    expect(loaded.campaign.stage).toBe(3);
+    expect(loaded.experience.archives).toHaveLength(1);
+    expect(loaded.world.holes.length).toBe(g.world.holes.length);
   });
 });
 
@@ -133,7 +128,7 @@ describe('save compatibility and recovery', () => {
     expect(values.get('second-chance-golf.save.v2')).toBe(before);
   });
   it('rejects broken terrain, non-finite condition, and invalid campaign indexes', () => {
-    for (const mutate of [(d:any)=>d.world.tree='0', (d:any)=>d.world.cond[0]=null, (d:any)=>d.campaign.stage=99]) {
+    for (const mutate of [(d:any)=>d.world.tree='0', (d:any)=>d.world.cond[0]=null, (d:any)=>d.campaign.stage=-1]) {
       const d = JSON.parse(serialize(new Game(createTestCourse()))); mutate(d); expect(deserialize(JSON.stringify(d))).toBeNull();
     }
   });
