@@ -43,7 +43,7 @@ describe('random play never strands golfers or loses money', () => {
     expect(maxAge).toBeLessThan(1500);
     expect(maxPhase).toBeLessThan(150);
     expect(Number.isFinite(g.cash)).toBe(true);
-    for (const t of g.world.terrain) expect(t).toBeLessThan(8);
+    for (const t of g.world.terrain) expect(t).toBeLessThan(9);
     for (const h of g.world.holes) {
       expect(h.tee.x).toBeGreaterThanOrEqual(0);
       expect(h.par).toBeGreaterThanOrEqual(3);

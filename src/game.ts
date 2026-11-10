@@ -611,6 +611,15 @@ export class Game {
     this.dirtySave = true;
   }
 
+  /** Change a hole's par. It is the player's choice and edits to the layout keep it. */
+  setHolePar(id: number, par: number) {
+    const h = this.world.holes.find((x) => x.id === id);
+    if (!h || ![3, 4, 5].includes(par) || h.par === par) return;
+    h.par = par;
+    this.world.version++;
+    this.dirtySave = true;
+  }
+
   /** Send three free simulated golfers (beginner, regular, skilled) round one open hole. */
   sendTestGolfers(id: number): number {
     const h = this.world.holes.find((x) => x.id === id);
@@ -629,7 +638,7 @@ export class Game {
   /** Validation is a flood fill, so remember it until the ground or the hole's pins change. */
   validate(id: number): Validation {
     const h = this.hole(id);
-    const key = `${this.world.version}:${this.world.holes.length}:${h.tee.x},${h.tee.y},${h.cup.x},${h.cup.y}`;
+    const key = `${this.world.layout ?? 0}:${this.world.holes.length}:${h.tee.x},${h.tee.y},${h.cup.x},${h.cup.y}:${JSON.stringify(h.bends ?? h.bend)}:${h.par}`;
     const hit = this.validations.get(id);
     if (hit && hit.key === key) return hit.v;
     const v = validateHole(this.world, h);

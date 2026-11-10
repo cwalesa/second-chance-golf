@@ -7,9 +7,9 @@ import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
 import { Editor, terrainLabel } from './input';
-import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint } from './editing';
+import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint, planStraighten } from './editing';
 import { EVENTS, EVENT_IDS, EventId } from './events';
-import { Hole, holeCondition, holeYards, idx } from './terrain';
+import { Hole, MAX_BENDS, PAR_YARDS, holeBends, holeCondition, holeYards, idx } from './terrain';
 import { BANDS, CLUB_LEVELS, REGIONS } from './progression';
 import { HIDDEN_GOALS, MILESTONES } from './goals';
 import { logoDesigner, paintLogo } from './start';
@@ -256,6 +256,8 @@ export class UI {
           if (this.mobile) this.tab = 'build';
         } else if (el.dataset.act === 'rename') this.renameModal(this.game.selectedHole);
         else if (el.dataset.act === 'removehole') this.removeModal(this.game.selectedHole);
+        else if (el.dataset.act === 'setpar') this.game.setHolePar(this.game.selectedHole, id);
+        else if (el.dataset.act === 'straighten') { const pl = planStraighten(this.game.world, this.game.hole(this.game.selectedHole)); if (typeof pl === 'string') this.game.notify('bad', pl); else this.game.commitEdit(pl); }
         else if (el.dataset.act === 'editlogo') this.logoModal();
         else if (el.dataset.act === 'renameclub') this.nameModal();
       }
@@ -421,14 +423,27 @@ export class UI {
     const placing = !p && this.editor.isPlacement && !this.game.owner.active && (!this.mobile || this.tab === 'build' || this.tab === 'none');
     const hn = this.game.selectedHole;
     const hint = this.editor.tool === 'tee' ? `Tap where hole ${hn}'s new tee goes` : this.editor.tool === 'cup' ? `Tap where hole ${hn}'s new green goes` : this.editor.tool === 'bend' ? `Tap a new turning point for hole ${hn}` : this.editor.buildStarted ? 'Now tap where the green goes' : 'Tap where the new tee goes';
-    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span></span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
-      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span></span><button class="btn" id="cfStop">Cancel</button>` : '';
+    const building = this.editor.tool === 'build';
+    const adding = this.editor.addingBend;
+    const nh = p?.newHole;
+    const parBar = building && (nh || placing)
+      ? `<span class="cf-pars" role="group" aria-label="Par"><b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}${nh ? `<button class="mini wide ${adding ? 'on' : ''}" id="cfBend" ${this.editor.newBends.length >= MAX_BENDS ? 'disabled' : ''}>${adding ? 'Tap the map' : '+ Bend'}</button>${this.editor.newBends.length ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}` : ''}</span>`
+      : '';
+    const route = nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
+    const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
+    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
+      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
     el.style.display = p || placing ? 'flex' : 'none';
     el.classList.toggle('placing', placing);
     document.body.classList.toggle('has-proposal', !!p || placing);
+    el.querySelectorAll<HTMLElement>('[data-par]').forEach((b) => { b.onclick = () => this.editor.setNewPar(Number(b.dataset.par)); });
+    const bendBtn = el.querySelector<HTMLElement>('#cfBend');
+    if (bendBtn) bendBtn.onclick = () => this.editor.startAddBend();
+    const straight = el.querySelector<HTMLElement>('#cfStraight');
+    if (straight) straight.onclick = () => this.editor.clearNewBends();
     if (placing) (this.$('cfStop') as HTMLElement).onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
     if (p) {
       (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
@@ -799,10 +814,11 @@ export class UI {
     const repair = this.greenPlan();
     const totalPar = w.holes.reduce((a, x) => a + x.par, 0);
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
-    const dogleg = Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
+    const dogleg = holeBends(h).length > 0 || Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
     const nHoles = w.holes.length;
     let html = `<div class="sec"><h3>Hole ${h.id}</h3><div class="card hole-detail"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><button class="btn sm" data-act="rename" aria-label="Rename hole">Rename</button></div>
-      <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>`;
+      <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>
+      <div class="par-row"><span>Par</span>${[3, 4, 5].map((n) => `<button class="mini ${n === h.par ? 'on' : ''}" data-act="setpar" data-id="${n}">${n}</button>`).join('')}<small class="dim">${PAR_YARDS[h.par][0]} to ${PAR_YARDS[h.par][1]} yd suits a par ${h.par}</small></div>`;
     if (h.open) {
       for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
       html += `<div class="note good">Open for play. Editing its ground closes it so nobody is caught mid-hole.</div>`;
@@ -817,7 +833,8 @@ export class UI {
     html += `<div class="sec edit-hole"><h3>Edit hole ${h.id}</h3><p class="dim small">Pick an action, then tap the map. You'll see a preview and the price before anything is built.</p><div class="edit-grid">
       <button class="edit-act" data-act="holetool" data-id="tee">${icon('<path d="M8 21l4-7 4 7"/><circle cx="12" cy="10" r="3"/>')}<span><b>Move tee</b><small>New tee box</small></span></button>
       <button class="edit-act" data-act="holetool" data-id="cup">${icon('<path d="M12 21V4l7 3-7 3"/><ellipse cx="12" cy="21" rx="5" ry="1.5"/>')}<span><b>Move cup</b><small>New green</small></span></button>
-      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Dogleg</b><small>Turning point</small></span></button>
+      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Turning points</b><small>Tap to add, move or remove</small></span></button>
+      <button class="edit-act" data-act="straighten" ${holeBends(h).length ? '' : 'disabled'}>${icon('<path d="M4 20L20 4"/>')}<span><b>Straighten</b><small>Remove all turns</small></span></button>
       <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
       <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>
     </div></div>`;

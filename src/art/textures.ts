@@ -296,3 +296,27 @@ export function makeWearNoise(size = 128): Float32Array {
   // 128px = 4 tiles: 8 cells = half-tile patches, 24 cells adds ragged edges
   return stretch(fbm(size, [[8, 1], [24, 0.35]], 2100));
 }
+
+/** Wooden deck planks for bridges: boards run across the tile pattern with a faint grain and nail dots. */
+export function makeDeckTexture(size = 64): HTMLCanvasElement {
+  const [cv, g] = makeCanvas(size);
+  const rows = 8;
+  const rh = size / rows;
+  for (let r = 0; r < rows; r++) {
+    const tint = (hash2(r, 3, 2100) - 0.5) * 18;
+    g.fillStyle = `rgb(${Math.round(150 + tint)},${Math.round(112 + tint * 0.8)},${Math.round(72 + tint * 0.6)})`;
+    g.fillRect(0, r * rh, size, rh);
+    g.fillStyle = 'rgba(40,24,10,0.55)';
+    g.fillRect(0, r * rh + rh - 1.2, size, 1.2);
+    g.fillStyle = 'rgba(255,236,196,0.2)';
+    g.fillRect(0, r * rh, size, 0.8);
+    for (let k = 0; k < 4; k++) {
+      g.fillStyle = 'rgba(70,44,20,0.16)';
+      g.fillRect(hash2(r, k, 2101) * size, r * rh + 1 + hash2(r, k, 2102) * (rh - 3), 6 + hash2(r, k, 2103) * 14, 0.7);
+    }
+    g.fillStyle = 'rgba(40,26,12,0.5)';
+    g.fillRect(3, r * rh + rh / 2 - 0.5, 1.3, 1.3);
+    g.fillRect(size - 4, r * rh + rh / 2 - 0.5, 1.3, 1.3);
+  }
+  return cv;
+}

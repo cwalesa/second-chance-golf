@@ -52,8 +52,8 @@ describe('pricing bands', () => {
 describe('land, new holes and the clubhouse', () => {
   it('locked land cannot be edited until bought, and shots there are out of bounds', () => {
     const g = new Game(createTestCourse());
-    const x = 90;
-    const y = 10;
+    const x = 200; // the far corner is a parcel the starting course does not own
+    const y = 130;
     expect(isOwned(g.world, x, y)).toBe(false);
     const plan = planPaint(g.world, 'fairway', [idx(g.world, x, y)]);
     expect(plan.tiles.length).toBe(0);
@@ -81,16 +81,17 @@ describe('land, new holes and the clubhouse', () => {
     expect(g.hole(id).open).toBe(false);
     expect(g.validate(id).problems).toEqual([]);
     expect(g.openHole(id).ok).toBe(true);
-    // hole cap for the starting clubhouse is 4
+    // there is no 70-yard rule any more: a neighbouring hole is fine as long as nothing actually overlaps
     const second = planNewHole(g.world, g.nextHoleId(), { x: 52, y: 60 }, { x: 66, y: 62 });
-    if (typeof second !== 'string') expect(g.commitEdit(second).ok).toBe(false);
+    expect(typeof second).not.toBe('string');
     g.undo();
     expect(g.world.holes.length).toBe(3);
   });
   it('refuses holes that run into other holes or unowned land', () => {
     const w = createTestCourse();
-    expect(typeof planNewHole(w, 4, { x: 30, y: 34 }, { x: 44, y: 34 })).toBe('string');
-    expect(typeof planNewHole(w, 4, { x: 90, y: 10 }, { x: 100, y: 12 })).toBe('string');
+    expect(typeof planNewHole(w, 4, { x: 9, y: 33 }, { x: 25, y: 20 })).toBe('string'); // tee on hole 1's tee box
+    expect(typeof planNewHole(w, 4, { x: 30, y: 30 }, { x: 42, y: 31 })).toBe('string'); // green on hole 1's green
+    expect(typeof planNewHole(w, 4, { x: 200, y: 130 }, { x: 210, y: 132 })).toBe('string'); // unowned land
   });
   it('clubhouse upgrades are gated by rating and cash, and raise demand', () => {
     const g = new Game(createTestCourse());

@@ -46,6 +46,8 @@ export interface World {
   zone: Uint8Array; // owning hole id, 0 = none
   holes: Hole[];
   version: number;
+  /** Bumped whenever the layout (ground types, holes) changes, but not for wear: validation results stay valid until it moves. */
+  layout?: number;
   region: RegionId;
   parcels: Uint8Array; // 1 when the parcel is owned
   dirty: Set<number>; // tile indices changed since the renderer last looked
@@ -172,7 +174,7 @@ export function computeZones(world: World) {
   world.zone.fill(0);
   // Each hole only claims tiles within R of its route, so scan just the box around it instead of the whole map.
   // Holes are visited in order and a later hole wins an exact tie, exactly as a full scan would decide.
-  const best = new Float32Array(world.w * world.h).fill(R);
+  const best = new Float64Array(world.w * world.h).fill(R);
   for (const h of world.holes) {
     const path = holePath(h);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -393,20 +395,29 @@ export function playableRoute(world: World, h: Hole, maxWater: number): { reache
           q.push({ x: nx, y: ny });
           continue;
         }
-        // a hop: hazard tiles straight ahead, then wide ground
-        const t0 = world.terrain[ni];
-        if (t0 !== T.WATER && t0 !== T.BUNKER) continue;
+        // A hop. The shore tiles beside water are never 3 wide, so allow a couple of ordinary ground tiles before
+        // the hazard and after it: step over those, cross the hazard in a straight line, and land on wide ground.
+        const kind = (x: number, y: number) => (inBounds(world, x, y) ? world.terrain[idx(world, x, y)] : -1);
+        const haz = (t: number) => t === T.WATER || t === T.BUNKER;
+        let k = 1;
+        let pre = 0;
+        while (pre < 3 && ok(p.x + dx * k, p.y + dy * k) && !haz(kind(p.x + dx * k, p.y + dy * k))) { k++; pre++; }
+        if (!haz(kind(p.x + dx * k, p.y + dy * k))) continue;
         let water = 0;
         let sand = 0;
-        for (let k = 1; k <= maxWater + 12; k++) {
-          const x = p.x + dx * k;
-          const y = p.y + dy * k;
-          if (!inBounds(world, x, y)) break;
-          const t = world.terrain[idx(world, x, y)];
+        for (; k <= maxWater + 16; k++) {
+          const t = kind(p.x + dx * k, p.y + dy * k);
           if (t === T.WATER) water++;
           else if (t === T.BUNKER) sand++;
-          else {
-            if (wide(x, y) && water <= maxWater && sand <= 12 && !from.has(idx(world, x, y))) {
+          else break;
+        }
+        if (water > maxWater || sand > 12) continue;
+        for (let extra = 0; extra < 3; extra++) {
+          const x = p.x + dx * (k + extra);
+          const y = p.y + dy * (k + extra);
+          if (!ok(x, y)) break;
+          if (wide(x, y)) {
+            if (!from.has(idx(world, x, y))) {
               from.set(idx(world, x, y), { prev: pi, gap: water * Math.hypot(dx, dy), at: { x: p.x + dx, y: p.y + dy } });
               q.push({ x, y });
             }

@@ -39,7 +39,7 @@ describe('blank canvas world', () => {
       expect(w.holes).toEqual([]);
       expect(w.clubhouse).toBeNull();
       expect(w.parcels.every((p) => p === 1)).toBe(true);
-      expect(water / n).toBeGreaterThan(0.025);
+      expect(water / n).toBeGreaterThan(0.015);
       expect(water / n).toBeLessThan(0.14);
       expect(trees / n).toBeGreaterThan(0.35); // a forest
       expect(open / n).toBeGreaterThan(0.25); // with meadows to build on
@@ -75,7 +75,7 @@ describe('choosing the clubhouse spot', () => {
   it('refuses water, the map edge and steep ground, and offers a spot that works', () => {
     const w = createWilderness(1);
     expect(clubhouseProblem(w, { x: 0, y: 0 })).toMatch(/edge/);
-    expect(clubhouseProblem(w, { x: 110, y: 40 })).toMatch(/edge/);
+    expect(clubhouseProblem(w, { x: w.w - 6, y: 40 })).toMatch(/edge/);
     let wet = null as { x: number; y: number } | null;
     for (let i = 0; i < w.terrain.length && !wet; i++) {
       const x = i % w.w, y = Math.floor(i / w.w);

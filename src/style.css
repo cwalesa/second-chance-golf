@@ -1162,3 +1162,17 @@ body.mobile[data-sheet="full"] #minimap, body.owner-playing #minimap { display: 
   body.mobile.minimap-open #brushbar { top: calc(var(--hdr) + 100px); }
   body.mobile #map-controls button[data-camera="in"], body.mobile #map-controls button[data-camera="out"] { display: none; }
 }
+
+/* ---- New-hole controls inside the confirm bar: par, bends, and a caution line ---- */
+.cf-note { display: block; margin-top: 2px; font-size: 11.5px; color: #ffd9a0; line-height: 1.3; }
+.cf-pars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.cf-pars b { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
+.cf-pars .mini { min-width: 44px; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); font-weight: 700; font-size: 14px; }
+.cf-pars .mini.wide { padding: 0 14px; font-size: 12.5px; }
+.cf-pars .mini.on { background: #f0c96a; color: #172a3b; border-color: transparent; }
+.cf-pars .mini:disabled { opacity: .4; }
+.par-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.par-row > span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-right: 2px; }
+.par-row .mini { min-width: 44px; height: 40px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); font-weight: 700; font-size: 14px; }
+.par-row .mini.on { background: #f0c96a; color: #172a3b; border-color: transparent; }
+.par-row small { flex-basis: 100%; font-size: 11px; }

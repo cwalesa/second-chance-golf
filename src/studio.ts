@@ -157,7 +157,7 @@ export class Studio {
       this.miniVersion = w.version; this.miniAt = now;
       if (this.miniBase.width !== w.w) { this.miniBase.width = w.w; this.miniBase.height = w.h; }
       const bc = this.miniBase.getContext('2d')!, img = bc.createImageData(w.w, w.h);
-      const palette = [[94, 120, 80], [155, 181, 104], [194, 214, 141], [197, 205, 132], [232, 214, 162], [95, 156, 167], [193, 181, 149], [237, 225, 201]];
+      const palette = [[94, 120, 80], [155, 181, 104], [194, 214, 141], [197, 205, 132], [232, 214, 162], [95, 156, 167], [193, 181, 149], [237, 225, 201], [150, 112, 72]];
       for (let i = 0; i < w.terrain.length; i++) {
         const col = w.tree[i] ? [43, 80, 61] : palette[w.terrain[i]];
         img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = 255;

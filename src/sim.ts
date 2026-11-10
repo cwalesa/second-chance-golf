@@ -307,6 +307,8 @@ export class CourseSim {
       if (!g.pathGoal || Math.hypot(g.pathGoal.x - tx, g.pathGoal.y - ty) > 1.2) {
         g.path = findPath(this.world, { x: g.x, y: g.y }, { x: tx, y: ty });
         g.pathGoal = { x: tx, y: ty };
+        // Nobody wades: if the ball lies where no one can walk (an island, the far bank with no bridge), it is dropped on the near side
+        if (!g.path && g.phase === 'toBall') this.dropUnreachable(g);
       }
       while (g.path && g.path.length > 1 && Math.hypot(g.path[0].x - g.x, g.path[0].y - g.y) < 0.35) g.path.shift();
       if (g.path && g.path.length) {
@@ -317,7 +319,8 @@ export class CourseSim {
     const dx = gx - g.x;
     const dy = gy - g.y;
     const d = Math.hypot(dx, dy);
-    const onPath = this.world.terrain[idx(this.world, Math.floor(g.x), Math.floor(g.y))] === T.PATH;
+    const underfoot = this.world.terrain[idx(this.world, Math.floor(g.x), Math.floor(g.y))];
+    const onPath = underfoot === T.PATH || underfoot === T.BRIDGE;
     const step = CFG.golfers.walkSpeed * g.speed * dt * (onPath ? 1.3 : 1);
     if (d <= step || d < 0.05) {
       g.x = gx;
@@ -333,6 +336,46 @@ export class CourseSim {
     if (Math.abs(dx) > 0.01) g.dir = dx > 0 ? 1 : -1;
     g.walkT += dt * 9;
     return false;
+  }
+
+  /** A ball nobody can walk to is unplayable: drop it, with a stroke, on the closest ground the golfer can reach. */
+  private dropUnreachable(g: Golfer) {
+    const w = this.world;
+    const seen = new Uint8Array(w.w * w.h);
+    const q: number[] = [];
+    const si = idx(w, Math.floor(g.x), Math.floor(g.y));
+    seen[si] = 1;
+    q.push(si);
+    let best = -1;
+    let bd = Infinity;
+    for (let head = 0; head < q.length; head++) {
+      const i = q[head];
+      const x = i % w.w;
+      const y = (i - x) / w.w;
+      if (isValidLie(w, x + 0.5, y + 0.5)) {
+        const d = Math.hypot(x + 0.5 - g.ball.x, y + 0.5 - g.ball.y);
+        if (d < bd) { bd = d; best = i; }
+      }
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= w.w || ny >= w.h) continue;
+          const ni = ny * w.w + nx;
+          if (seen[ni]) continue;
+          const t = w.terrain[ni];
+          if (t === T.WATER || t === T.BUILDING) continue;
+          seen[ni] = 1;
+          q.push(ni);
+        }
+    }
+    if (best < 0) return;
+    g.ball = { x: (best % w.w) + 0.5, y: Math.floor(best / w.w) + 0.5 };
+    g.hs.strokes += 1;
+    g.stats.water++;
+    g.path = null;
+    g.pathGoal = null;
+    this.say(g, 'No way to walk over there. Dropping on this side.');
   }
 
   /** Move on to the next open hole in the golfer's route, or head for the exit. */

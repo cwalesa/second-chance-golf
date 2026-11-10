@@ -1,6 +1,6 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
-import { makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
+import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
 import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
@@ -46,7 +46,7 @@ export interface Overlay {
   buildTee: Pt | null;
   buildLine: { from: Pt; to: Pt } | null;
   /** Pins an unbuilt tee/cup/dogleg/new-hole plan would move. */
-  ghost: { tee?: Pt; cup?: Pt; bend?: Pt; par: number } | null;
+  ghost: { tee?: Pt; cup?: Pt; bend?: Pt; bends?: Pt[]; /** whole route as tile corners, tee to cup */ route?: Pt[]; par: number; notes?: string[] } | null;
   /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
   club: { x: number; y: number; problem: string | null } | null;
   /** Where the tutorial suggests putting a tee and a green. */
@@ -350,6 +350,7 @@ export class Renderer {
     tee: [0.3, 0.3],
     bunker: [0.66, 0.3],
     water: [0.7, 0.3],
+    bridge: [0.3, 0.3],
     path: [0.36, 0.3],
   };
   private static readonly SHRINK = 0.09;
@@ -374,15 +375,16 @@ export class Renderer {
     green: (t) => t === T.GREEN,
     tee: (t) => t === T.TEE,
     bunker: (t) => t === T.BUNKER,
-    water: (t) => t === T.WATER,
+    water: (t) => t === T.WATER || t === T.BRIDGE, // the water runs on beneath a bridge
+    bridge: (t) => t === T.BRIDGE,
     path: (t) => t === T.PATH || t === T.BUILDING,
   };
   /** How far each surface's contour may wander, in tiles. Tees and paving stay geometric. */
-  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, path: 0 };
+  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, bridge: 0, path: 0 };
 
   /** Which distance fields a terrain type feeds. */
   private static fieldsFor(t: number): string[] {
-    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : t === T.PATH || t === T.BUILDING ? ['path'] : [];
+    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : t === T.BRIDGE ? ['bridge', 'water'] : t === T.PATH || t === T.BUILDING ? ['path'] : [];
   }
 
   /** Coverage -> signed distance for a straight edge blurred by `sigma`: d = sigma * probit(coverage). */
@@ -758,7 +760,7 @@ export class Renderer {
       if (this.ovCv.width !== w.w) { this.ovCv.width = w.w; this.ovCv.height = w.h; }
       const c = this.ovCv.getContext('2d')!;
       const img = c.createImageData(w.w, w.h);
-      const pal: RGB[] = [COL.roughGood, COL.fairGood, COL.greenGood, COL.teeGood, COL.sand, COL.water, COL.path, [150, 138, 112]];
+      const pal: RGB[] = [COL.roughGood, COL.fairGood, COL.greenGood, COL.teeGood, COL.sand, COL.water, COL.path, [150, 138, 112], [150, 112, 72]];
       const canopy: RGB = [42, 92, 56];
       for (let i = 0; i < w.terrain.length; i++) {
         let col = pal[w.terrain[i]] ?? COL.roughGood;
@@ -1087,6 +1089,15 @@ export class Renderer {
       fillStamp(path, inside, pat(this.pattern(t, 'paving', () => makePavingTexture(COL.path))));
       flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
       flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
+    }
+
+    // ---- bridges: a plank deck over the water with a shadow below and a rail along each edge
+    const bridge = dist('bridge');
+    if (bridge) {
+      flatStamp(bridge, falloff(0.1), [10, 30, 44], 0.45);
+      fillStamp(bridge, inside, pat(this.pattern(t, 'deck', () => makeDeckTexture())));
+      flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
+      flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }
   }
 
@@ -2012,12 +2023,10 @@ export class Renderer {
     ctx.fillRect(0, 0, this.cw, this.ch);
   }
 
-  /** Yardage chips along a tee-bend-cup route: one per leg when it doglegs, plus par and total at the green. */
+  /** Yardage chips along a route: one per leg when it turns, plus par and the total length at the green. */
   private drawYardage(route: Pt[], par: number, ghost = false) {
     const ctx = this.ctx;
     const yd = (a: Pt, b: Pt) => Math.round(Math.hypot(b.x - a.x, b.y - a.y) * CFG.grid.yardsPerTile);
-    const [tee, bend, cup] = route;
-    const lineDev = Math.abs((cup.x - tee.x) * (tee.y - bend.y) - (tee.x - bend.x) * (cup.y - tee.y)) / (Math.hypot(cup.x - tee.x, cup.y - tee.y) || 1);
     const chip = (text: string, wx: number, wy: number, lift: number) => {
       const s = this.toScreen(wx, wy);
       ctx.font = '700 11px system-ui, sans-serif';
@@ -2035,12 +2044,16 @@ export class Renderer {
       ctx.fillText(text, s.x, s.y - lift + 0.5);
       ctx.textAlign = 'left';
     };
-    if (lineDev > 1.5) {
-      chip(`${yd(tee, bend)} y`, (tee.x + bend.x) / 2, (tee.y + bend.y) / 2, 4);
-      chip(`${yd(bend, cup)} y`, (bend.x + cup.x) / 2, (bend.y + cup.y) / 2, 4);
-    }
-    const total = Math.round((Math.hypot(bend.x - tee.x, bend.y - tee.y) + Math.hypot(cup.x - bend.x, cup.y - bend.y)) * CFG.grid.yardsPerTile);
-    chip(`Par ${par} · ${total} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, lineDev > 1.5 ? 4 : 4);
+    const tee = route[0];
+    const cup = route[route.length - 1];
+    const dev = (p: Pt) => Math.abs((cup.x - tee.x) * (tee.y - p.y) - (tee.x - p.x) * (cup.y - tee.y)) / (Math.hypot(cup.x - tee.x, cup.y - tee.y) || 1);
+    const turns = route.length > 2 && route.slice(1, -1).some((p) => dev(p) > 1.5);
+    if (turns) for (let k = 0; k + 1 < route.length; k++) chip(`${yd(route[k], route[k + 1])} y`, (route[k].x + route[k + 1].x) / 2, (route[k].y + route[k + 1].y) / 2, 4);
+    let total = 0;
+    for (let k = 0; k + 1 < route.length; k++) total += Math.hypot(route[k + 1].x - route[k].x, route[k + 1].y - route[k].y);
+    // a straight hole wears its total at the middle; one with turns wears it above the green so it never sits on a leg chip
+    if (turns) chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, cup.x, cup.y, 36);
+    else chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, 4);
   }
 
   private drawOverlay(game: Game, ov: Overlay, time: number) {
@@ -2141,45 +2154,6 @@ export class Renderer {
       mk(center(h.tee), 'T', '#2d6ccb');
       mk(center(h.cup), String(h.id), '#c2552d');
       this.drawYardage(holePath(h), h.par);
-      if (ov.ghost) {
-        const g = ov.ghost;
-        const route = [center(g.tee ?? h.tee), center(g.bend ?? h.bend), center(g.cup ?? h.cup)];
-        const pts2 = route.map((p) => this.toScreen(p.x, p.y));
-        ctx.setLineDash([3, 6]);
-        ctx.strokeStyle = '#ffe27a';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        pts2.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.lineCap = 'butt';
-        const pin = (p: Pt | undefined, label: string) => {
-          if (!p) return;
-          const s = this.toScreen(p.x + 0.5, p.y + 0.5);
-          ctx.fillStyle = '#ffe27a';
-          ctx.strokeStyle = '#3a2d0c';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y - ts * 1.9, 11, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(s.x, s.y - ts * 1.9 + 11);
-          ctx.lineTo(s.x, s.y);
-          ctx.stroke();
-          ctx.fillStyle = '#2a2110';
-          ctx.font = '800 11px system-ui, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
-          ctx.textAlign = 'left';
-        };
-        pin(g.tee, 'T');
-        pin(g.cup, 'G');
-        pin(g.bend, '◆');
-        this.drawYardage(route, g.par, true);
-      }
       if (!h.open) {
         const v = game.validate(h.id);
         if (v.breakAt) {
@@ -2193,11 +2167,57 @@ export class Renderer {
           ctx.fillStyle = '#ff5a40';
           ctx.font = '700 11px system-ui, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText('fairway breaks here', s.x, s.y - ts * 1.6);
+          ctx.fillText(v.issues[0]?.fix === 'path' ? 'needs a bridge' : 'fairway breaks here', s.x, s.y - ts * 1.6);
           ctx.textAlign = 'left';
         }
       }
     }
+    this.drawGhost(ov, h);
+  }
+
+  /** The unbuilt tee, green and turning points a pending hole plan would create, with its route and length. */
+  private drawGhost(ov: Overlay, h?: { tee: Pt; cup: Pt; bend: Pt }) {
+    const g = ov.ghost;
+    if (!g) return;
+    const ctx = this.ctx;
+    const ts = this.ts;
+    const route = g.route ? g.route.map(center) : h ? [center(g.tee ?? h.tee), center(g.bend ?? h.bend), center(g.cup ?? h.cup)] : [];
+    if (route.length < 2) return;
+    const pts2 = route.map((p) => this.toScreen(p.x, p.y));
+    ctx.setLineDash([3, 6]);
+    ctx.strokeStyle = '#ffe27a';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    pts2.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
+    const pin = (p: Pt | undefined, label: string) => {
+      if (!p) return;
+      const s = this.toScreen(p.x + 0.5, p.y + 0.5);
+      ctx.fillStyle = '#ffe27a';
+      ctx.strokeStyle = '#3a2d0c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - ts * 1.9, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y - ts * 1.9 + 11);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      ctx.fillStyle = '#2a2110';
+      ctx.font = '800 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
+      ctx.textAlign = 'left';
+    };
+    pin(g.tee, 'T');
+    pin(g.cup, 'G');
+    (g.bends ?? (g.bend ? [g.bend] : [])).forEach((b, k) => pin(b, String(k + 1)));
+    this.drawYardage(route, g.par, true);
   }
 }
 
