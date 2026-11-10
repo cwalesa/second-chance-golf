@@ -1,4 +1,5 @@
 import { Game } from './game';
+import { CFG } from './config';
 import { World, computeZones } from './terrain';
 import { createWilderness } from './wilderness';
 import { Rng } from './rng';
@@ -36,6 +37,8 @@ export function serialize(g: Game): string {
       clubhouse: w.clubhouse,
       gate: w.gate,
       landSeed: w.landSeed,
+      w: w.w,
+      h: w.h,
     },
     cash: g.cash,
     cartFee: g.cartFee,
@@ -74,7 +77,10 @@ export function deserialize(text: string): LoadedSave | null {
     if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || d.campaign.stage > 4 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
     if (d.experience && (!Number.isFinite(d.experience.xp) || d.experience.xp < 0 || !Array.isArray(d.experience.earned) || !Array.isArray(d.experience.archives))) return null;
     if (!d.world.gate || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null; // saves from before the blank-canvas start have no land to rebuild
-    const base = createWilderness(d.world.landSeed, d.region);
+    // Maps used to be 120x80. Saves that predate the bigger map carry no size, so infer it from their length and keep playing them at that size.
+    const dims = Number.isInteger(d.world.w) && Number.isInteger(d.world.h) ? { w: d.world.w, h: d.world.h } : d.world.terrain.length === 9600 ? { w: 120, h: 80 } : { w: CFG.grid.w, h: CFG.grid.h };
+    if (dims.w < 20 || dims.h < 20 || dims.w > 1000 || dims.h > 1000 || dims.w * dims.h !== d.world.terrain.length) return null;
+    const base = createWilderness(d.world.landSeed, d.region, dims);
     const n = base.terrain.length;
     if (d.world.terrain.length !== n || d.world.tree.length !== n || d.world.cond.length !== n || d.world.parcels.length !== base.parcels.length) return null;
     const world: World = { ...base, terrain: new Uint8Array(n), tree: new Uint8Array(n), cond: new Float32Array(n), holes: d.world.holes, zone: new Uint8Array(n), parcels: Uint8Array.from(d.world.parcels) };

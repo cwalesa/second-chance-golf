@@ -991,7 +991,7 @@ body.mobile #holebar .hb-name b { font-size: 13.5px; }
 body.mobile #map-controls { position: absolute; left: auto; right: calc(8px + env(safe-area-inset-right)); top: calc(var(--hdr) + 8px); bottom: auto; flex-direction: column; gap: 6px; justify-content: flex-start; pointer-events: auto; }
 body.mobile #map-controls button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; margin: 0; border-radius: 12px; font-size: 18px; background: var(--panel-solid); border: 1px solid var(--line-soft); color: var(--text); }
 body.mobile #map-controls button[data-camera="design"], body.mobile #map-controls button[data-camera="fit"] { display: none; }
-body.mobile #minimap, body.mobile #pill, body.mobile #goalbar { display: none !important; }
+body.mobile #pill, body.mobile #goalbar { display: none !important; }
 body.mobile #brushbar { left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(var(--hdr) + 8px); bottom: auto; transform: none; flex-direction: column; }
 
 body.mobile #nav { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; height: calc(58px + env(safe-area-inset-bottom)); padding: 2px 6px env(safe-area-inset-bottom); flex-direction: row; gap: 0; border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; }
@@ -1147,3 +1147,18 @@ h2 { font-weight: 700; }
 .property-cover h3 { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 19px; }
 .start-play { display: flex; align-items: center; justify-content: center; min-height: 46px; box-shadow: none !important; font-size: 15px; }
 .sheet-title b, .sheet-title #sheetTitle { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight: 700; }
+
+/* ---- Course map: always on desktop, a toggle on phones; clubhouse button joins the map buttons ---- */
+#mapBtn { display: none; }
+#minimap { width: 204px; height: 136px; bottom: 112px; left: 12px; border: 2px solid #8fa7b3; border-radius: 8px; background: #18331f; touch-action: none; }
+body.mobile #mapBtn { display: inline-flex; }
+body.mobile #minimap { display: none; left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(var(--hdr) + 8px); bottom: auto; width: 150px; height: 100px; z-index: 6; box-shadow: 0 6px 18px #020c1980; }
+body.mobile.minimap-open #minimap { display: block; }
+body.mobile.minimap-open #mapBtn { background: #f0c96a; color: #172a3b; }
+body.mobile.minimap-open #brushbar { top: calc(var(--hdr) + 116px); }
+body.mobile[data-sheet="full"] #minimap, body.owner-playing #minimap { display: none !important; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #minimap { left: calc(74px + env(safe-area-inset-left)); top: calc(var(--hdr) + 6px); width: 132px; height: 88px; }
+  body.mobile.minimap-open #brushbar { top: calc(var(--hdr) + 100px); }
+  body.mobile #map-controls button[data-camera="in"], body.mobile #map-controls button[data-camera="out"] { display: none; }
+}

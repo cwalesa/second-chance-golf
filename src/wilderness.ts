@@ -22,15 +22,20 @@ export interface Land {
   /** 0 = valley floor, 1 = ridge top, one value per tile. */
   relief: Float32Array;
 }
-const lands = new Map<number, Land>();
+const lands = new Map<string, Land>();
+export interface Dims {
+  w: number;
+  h: number;
+}
 
 const nearestCreek = (creek: Pt[], x: number, y: number) => polyDist(x, y, creek).d;
 
 /** The land for a seed: a creek crossing the map, ponds in hollows, and a smooth height field with valleys carved around them. */
-export function landOf(seed: number): Land {
-  const hit = lands.get(seed);
+export function landOf(seed: number, dims: Dims = CFG.grid): Land {
+  const key = `${seed}:${dims.w}x${dims.h}`;
+  const hit = lands.get(key);
   if (hit) return hit;
-  const { w, h } = CFG.grid;
+  const { w, h } = dims;
   const s = seed | 0;
   const creek: Pt[] = [];
   const base = h * (0.3 + 0.4 * hash2(s, 1, 5));
@@ -60,26 +65,26 @@ export function landOf(seed: number): Land {
       relief[y * w + x] = clamp(v * 1.35 + 0.1);
     }
   const land = { creek, ponds, relief };
-  lands.set(seed, land);
+  lands.set(key, land);
   return land;
 }
 
 /** Height at a tile, 0 (valley floor) to 1 (ridge). Returns 0.5 for the classic course, which has no relief. */
-export function reliefAt(seed: number, x: number, y: number): number {
+export function reliefAt(seed: number, x: number, y: number, dims: Dims = CFG.grid): number {
   if (!seed) return 0.5;
-  const { w, h } = CFG.grid;
-  return landOf(seed).relief[clamp(Math.floor(y), 0, h - 1) * w + clamp(Math.floor(x), 0, w - 1)];
+  const { w, h } = dims;
+  return landOf(seed, dims).relief[clamp(Math.floor(y), 0, h - 1) * w + clamp(Math.floor(x), 0, w - 1)];
 }
 
 /** A random-looking but repeatable land seed. */
 export const newLandSeed = (n: number) => 1 + (Math.floor(Math.abs(n)) % 99991);
 
 /** Untouched wilderness: no holes, no clubhouse, every tile ready to build on. */
-export function createWilderness(landSeed: number, region: RegionId = 'parkland'): World {
-  const { w, h } = CFG.grid;
+export function createWilderness(landSeed: number, region: RegionId = 'parkland', dims: Dims = CFG.grid): World {
+  const { w, h } = dims;
   const n = w * h;
   const s = landSeed;
-  const land = landOf(s);
+  const land = landOf(s, dims);
   const world: World = {
     w,
     h,
@@ -137,7 +142,7 @@ export function slopeAt(world: World, c: Pt): number {
   let lo = 1;
   let hi = 0;
   for (const [dx, dy] of [[0, 0], [CLUB_W, 0], [0, CLUB_H], [CLUB_W, CLUB_H], [CLUB_W / 2, CLUB_H / 2]]) {
-    const v = reliefAt(world.landSeed, c.x + dx, c.y + dy);
+    const v = reliefAt(world.landSeed, c.x + dx, c.y + dy, world);
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
   }
@@ -166,7 +171,7 @@ export function suggestClubhouse(world: World): Pt | null {
       let trees = 0;
       for (let yy = lot.y0; yy <= lot.y1; yy++) for (let xx = lot.x0; xx <= lot.x1; xx++) if (world.tree[idx(world, xx, yy)]) trees++;
       let nearWater = 0;
-      for (const p of landOf(world.landSeed || 1).ponds) {
+      for (const p of landOf(world.landSeed || 1, world).ponds) {
         const d = Math.hypot(x + 3.5 - p.x, y + 2.5 - p.y) - p.r;
         if (d > 5 && d < 16) nearWater = 12;
       }

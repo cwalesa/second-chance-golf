@@ -1,5 +1,5 @@
 import { CFG } from './config';
-import { Hole, Pt, T, World, cloneHole, computeZones, holePathTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
+import { COMFORT_CARRY, Hole, MAX_BENDS, MAX_CARRY, MIN_HOLE_TILES, findPath, holeBends, lengthAdvice, pathTiles, routesCross, setRoute, Pt, T, World, cloneHole, computeZones, holePathTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
 
 export type ToolId = 'green' | 'path' | 'bend' | 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land';
 
@@ -22,6 +22,8 @@ export interface EditPlan {
   hole?: { id: number; before: Hole; after: Hole };
   newHole?: Hole;
   removedHole?: Hole;
+  /** Plain-language cautions shown with the price: questionable length, crossing routes, long carries. They never block a build. */
+  notes?: string[];
 }
 
 /** Regional building cost multiplier, set by the game. */
@@ -35,7 +37,7 @@ export const BRUSH_RADII = [0.5, 1.1, 2.1];
 
 export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
   green: { label: 'Green', hint: 'Expand or reshape a putting surface. Costs $24 per tile. Cannot overwrite tees or paths.' },
-  path: { label: 'Cart path', hint: 'Lay a cart path for $8 per tile. Golfers walk faster on paths. Paint rough over a path to remove it.' },
+  path: { label: 'Cart path', hint: 'Lay a cart path for $8 per tile. Paint it across water to build a bridge. Golfers walk faster on paths. Paint rough over a path to remove it.' },
   bend: { label: 'Dogleg', hint: 'Tap a routing point for this hole. Costs $40. Paint fairway along the new route, then reopen.' },
   inspect: { label: 'Inspect', hint: 'Tap a hole, a golfer or a tile to see details.' },
   pan: { label: 'Pan', hint: 'Drag to move the map. Scroll or pinch to zoom.' },
@@ -68,6 +70,7 @@ export function blockReason(world: World, tool: ToolId, i: number, cur?: TileSta
   if (!isOwned(world, i % world.w, Math.floor(i / world.w))) return 'You do not own this land.';
   const t = cur ? cur.t : world.terrain[i];
   if (t === T.BUILDING) return 'The clubhouse cannot be edited.';
+  if (t === T.BRIDGE && tool !== 'water' && tool !== 'path') return 'This is a bridge. Paint water over it to take it away.';
   if (tool === 'repair') return null;
   if (t === T.GREEN || t === T.TEE) {
     if (tool === 'treeDel' || tool === 'treeAdd') return null;
@@ -98,8 +101,9 @@ export function planTile(world: World, tool: ToolId, i: number, cur?: TileState)
       if (b.t === T.GREEN) return null;
       cost += 24; stripTree(); a.t = T.GREEN; a.c = CFG.turf.freshGreen; break;
     case 'path':
-      if (b.t === T.PATH) return null;
-      cost += 8; stripTree(); a.t = T.PATH; a.c = 100; break;
+      if (b.t === T.PATH || b.t === T.BRIDGE) return null;
+      // painting a path over water lays a bridge
+      cost += b.t === T.WATER ? C.bridge : 8; stripTree(); a.t = b.t === T.WATER ? T.BRIDGE : T.PATH; a.c = 100; break;
     case 'fairway':
       if (b.t === T.FAIRWAY) return null;
       cost += b.t === T.ROUGH ? C.fairway : C.fairwayFromHazard;
@@ -139,7 +143,7 @@ export function planTile(world: World, tool: ToolId, i: number, cur?: TileState)
       break;
     case 'repair': {
       const rough = b.t === T.ROUGH;
-      if (b.t === T.BUNKER || b.t === T.WATER || b.t === T.PATH) return null;
+      if (b.t === T.BUNKER || b.t === T.WATER || b.t === T.PATH || b.t === T.BRIDGE) return null;
       const target = rough ? CFG.turf.repairRoughTo : CFG.turf.repairTo;
       if (b.c >= (rough ? CFG.turf.repairRoughThreshold : CFG.turf.repairThreshold)) return null;
       cost += (C.repairBase + C.repairPerPoint * (target - b.c)) * (b.t === T.GREEN ? C.repairGreenMult : 1);

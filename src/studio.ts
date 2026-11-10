@@ -5,7 +5,7 @@ import { UI } from './ui';
 import { CLUBS, ClubId } from './owner';
 import { escapeHtml } from './panels';
 import { fmtMoney } from './game';
-import { holeYards } from './terrain';
+import { CLUB_H, CLUB_W, holeYards } from './terrain';
 
 /** Persistent map controls and a practice HUD that stays above mobile sheets. */
 export class Studio {
@@ -21,7 +21,8 @@ export class Studio {
   private layoutKey = ''; 
   constructor(private g: Game, private editor: Editor, private r: Renderer, private ui: UI) {
     this.controls.id = 'map-controls'; this.hud.id = 'owner-hud'; this.mini.id = 'minimap';
-    this.mini.width = 192; this.mini.height = 128;
+    this.mini.width = 240; this.mini.height = 160;
+    this.mini.setAttribute('aria-label', 'Course map: tap or drag to move the view');
     this.holebar.id = 'holebar';
     this.editbtns.id = 'editbtns';
     // The hole selector and undo/redo live in the header strip, so they never stack over the course.
@@ -31,7 +32,7 @@ export class Studio {
     top.insertBefore(Object.assign(document.createElement('div'), { className: 'tbreak' }), this.holebar);
     document.getElementById('app')!.append(this.controls, this.hud, this.mini);
     const arrow = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="map" id="mapBtn" aria-label="Show course map" title="Course map">${arrow('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}</button><button data-camera="club" aria-label="Go to clubhouse" title="Go to clubhouse">${arrow('<path d="M4 20V10l8-6 8 6v10z"/><path d="M10 20v-6h4v6"/>')}</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
     this.editbtns.innerHTML = `<button data-camera="undo" id="undoBtn" aria-label="Undo">${arrow('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/>')}<span>Undo</span></button><button data-camera="redo" id="redoBtn" aria-label="Redo">${arrow('<path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 8"/>')}</button>`;
     this.editbtns.onclick = e => {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
@@ -54,14 +55,22 @@ export class Studio {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
       if (action === 'design') { this.g.toggleDesignMode(); this.editor.setTool('inspect'); }
       else if (action === 'fit') { this.g.followGolfer = 0; this.r.fit(this.g.world); }
+      else if (action === 'club') { this.g.followGolfer = 0; this.toClubhouse(); }
+      else if (action === 'map') { document.body.classList.toggle('minimap-open'); this.drawMini(); }
       else if (action === 'home') { this.g.followGolfer = 0; this.editor.focusHole(); }
       else if (action) this.r.zoomAt(this.r.cw / 2, this.r.ch / 2, action === 'in' ? 1.3 : 1 / 1.3, this.g.world);
       this.update(0);
     };
-    this.mini.onclick = e => {
-      const b = this.mini.getBoundingClientRect(); this.g.followGolfer = 0;
-      this.r.focus((e.clientX - b.left) / b.width * this.g.world.w, (e.clientY - b.top) / b.height * this.g.world.h, this.r.cam.zoom, this.g.world);
+    // Tap or drag on the map to move the view; touches here never reach the course underneath.
+    const aim = (e: PointerEvent) => {
+      const b = this.mini.getBoundingClientRect(), w = this.g.world;
+      this.g.followGolfer = 0;
+      this.r.focus(Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * w.w, Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * w.h, this.r.cam.zoom, w);
+      this.drawMini();
     };
+    this.mini.addEventListener('pointerdown', e => { e.stopPropagation(); this.mini.setPointerCapture(e.pointerId); aim(e); });
+    this.mini.addEventListener('pointermove', e => { if (this.mini.hasPointerCapture(e.pointerId)) aim(e); });
+    this.mini.style.touchAction = 'none';
     this.hud.onclick = e => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('button'); if (!b) return;
       if (b.dataset.club) { this.g.owner.club = b.dataset.club as ClubId; this.g.owner.swing.cancel(); }
@@ -131,20 +140,38 @@ export class Studio {
     this.barKey = bkey;
     this.holebar.innerHTML = `<button class="hb-step" data-hb="prev" aria-label="Previous hole">‹</button><button class="hb-main" data-hb="open" aria-label="Open the Holes panel"><span class="hb-name"><b>${h.id} · ${escapeHtml(h.name)}</b><small><i class="hb-dot ${st.cls}"></i>${st.cls === 'open' ? 'Open' : st.cls === 'ready' ? 'Ready' : st.text} · Par ${h.par} · ${holeYards(h)} yd</small></span></button><button class="hb-step" data-hb="next" aria-label="Next hole">›</button>`;
   }
+  /** Centre the view on the clubhouse (or the middle of the property before it is placed). */
+  toClubhouse() {
+    const w = this.g.world, c = w.clubhouse;
+    this.r.insets = this.ui.insets();
+    this.r.focus(c ? c.x + CLUB_W / 2 : w.w / 2, c ? c.y + CLUB_H / 2 : w.h / 2, Math.max(this.r.cam.zoom, 0.7), w);
+  }
+  private miniBase = document.createElement('canvas');
+  private miniVersion = -1;
+  private miniAt = 0;
   private drawMini() {
-    const c = this.mini.getContext('2d')!, w = this.g.world, sx = 192 / w.w, sy = 128 / w.h;
-    const palette = ['#5e7850', '#9bb568', '#c2d68d', '#c5cd84', '#e8d6a2', '#5f9ca7', '#c1b595', '#ede1c9'];
-    for (let i = 0; i < w.terrain.length; i++) {
-      c.fillStyle = w.tree[i] ? '#2b503d' : palette[w.terrain[i]];
-      c.fillRect(i % w.w * sx, Math.floor(i / w.w) * sy, sx + .2, sy + .2);
+    const c = this.mini.getContext('2d')!, w = this.g.world, sx = this.mini.width / w.w, sy = this.mini.height / w.h;
+    // The terrain layer is cached and only rebuilt when the ground changes, at most a couple of times a second.
+    const now = performance.now();
+    if (this.miniVersion !== w.version && now - this.miniAt > 400 || this.miniBase.width !== w.w) {
+      this.miniVersion = w.version; this.miniAt = now;
+      if (this.miniBase.width !== w.w) { this.miniBase.width = w.w; this.miniBase.height = w.h; }
+      const bc = this.miniBase.getContext('2d')!, img = bc.createImageData(w.w, w.h);
+      const palette = [[94, 120, 80], [155, 181, 104], [194, 214, 141], [197, 205, 132], [232, 214, 162], [95, 156, 167], [193, 181, 149], [237, 225, 201]];
+      for (let i = 0; i < w.terrain.length; i++) {
+        const col = w.tree[i] ? [43, 80, 61] : palette[w.terrain[i]];
+        img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = 255;
+      }
+      bc.putImageData(img, 0, 0);
     }
+    c.imageSmoothingEnabled = false;
+    c.drawImage(this.miniBase, 0, 0, this.mini.width, this.mini.height);
+    if (w.clubhouse) { c.fillStyle = '#f4e9ce'; c.strokeStyle = '#102238'; c.lineWidth = 1.5; c.beginPath(); c.rect(w.clubhouse.x * sx - 2, w.clubhouse.y * sy - 2, CLUB_W * sx + 4, CLUB_H * sy + 4); c.fill(); c.stroke(); }
     for (const h of w.holes) {
-      c.fillStyle = h.open ? '#fff5d4' : '#f0a16b'; c.beginPath(); c.arc((h.cup.x + .5) * sx, (h.cup.y + .5) * sy, 2.5, 0, Math.PI * 2); c.fill();
+      c.fillStyle = h.open ? '#fff5d4' : '#f0a16b'; c.strokeStyle = '#102238'; c.lineWidth = 1; c.beginPath(); c.arc((h.cup.x + .5) * sx, (h.cup.y + .5) * sy, 3, 0, Math.PI * 2); c.fill(); c.stroke();
     }
-    for (const x of this.g.sim.golfers) { c.fillStyle = '#f8e3b0'; c.fillRect(x.x * sx, x.y * sy, 2, 2); }
-    const corners = [[0,0],[this.r.cw,0],[this.r.cw,this.r.ch],[0,this.r.ch]].map(([x,y])=>this.r.toWorld(x,y));
-    c.strokeStyle='#ffffffb0';c.lineWidth=1;c.beginPath();corners.forEach((p,i)=>i?c.lineTo(p.x*sx,p.y*sy):c.moveTo(p.x*sx,p.y*sy));c.closePath();c.stroke();
-    c.fillStyle = '#11291dd9'; c.fillRect(0, 112, 192, 16); c.fillStyle = '#f4e9ce'; c.font = '9px sans-serif';
-    c.fillText(`${this.g.openHoles.length} HOLES OPEN  ·  DESIGN ${this.g.designRating}`, 8, 123);
+    for (const x of this.g.sim.golfers) { c.fillStyle = '#f8e3b0'; c.fillRect(x.x * sx - 1, x.y * sy - 1, 3, 3); }
+    const corners = [[0, 0], [this.r.cw, 0], [this.r.cw, this.r.ch], [0, this.r.ch]].map(([x, y]) => this.r.toWorld(x, y));
+    c.strokeStyle = '#ffffff'; c.lineWidth = 2; c.beginPath(); corners.forEach((p, i) => i ? c.lineTo(p.x * sx, p.y * sy) : c.moveTo(p.x * sx, p.y * sy)); c.closePath(); c.stroke();
   }
 }

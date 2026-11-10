@@ -1,9 +1,9 @@
 import { CFG } from './config';
 import { RegionId } from './progression';
 
-export const T = { ROUGH: 0, FAIRWAY: 1, GREEN: 2, TEE: 3, BUNKER: 4, WATER: 5, PATH: 6, BUILDING: 7 } as const;
+export const T = { ROUGH: 0, FAIRWAY: 1, GREEN: 2, TEE: 3, BUNKER: 4, WATER: 5, PATH: 6, BUILDING: 7, BRIDGE: 8 } as const;
 export type TerrainId = (typeof T)[keyof typeof T];
-export const TERRAIN_NAMES = ['Rough', 'Fairway', 'Green', 'Tee box', 'Bunker', 'Water', 'Cart path', 'Clubhouse'];
+export const TERRAIN_NAMES = ['Rough', 'Fairway', 'Green', 'Tee box', 'Bunker', 'Water', 'Cart path', 'Clubhouse', 'Bridge'];
 
 export interface Pt {
   x: number;
@@ -15,7 +15,9 @@ export interface Hole {
   name: string;
   tee: Pt; // tile coordinates (integer); play position is +0.5
   cup: Pt;
-  bend: Pt; // routing waypoint, drives the hole's zone and par
+  bend: Pt; // first routing point (the midpoint for a straight hole); kept in step with `bends` so older code and saves still work
+  /** Optional turning points between tee and cup, in playing order. Absent on older saves: derived from `bend`. */
+  bends?: Pt[];
   open: boolean;
   par: number;
   fixedGreenAt: number; // total sim time a worn green was repaired, -1 if never
@@ -136,12 +138,30 @@ export function polyDist(px: number, py: number, pts: Pt[]): { d: number; s: num
   return { d: best, s: bestS, total };
 }
 
-export const holePath = (h: Hole): Pt[] => [center(h.tee), center(h.bend), center(h.cup)];
-/** Playing length in yards along tee, routing point and cup. */
+const offLine = (a: Pt, b: Pt, c: Pt) => Math.abs((c.x - a.x) * (a.y - b.y) - (a.x - b.x) * (c.y - a.y)) / (Math.hypot(c.x - a.x, c.y - a.y) || 1);
+/** The hole's turning points. A single `bend` that sits on the straight line is not a dogleg, so it is not one. */
+export const holeBends = (h: Hole): Pt[] => h.bends ?? (offLine(h.tee, h.bend, h.cup) > 1.5 ? [h.bend] : []);
+/** Set the turning points (up to MAX_BENDS) and keep the legacy `bend` field consistent. */
+export function setRoute(h: Hole, bends: Pt[]) {
+  h.bends = bends.slice(0, MAX_BENDS).map((p) => ({ x: p.x, y: p.y }));
+  h.bend = h.bends[0] ? { ...h.bends[0] } : { x: Math.round((h.tee.x + h.cup.x) / 2), y: Math.round((h.tee.y + h.cup.y) / 2) };
+}
+export const MAX_BENDS = 3;
+export const holePath = (h: Hole): Pt[] => [center(h.tee), ...holeBends(h).map(center), center(h.cup)];
+/** Length in tiles along the whole route: what the scorecard yardage is based on. */
+export const holePathTiles = (h: Hole) => pathTiles(holePath(h));
+export const pathTiles = (pts: Pt[]) => pts.reduce((s, p, i) => (i ? s + Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y) : 0), 0);
+/** Playing length in yards along tee, turning points and cup. */
 export const holeYards = (h: Hole) => Math.round(holePathTiles(h) * CFG.grid.yardsPerTile);
-/** Length in tiles along tee, routing point and cup: what par and the scorecard yardage are based on. */
-export const holePathTiles = (h: Hole) => Math.hypot(h.bend.x - h.tee.x, h.bend.y - h.tee.y) + Math.hypot(h.cup.x - h.bend.x, h.cup.y - h.bend.y);
 export const holeStraightTiles = (h: Hole) => Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y);
+/** Suggested length for each par, in yards. Guidance only: nothing is refused for being outside it. */
+export const PAR_YARDS: Record<number, [number, number]> = { 3: [80, 230], 4: [230, 430], 5: [430, 620] };
+export function lengthAdvice(par: number, yards: number): string | null {
+  const [lo, hi] = PAR_YARDS[par] ?? PAR_YARDS[4];
+  if (yards >= lo && yards <= hi) return null;
+  const alt = yards < lo ? (par === 5 ? 4 : 3) : par === 3 ? 4 : 5;
+  return `${yards} yd is ${yards < lo ? 'short' : 'long'} for a par ${par} (about ${lo} to ${hi} yd). It plays like a par ${alt}.`;
+}
 export function parFor(tiles: number): number {
   const yards = tiles * CFG.grid.yardsPerTile;
   return yards <= CFG.holes.par3Max * 10 ? 3 : yards <= CFG.holes.par4Max * 10 ? 4 : 5;
@@ -150,20 +170,24 @@ export function parFor(tiles: number): number {
 export function computeZones(world: World) {
   const R = CFG.holes.zoneRadius;
   world.zone.fill(0);
-  const paths = world.holes.map(holePath);
-  for (let y = 0; y < world.h; y++) {
-    for (let x = 0; x < world.w; x++) {
-      let best = R;
-      let id = 0;
-      for (let i = 0; i < paths.length; i++) {
-        const d = polyDist(x + 0.5, y + 0.5, paths[i]).d;
-        if (d <= best) {
-          best = d;
-          id = world.holes[i].id;
+  // Each hole only claims tiles within R of its route, so scan just the box around it instead of the whole map.
+  // Holes are visited in order and a later hole wins an exact tie, exactly as a full scan would decide.
+  const best = new Float32Array(world.w * world.h).fill(R);
+  for (const h of world.holes) {
+    const path = holePath(h);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of path) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    const bx0 = Math.max(0, Math.floor(x0 - R - 1)), by0 = Math.max(0, Math.floor(y0 - R - 1));
+    const bx1 = Math.min(world.w - 1, Math.ceil(x1 + R + 1)), by1 = Math.min(world.h - 1, Math.ceil(y1 + R + 1));
+    for (let y = by0; y <= by1; y++)
+      for (let x = bx0; x <= bx1; x++) {
+        const i = y * world.w + x;
+        const d = polyDist(x + 0.5, y + 0.5, path).d;
+        if (d <= best[i]) {
+          best[i] = d;
+          world.zone[i] = h.id;
         }
       }
-      world.zone[y * world.w + x] = id;
-    }
   }
 }
 
@@ -234,6 +258,7 @@ function stepCost(world: World, i: number): number {
     case T.BUNKER: c = 2.2; break;
     case T.WATER: c = 7; break;
     case T.PATH: c = 1; break;
+    case T.BRIDGE: c = 1; break;
     default: c = 40;
   }
   return world.tree[i] ? c + 5 : c;
@@ -315,8 +340,13 @@ export function routeField(world: World, h: Hole): Float64Array {
 export interface Issue {
   text: string;
   at: Pt | null;
-  fix: 'tee' | 'cup' | 'fairway' | 'green' | null;
+  fix: 'tee' | 'cup' | 'fairway' | 'green' | 'path' | null;
 }
+/** Water a beginner can carry from the tee, and the most any golfer can, in tiles. */
+export const COMFORT_CARRY = 14;
+export const MAX_CARRY = 22;
+/** Shortest legal hole: the tee box and the green must not run into each other. */
+export const MIN_HOLE_TILES = 5;
 export interface Validation {
   ok: boolean;
   problems: string[];
@@ -324,6 +354,73 @@ export interface Validation {
   breakAt: Pt | null;
   issues: Issue[];
 }
+/**
+ * Can a ball be played from tee to cup? Walks the 3-wide playable ground (fairway, green, tee, paths and
+ * bridges) and may hop a stretch of water (up to `maxWater` tiles) or sand (up to 12) in a straight line to the
+ * next playable ground, which is how a carry works. Returns whether the cup was reached, the longest water
+ * carry the shortest route needs, and where it got stuck.
+ */
+export function playableRoute(world: World, h: Hole, maxWater: number): { reached: boolean; carry: number; carryAt: Pt | null; best: Pt } {
+  const ok = (x: number, y: number) => {
+    if (!inBounds(world, x, y)) return false;
+    const t = world.terrain[idx(world, x, y)];
+    return t === T.FAIRWAY || t === T.GREEN || t === T.TEE || t === T.PATH || t === T.BRIDGE;
+  };
+  const wide = (x: number, y: number) => ok(x, y) && ok(x + 1, y) && ok(x - 1, y) && ok(x, y + 1) && ok(x, y - 1);
+  const start = idx(world, h.tee.x, h.tee.y);
+  const from = new Map<number, { prev: number; gap: number; at: Pt | null }>();
+  from.set(start, { prev: -1, gap: 0, at: null });
+  const q: Pt[] = [h.tee];
+  let bestD = Infinity;
+  let best = h.tee;
+  let end = -1;
+  for (let head = 0; head < q.length; head++) {
+    const p = q[head];
+    const pi = idx(world, p.x, p.y);
+    const dd = Math.hypot(p.x - h.cup.x, p.y - h.cup.y);
+    if (dd < bestD) { bestD = dd; best = p; }
+    if (p.x === h.cup.x && p.y === h.cup.y) { end = pi; break; }
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = p.x + dx;
+        const ny = p.y + dy;
+        if (!inBounds(world, nx, ny)) continue;
+        const ni = idx(world, nx, ny);
+        if (from.has(ni)) continue;
+        if (wide(nx, ny)) {
+          from.set(ni, { prev: pi, gap: 0, at: null });
+          q.push({ x: nx, y: ny });
+          continue;
+        }
+        // a hop: hazard tiles straight ahead, then wide ground
+        const t0 = world.terrain[ni];
+        if (t0 !== T.WATER && t0 !== T.BUNKER) continue;
+        let water = 0;
+        let sand = 0;
+        for (let k = 1; k <= maxWater + 12; k++) {
+          const x = p.x + dx * k;
+          const y = p.y + dy * k;
+          if (!inBounds(world, x, y)) break;
+          const t = world.terrain[idx(world, x, y)];
+          if (t === T.WATER) water++;
+          else if (t === T.BUNKER) sand++;
+          else {
+            if (wide(x, y) && water <= maxWater && sand <= 12 && !from.has(idx(world, x, y))) {
+              from.set(idx(world, x, y), { prev: pi, gap: water * Math.hypot(dx, dy), at: { x: p.x + dx, y: p.y + dy } });
+              q.push({ x, y });
+            }
+            break;
+          }
+        }
+      }
+  }
+  let carry = 0;
+  let carryAt: Pt | null = null;
+  if (end >= 0) for (let i = end; i !== -1; i = from.get(i)!.prev) { const e = from.get(i)!; if (e.gap > carry) { carry = e.gap; carryAt = e.at; } }
+  return { reached: end >= 0, carry, carryAt, best };
+}
+
 export function validateHole(world: World, h: Hole): Validation {
   const problems: string[] = [];
   const issues: Issue[] = [];
@@ -346,50 +443,48 @@ export function validateHole(world: World, h: Hole): Validation {
     }
   if (world.terrain[ci] === T.GREEN && greenTiles < 8) problem(`The green is too small (${greenTiles} tiles, it needs 8). Paint more green around the cup, or use Move cup.`, h.cup, 'green');
   const len = holeStraightTiles(h);
-  if (len < 8) problem('Tee and cup are too close together (minimum 80 yards). Use Move tee or Move cup.', h.cup, 'cup');
+  if (len < MIN_HOLE_TILES) problem('Tee and cup are on top of each other. Use Move tee or Move cup to give the hole some length.', h.cup, 'cup');
   if (!problems.length) {
-    const ok = (x: number, y: number) => {
-      if (!inBounds(world, x, y)) return false;
-      const t = world.terrain[idx(world, x, y)];
-      return t === T.FAIRWAY || t === T.GREEN || t === T.TEE;
-    };
-    const wide = (x: number, y: number) => ok(x, y) && ok(x + 1, y) && ok(x - 1, y) && ok(x, y + 1) && ok(x, y - 1);
-    const seen = new Set<number>();
-    const q: Pt[] = [h.tee];
-    seen.add(ti);
-    let bestD = Infinity;
-    let best = h.tee;
-    let reached = false;
-    while (q.length) {
-      const p = q.pop()!;
-      const dd = Math.hypot(p.x - h.cup.x, p.y - h.cup.y);
-      if (dd < bestD) {
-        bestD = dd;
-        best = p;
-      }
-      if (p.x === h.cup.x && p.y === h.cup.y) {
-        reached = true;
-        break;
-      }
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = p.x + dx;
-          const ny = p.y + dy;
-          if (!inBounds(world, nx, ny) || seen.has(idx(world, nx, ny))) continue;
-          if (!wide(nx, ny)) continue;
-          seen.add(idx(world, nx, ny));
-          q.push({ x: nx, y: ny });
-        }
+    const easy = playableRoute(world, h, COMFORT_CARRY);
+    const far = easy.reached ? easy : playableRoute(world, h, MAX_CARRY);
+    if (!far.reached) {
+      breakAt = far.best;
+      problem(`The fairway does not reach the green. It stops near the marked spot (the playable ground must be 3 tiles wide): paint fairway across the gap, or make any water carry shorter than ${MAX_CARRY * CFG.grid.yardsPerTile} yards.`, far.best, 'fairway');
+    } else if (!easy.reached) {
+      warnings.push(`This hole needs a ${Math.round(far.carry * CFG.grid.yardsPerTile)} yard carry over water. Only strong golfers will make it, so expect lost balls. A shorter carry or a bridge helps.`);
     }
-    if (!reached) {
-      breakAt = best;
-      problem(`No continuous fairway (3 tiles wide) from tee to green. It breaks near the marked spot: paint fairway across the gap, or clear the water, sand or trees that cut it.`, best, 'fairway');
+    // golfers have to be able to walk it too: water and buildings are not crossed on foot, bridges are
+    if (!problems.length && !findPath(world, center(h.tee), center(h.cup))) {
+      const gap = far.carryAt ?? far.best;
+      problem('Golfers cannot walk from the tee to the green: water cuts the way. Paint a path across the water to make a bridge.', gap, 'path');
+    }
+  }
+  const yards = holeYards(h);
+  const advice = problems.length ? null : lengthAdvice(h.par, yards);
+  if (advice) warnings.push(advice);
+  if (!problems.length) {
+    const mine = holePath(h);
+    for (const o of world.holes) {
+      if (o.id === h.id) continue;
+      if (Math.hypot(o.tee.x - h.cup.x, o.tee.y - h.cup.y) < 6 || Math.hypot(o.cup.x - h.tee.x, o.cup.y - h.tee.y) < 6) warnings.push(`Hole ${o.id} has a tee or green right beside this one. Golfers may mix them up.`);
+      else if (routesCross(mine, holePath(o))) warnings.push(`This hole's route crosses hole ${o.id}, ${o.name}. Golfers may hit into each other.`);
     }
   }
   const c = holeCondition(world, h);
   if (!problems.length && c.overall < 45) warnings.push('Turf is in poor shape. Expect complaints until you repair it.');
   if (!problems.length && c.green < 40) warnings.push('The green is badly worn and will make putting hard.');
   return { ok: problems.length === 0, problems, warnings, breakAt, issues };
+}
+
+/** True when two routes (polylines) properly cross each other. */
+export function routesCross(a: Pt[], b: Pt[]): boolean {
+  const orient = (p: Pt, q: Pt, r: Pt) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  for (let i = 0; i < a.length - 1; i++)
+    for (let j = 0; j < b.length - 1; j++) {
+      const [p1, p2, p3, p4] = [a[i], a[i + 1], b[j], b[j + 1]];
+      if (orient(p1, p2, p3) * orient(p1, p2, p4) < 0 && orient(p3, p4, p1) * orient(p3, p4, p2) < 0) return true;
+    }
+  return false;
 }
 
 export function cloneHole(h: Hole): Hole {
@@ -406,27 +501,58 @@ export function findPath(world: World, a: Pt, b: Pt): Pt[] | null {
   const n = world.w * world.h;
   const g = new Float64Array(n).fill(1e9);
   const from = new Int32Array(n).fill(-1);
-  const open: number[] = [];
-  const f = new Float64Array(n).fill(1e9);
+  const closed = new Uint8Array(n);
   const cost = (i: number): number => {
     const t = world.terrain[i];
     if (t === T.WATER || t === T.BUILDING) return -1;
-    let c = t === T.PATH ? 0.8 : t === T.BUNKER ? 1.6 : t === T.ROUGH ? 1.1 : 1;
+    let c = t === T.PATH || t === T.BRIDGE ? 0.8 : t === T.BUNKER ? 1.6 : t === T.ROUGH ? 1.1 : 1;
     if (world.tree[i]) c += 3;
     return c;
   };
   const h = (x: number, y: number) => Math.hypot(x - gx, y - gy);
+  // binary min-heap on f = g + h
+  const hf: number[] = [];
+  const hi: number[] = [];
+  const push = (f: number, i: number) => {
+    let k = hf.length;
+    hf.push(f);
+    hi.push(i);
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (hf[p] <= f) break;
+      hf[k] = hf[p];
+      hi[k] = hi[p];
+      k = p;
+    }
+    hf[k] = f;
+    hi[k] = i;
+  };
+  const pop = () => {
+    const top = hi[0];
+    const f = hf.pop()!;
+    const i = hi.pop()!;
+    const len = hf.length;
+    if (len) {
+      let k = 0;
+      for (;;) {
+        let c = 2 * k + 1;
+        if (c >= len) break;
+        if (c + 1 < len && hf[c + 1] < hf[c]) c++;
+        if (hf[c] >= f) break;
+        hf[k] = hf[c];
+        hi[k] = hi[c];
+        k = c;
+      }
+      hf[k] = f;
+      hi[k] = i;
+    }
+    return top;
+  };
   const si = sy * world.w + sx;
   g[si] = 0;
-  f[si] = h(sx, sy);
-  open.push(si);
-  const closed = new Uint8Array(n);
-  while (open.length) {
-    let bi = 0;
-    for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
-    const cur = open[bi];
-    open[bi] = open[open.length - 1];
-    open.pop();
+  push(h(sx, sy), si);
+  while (hf.length) {
+    const cur = pop();
     if (closed[cur]) continue;
     closed[cur] = 1;
     const cx = cur % world.w;
@@ -453,8 +579,7 @@ export function findPath(world: World, a: Pt, b: Pt): Pt[] | null {
         if (ng < g[ni]) {
           g[ni] = ng;
           from[ni] = cur;
-          f[ni] = ng + h(nx, ny);
-          open.push(ni);
+          push(ng + h(nx, ny), ni);
         }
       }
   }
