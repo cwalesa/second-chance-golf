@@ -1,6 +1,32 @@
-# Second Chance Golf — Level 1: Willow Creek (0.8.0)
+# Second Chance Golf (0.9.0)
 
-Only Level 1 is playable: a guided walkthrough on Willow Creek, then free design. Run with `npm ci && npm run dev`; `npm test`; `npm run build` (static site in `dist/`, published to GitHub Pages from `main`).
+Pick a starting region, place a clubhouse and build a course across a 240×160 tile map. Run with `npm ci && npm run dev`; `npm test`; `npm run build` (static site in `dist/`, published to GitHub Pages from `main`).
+
+## Starting regions
+
+Each new game begins on untouched land in one of five regions. All of the map is buildable from the start, there are no chapters, and you never have to move; milestones under **Goals** are optional and unlock nothing.
+
+| Region | Difficulty | Land | What changes |
+| --- | --- | --- | --- |
+| Forest | Easy | Meadows and clearings in tall trees, a creek and ponds | Steady demand, forgiving upkeep |
+| Prairie | Easy to medium | Open grass, a few groves | Cheaper construction, lower green fees, some wind |
+| Coast | Medium | Sea along one edge, beach, sand dunes and scrub | Stronger wind, visitors spend more |
+| Mountains | Hard | Rugged slopes, dense pines up to a bare treeline | Higher construction costs, strong seasons |
+| Desert | Very hard | Sparse scrub, sand wastes, a dry wash and oases | Highest green fees, higher turf upkeep and wear |
+
+The start screen also has a switch for the optional tutorial, which works in every region. Difficulty comes only from the existing regional modifiers in `src/progression.ts`; there is no irrigation, water budget or extra resource.
+
+## Bigger map and navigation
+
+The map is 240×160 tiles at the same tile scale. Terrain is drawn in 32-tile pages built on demand, with a flat overview when zoomed far out, so panning and zooming stay responsive. A **minimap** (tap or drag to move the view) and a **clubhouse** button return you to where you started. Saves record their own map size: older 120×80 saves load unchanged at their size, and chapter data in older saves (campaign stage, archived courses) is kept and ignored.
+
+## Building holes
+
+- Choose par 3, 4 or 5 before placing; it is kept when you move a tee or green.
+- Put the tee and green anywhere sensible. Only real overlaps with tees, greens, buildings or the map edge block a hole; odd spacing, crossing routes and bad lengths show a warning instead.
+- Add up to three bend points for doglegs. The preview shows the route, yardage per leg, total yardage and cost; **Build** lays the basic hole, which you reshape with the usual tools. Water and other hazards on the route are kept.
+- Each par shows a recommended length range rather than a hard limit.
+- Holes can cross water. Tees and greens need solid ground (islands work); the ball may fly over water. Paint **Cart path** across water to build a bridge deck automatically; golfers only walk on land and bridges. Opening a hole warns, in plain words, about a green nobody can walk to or a carry that is too long.
 
 ## Phone layout
 

@@ -1,8 +1,8 @@
-import { Experience, freshExperience, awardExperience, constructionFactor, archiveCourse } from './experience';
+import { Experience, freshExperience, awardExperience, constructionFactor } from './experience';
 import type { Feedback } from './feedback';
 import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
-import { CampaignState, freshCampaign, activeLocation, LOCATIONS, stageComplete } from './campaign';
+import { CampaignState, freshCampaign, GOALS } from './campaign';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -65,6 +65,8 @@ export interface NewGameOptions {
   region?: RegionId;
   name?: string;
   logo?: Logo;
+  /** false skips the optional tutorial. */
+  tutorial?: boolean;
 }
 
 export const STAFF = {
@@ -139,6 +141,7 @@ export class Game {
     this.region = this.world.region;
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
+    if (opts.tutorial === false) this.tutorial.done = true;
     this.rng = new Rng(seed);
     this.sim = new CourseSim(this.world, this.rng, {
       onRound: (r) => this.onRoundComplete(r),
@@ -220,40 +223,13 @@ export class Game {
     this.notify('info', this.designMode ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
   }
   claimObjective(id: string) {
-    const o = activeLocation(this).objectives.find(o => o.id === id);
+    const o = GOALS.find(o => o.id === id);
     if (!o || this.campaign.claimed.includes(id) || o.value(this) < o.target) return false;
     this.campaign.claimed.push(id); this.campaign.medals++;
-    this.earn('bonus', o.reward, `Restoration objective: ${o.title}`);
+    this.earn('bonus', o.reward, `Goal: ${o.title}`);
     awardExperience(this, 75, `${this.campaign.stage}:objective:${id}`);
     this.onFeedback('reward');
     this.notify('good', `${o.title}: ${fmtMoney(o.reward)} grant.`);
-    if (this.campaign.stage === LOCATIONS.length - 1 && stageComplete(this) && !this.campaign.completed.includes(activeLocation(this).id)) { this.campaign.completed.push(activeLocation(this).id); archiveCourse(this); }
-    return true;
-  }
-  travel() {
-    if (!stageComplete(this)) return false;
-    const old = activeLocation(this);
-    archiveCourse(this);
-    if (!this.campaign.completed.includes(old.id)) this.campaign.completed.push(old.id);
-    if (this.campaign.stage >= LOCATIONS.length - 1) { this.notify('good', 'All five courses complete. Keep building as you like.'); this.dirtySave = true; return false; }
-    this.owner.stop(this);
-    this.experience.site = { irrigation: false, terrace: false, garden: false }; this.experience.reserveUsed = false; this.pendingRecap = null;
-    this.campaign.stage++; this.campaign.claimed = []; this.campaign.rounds = 0; this.campaign.profit = 0; this.campaign.events = 0;
-    const next = activeLocation(this);
-    // The portfolio persists; the new property starts with its own budget and operating history.
-    // Every property starts as untouched land: the player chooses where the clubhouse goes.
-    this.world = createWilderness(newLandSeed(this.rng.next() * 1e9), next.region); this.region = next.region; this.name = next.name;
-    this.sim.world = this.world; this.sim.golfers = []; this.sim.queues.clear(); this.sim.tee.clear(); this.sim.fx = [];
-    this.cash = next.budget; this.day = 1; this.clock = 0; this.lastHour = 0;
-    this.upgrades = noUpgrades(); this.staff = { gardener: false, ranger: false, host: false }; this.members = [];
-    this.clubLevel = 0; this.fees = { early: 34, mid: 30, twilight: 20 };
-    this.today = emptyLedger(); this.days = []; this.log = []; this.recent = []; this.comments = []; this.undoStack = [];
-    this.bookings = []; this.activeEvent = null; this.lastEvent = null; this.lastAway = null; this.ownerRecords = [];
-    this.selectedHole = 0; this.selectedGolfer = 0; this.followGolfer = 0; this.landings = [];
-    const careerDone = new Set(this.goals.filter(g => g.done && MILESTONES.some(m => m.id === g.id)).map(g => g.id));
-    this.goals = [...CFG.goals, ...MILESTONES].map(g => ({ id: g.id, done: careerDone.has(g.id) }));
-    this.designMode = false; this.settings.speed = 1; this.applyRegion(); this.dirtySave = true;
-    this.notify('good', `${next.name}: budget ${fmtMoney(next.budget)}. Place the clubhouse to begin.`);
     return true;
   }
 
@@ -460,7 +436,7 @@ export class Game {
       this.activeEvent.rounds++;
       this.activeEvent.satSum += sc.total;
     }
-    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * (this.experience.site.terrace ? 1.15 : 1));
+    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (this.experience.site.terrace ? 1.15 : 1));
     this.stats.rounds++;
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
@@ -611,6 +587,15 @@ export class Game {
     this.dirtySave = true;
   }
 
+  /** Change a hole's par. It is the player's choice and edits to the layout keep it. */
+  setHolePar(id: number, par: number) {
+    const h = this.world.holes.find((x) => x.id === id);
+    if (!h || ![3, 4, 5].includes(par) || h.par === par) return;
+    h.par = par;
+    this.world.version++;
+    this.dirtySave = true;
+  }
+
   /** Send three free simulated golfers (beginner, regular, skilled) round one open hole. */
   sendTestGolfers(id: number): number {
     const h = this.world.holes.find((x) => x.id === id);
@@ -629,7 +614,7 @@ export class Game {
   /** Validation is a flood fill, so remember it until the ground or the hole's pins change. */
   validate(id: number): Validation {
     const h = this.hole(id);
-    const key = `${this.world.version}:${this.world.holes.length}:${h.tee.x},${h.tee.y},${h.cup.x},${h.cup.y}`;
+    const key = `${this.world.layout ?? 0}:${this.world.holes.length}:${h.tee.x},${h.tee.y},${h.cup.x},${h.cup.y}:${JSON.stringify(h.bends ?? h.bend)}:${h.par}`;
     const hit = this.validations.get(id);
     if (hit && hit.key === key) return hit.v;
     const v = validateHole(this.world, h);

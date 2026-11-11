@@ -1,6 +1,6 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
-import { makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
+import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
 import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
@@ -46,7 +46,7 @@ export interface Overlay {
   buildTee: Pt | null;
   buildLine: { from: Pt; to: Pt } | null;
   /** Pins an unbuilt tee/cup/dogleg/new-hole plan would move. */
-  ghost: { tee?: Pt; cup?: Pt; bend?: Pt; par: number } | null;
+  ghost: { tee?: Pt; cup?: Pt; bend?: Pt; bends?: Pt[]; /** whole route as tile corners, tee to cup */ route?: Pt[]; par: number; notes?: string[] } | null;
   /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
   club: { x: number; y: number; problem: string | null } | null;
   /** Where the tutorial suggests putting a tee and a green. */
@@ -55,8 +55,7 @@ export interface Overlay {
 
 export class Renderer {
   ctx: CanvasRenderingContext2D;
-  terr = document.createElement('canvas');
-  tctx2: CanvasRenderingContext2D; // composed terrain
+  tctx2: CanvasRenderingContext2D; // the page context the chunk compositor is currently drawing into
   cam = { x: 40 * TS, y: 26 * TS, zoom: 0.62 };
   cw = 800;
   ch = 600;
@@ -78,9 +77,7 @@ export class Renderer {
 
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
-    this.terr.width = CFG.grid.w * TS;
-    this.terr.height = CFG.grid.h * TS;
-    this.tctx2 = this.terr.getContext('2d')!;
+    this.tctx2 = this.pageFor(0, 0).ctx;
     for (let v = 0; v < TREE_VARIANTS; v++) {
       const big = makeTree(v);
       const small = document.createElement('canvas');
@@ -121,7 +118,7 @@ export class Renderer {
   }
   zoomAt(sx: number, sy: number, factor: number, w: World) {
     const before = this.toWorld(sx, sy);
-    this.cam.zoom = Math.max(.22, Math.min(2.6, this.cam.zoom * factor));
+    this.cam.zoom = Math.max(Renderer.MIN_ZOOM, Math.min(2.6, this.cam.zoom * factor));
     const after = this.toWorld(sx, sy);
     const delta = projectGround((before.x - after.x) * TS, (before.y - after.y) * TS);
     this.cam.x += delta.x; this.cam.y += delta.y;
@@ -140,7 +137,7 @@ export class Renderer {
   fit(w: World) {
     let right = 1, bottom = 1;
     w.parcels.forEach((owned, i) => { if (owned) { right = Math.max(right, (i % CFG.land.cols + 1) * CFG.land.pw); bottom = Math.max(bottom, (Math.floor(i / CFG.land.cols) + 1) * CFG.land.ph); } });
-    const zoom = Math.max(.22, Math.min((this.cw - this.insets.l - this.insets.r - 40) / ((right + bottom) * TS * ISO_X), (this.ch - this.insets.t - this.insets.b - 40) / ((right + bottom) * TS * ISO_Y)));
+    const zoom = Math.max(Renderer.MIN_ZOOM, Math.min((this.cw - this.insets.l - this.insets.r - 40) / ((right + bottom) * TS * ISO_X), (this.ch - this.insets.t - this.insets.b - 40) / ((right + bottom) * TS * ISO_Y)));
     this.focus(right / 2, bottom / 2, zoom, w);
   }
   private groundPolygon(x: number, y: number, width = 1, depth = 1) {
@@ -160,6 +157,9 @@ export class Renderer {
   // terrain resolution with a one-pixel anti-aliased edge. That gives crisp, smooth outlines and bands of
   // constant width (collars, lips, shorelines) instead of thresholded blur.
   private time = 0;
+  static readonly MIN_ZOOM = 0.12;
+  /** Milliseconds per frame the ground builder may spend on unbuilt chunks. */
+  frameBudget = 10;
   private prevTerrain: Uint8Array | null = null;
   private composeAt = 0;
   private needCompose = false;
@@ -172,10 +172,18 @@ export class Renderer {
       Object.assign(COL, REGIONS[w.region].palette);
       this.fields.clear();
       this.patterns.clear();
+      this.pages.clear();
+      this.queue.length = 0;
+      this.dirtyChunks.clear();
       this.buildWarp(w);
-      this.rebuildMasks(w);
-      this.allChunks(w);
-      this.compose(w);
+      this.fieldW = w.w * Renderer.R;
+      this.fieldH = w.h * Renderer.R;
+      for (const key of Object.keys(Renderer.FIELD_PRED)) this.fields.set(key, new Uint8Array(this.fieldW * this.fieldH));
+      const n = Math.ceil(w.w / Renderer.CH) * Math.ceil(w.h / Renderer.CH);
+      this.fieldReady = new Uint8Array(n);
+      this.built = new Uint8Array(n);
+      this.buildColorMaps(w);
+      this.buildDecor(w);
       this.prevTerrain = Uint8Array.from(w.terrain);
       w.dirty.clear();
       return;
@@ -200,7 +208,8 @@ export class Renderer {
         this.markChunk(w, i);
       }
       if (typeChanged) {
-        this.rebuildMasks(w, region, keys);
+        this.invalidateFields(w, region);
+        this.buildDecor(w);
         this.prevTerrain = Uint8Array.from(w.terrain);
       }
       w.dirty.clear();
@@ -250,8 +259,8 @@ export class Renderer {
     const seed = w.landSeed;
     const lit = (c: RGB, x: number, y: number, k: number): RGB => {
       if (!seed) return c;
-      const r = reliefAt(seed, x, y);
-      const slope = reliefAt(seed, x - 1, y) - reliefAt(seed, x + 1, y) + reliefAt(seed, x, y - 1) - reliefAt(seed, x, y + 1);
+      const r = reliefAt(seed, x, y, w);
+      const slope = reliefAt(seed, x - 1, y, w) - reliefAt(seed, x + 1, y, w) + reliefAt(seed, x, y - 1, w) - reliefAt(seed, x, y + 1, w);
       const j = ((r - 0.5) * 46 + slope * 120) * k;
       return [c[0] + j * 1.05, c[1] + j * 0.9, c[2] + j * 0.45 - (0.5 - r) * 14 * k];
     };
@@ -341,6 +350,7 @@ export class Renderer {
     tee: [0.3, 0.3],
     bunker: [0.66, 0.3],
     water: [0.7, 0.3],
+    bridge: [0.3, 0.3],
     path: [0.36, 0.3],
   };
   private static readonly SHRINK = 0.09;
@@ -365,15 +375,16 @@ export class Renderer {
     green: (t) => t === T.GREEN,
     tee: (t) => t === T.TEE,
     bunker: (t) => t === T.BUNKER,
-    water: (t) => t === T.WATER,
+    water: (t) => t === T.WATER || t === T.BRIDGE, // the water runs on beneath a bridge
+    bridge: (t) => t === T.BRIDGE,
     path: (t) => t === T.PATH || t === T.BUILDING,
   };
   /** How far each surface's contour may wander, in tiles. Tees and paving stay geometric. */
-  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, path: 0 };
+  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, bridge: 0, path: 0 };
 
   /** Which distance fields a terrain type feeds. */
   private static fieldsFor(t: number): string[] {
-    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : t === T.PATH || t === T.BUILDING ? ['path'] : [];
+    return t === T.FAIRWAY ? ['grass'] : t === T.GREEN ? ['grass', 'green'] : t === T.TEE ? ['grass', 'tee'] : t === T.BUNKER ? ['bunker'] : t === T.WATER ? ['water'] : t === T.BRIDGE ? ['bridge', 'water'] : t === T.PATH || t === T.BUILDING ? ['path'] : [];
   }
 
   /** Coverage -> signed distance for a straight edge blurred by `sigma`: d = sigma * probit(coverage). */
@@ -547,11 +558,41 @@ export class Renderer {
     }
   }
 
-  private rebuildMasks(w: World, region?: { x0: number; y0: number; x1: number; y1: number }, keys?: Set<string>) {
-    this.fieldW = w.w * Renderer.R;
-    this.fieldH = w.h * Renderer.R;
-    for (const key of Object.keys(Renderer.FIELD_PRED)) if (!keys || keys.has(key)) this.updateField(w, key, region);
-    this.buildDecor(w);
+  /** Fields are computed per chunk, on demand. An edit only has to mark the chunks it can reach as stale. */
+  private fieldReady = new Uint8Array(0);
+  private built = new Uint8Array(0);
+  private queue: number[] = [];
+  private chunksX(w: World) {
+    return Math.ceil(w.w / Renderer.CH);
+  }
+  private invalidateFields(w: World, region: { x0: number; y0: number; x1: number; y1: number }) {
+    const C = Renderer.CH;
+    const cx0 = Math.max(0, Math.floor((region.x0 - 5) / C));
+    const cy0 = Math.max(0, Math.floor((region.y0 - 5) / C));
+    const cx1 = Math.min(this.chunksX(w) - 1, Math.floor((region.x1 + 5) / C));
+    const cy1 = Math.min(Math.ceil(w.h / C) - 1, Math.floor((region.y1 + 5) / C));
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) this.fieldReady[cy * this.chunksX(w) + cx] = 0;
+  }
+  /** Distance fields for one chunk (plus margin). Surfaces that are nowhere near are zero-filled instead of blurred. */
+  private ensureFields(w: World, cx: number, cy: number) {
+    const C = Renderer.CH;
+    const ci = cy * this.chunksX(w) + cx;
+    if (this.fieldReady[ci]) return;
+    const region = { x0: cx * C, y0: cy * C, x1: Math.min(w.w, (cx + 1) * C), y1: Math.min(w.h, (cy + 1) * C) };
+    const reach = { x0: Math.max(0, region.x0 - 5), y0: Math.max(0, region.y0 - 5), x1: Math.min(w.w, region.x1 + 5), y1: Math.min(w.h, region.y1 + 5) };
+    const R = Renderer.R;
+    for (const key of Object.keys(Renderer.FIELD_PRED)) {
+      const pred = Renderer.FIELD_PRED[key];
+      let near = false;
+      for (let y = reach.y0; y < reach.y1 && !near; y++) for (let x = reach.x0; x < reach.x1; x++) if (pred(w.terrain[y * w.w + x])) { near = true; break; }
+      if (near) this.updateField(w, key, region);
+      else {
+        const f = this.fields.get(key)!;
+        const c = { x0: Math.max(0, region.x0 - 2), y0: Math.max(0, region.y0 - 2), x1: Math.min(w.w, region.x1 + 2), y1: Math.min(w.h, region.y1 + 2) };
+        for (let fy = c.y0 * R; fy < c.y1 * R; fy++) f.fill(0, fy * this.fieldW + c.x0 * R, fy * this.fieldW + c.x1 * R);
+      }
+    }
+    this.fieldReady[ci] = 1;
   }
 
   /** Scatter shrubs, rocks, flower patches and shore reeds. Placement depends only on terrain and hashes, so it is stable. */
@@ -589,6 +630,46 @@ export class Renderer {
   }
 
   private dirtyChunks = new Set<number>();
+  // The composed ground lives in fixed-size pages instead of one map-sized canvas: a 240x160 map would be
+  // 7680x5120 px, past what phones allow. Each page's context is translated so chunk code keeps using
+  // whole-map terrain pixel coordinates. Only pages near the screen stay resident (MAX_PAGES), and a page is
+  // filled chunk by chunk, nearest the screen centre first, so nothing stalls a frame.
+  private static readonly PAGE = 32; // tiles per page side
+  private static readonly MAX_PAGES = 14;
+  private pages = new Map<number, { cv: HTMLCanvasElement; ctx: CanvasRenderingContext2D; used: number }>();
+  private frameNo = 0;
+  private pageFor(px: number, py: number) {
+    const key = py * 1000 + px;
+    let pg = this.pages.get(key);
+    if (!pg) {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = Renderer.PAGE * TS;
+      const ctx = cv.getContext('2d')!;
+      ctx.translate(-px * Renderer.PAGE * TS, -py * Renderer.PAGE * TS);
+      pg = { cv, ctx, used: this.frameNo };
+      this.pages.set(key, pg);
+    }
+    return pg;
+  }
+  private pageOfChunk(cx: number, cy: number) {
+    const per = Renderer.PAGE / Renderer.CH;
+    return { px: Math.floor(cx / per), py: Math.floor(cy / per) };
+  }
+  /** Drop the pages furthest from the screen once too many are resident. */
+  private evictPages(w: World, visible: Set<number>) {
+    if (this.pages.size <= Renderer.MAX_PAGES) return;
+    const per = Renderer.PAGE / Renderer.CH;
+    const cx = this.chunksX(w);
+    const old = [...this.pages.entries()].filter(([k]) => !visible.has(k)).sort((a, b) => a[1].used - b[1].used);
+    for (const [key, pg] of old) {
+      if (this.pages.size <= Renderer.MAX_PAGES) break;
+      pg.cv.width = pg.cv.height = 0;
+      this.pages.delete(key);
+      const px = key % 1000;
+      const py = Math.floor(key / 1000);
+      for (let y = py * per; y < (py + 1) * per && y * Renderer.CH < w.h; y++) for (let x = px * per; x < (px + 1) * per && x * Renderer.CH < w.w; x++) this.built[y * cx + x] = 0;
+    }
+  }
   allChunks(w: World) {
     for (let cy = 0; cy * Renderer.CH < w.h; cy++) for (let cx = 0; cx * Renderer.CH < w.w; cx++) this.dirtyChunks.add(cy * 1000 + cx);
   }
@@ -603,9 +684,114 @@ export class Renderer {
     }
   }
 
+  /** Pages the screen can see, as keys. */
+  private visiblePages(w: World): number[] {
+    const P = Renderer.PAGE;
+    const corners = [[0, 0], [this.cw, 0], [0, this.ch], [this.cw, this.ch]].map(([x, y]) => this.toWorld(x, y));
+    const px0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)) / P));
+    const py0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)) / P));
+    const px1 = Math.min(Math.ceil(w.w / P) - 1, Math.floor(Math.max(...corners.map((p) => p.x)) / P));
+    const py1 = Math.min(Math.ceil(w.h / P) - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / P));
+    const out: number[] = [];
+    for (let py = py0; py <= py1; py++) for (let px = px0; px <= px1; px++) out.push(py * 1000 + px);
+    return out;
+  }
+
+  /** Queue the unbuilt chunks of visible pages, then build the ones nearest the screen centre within a time budget. */
+  private pumpChunks(w: World, visible: number[], budgetMs: number) {
+    this.frameNo++;
+    const per = Renderer.PAGE / Renderer.CH;
+    const cxN = this.chunksX(w);
+    const vis = new Set(visible);
+    for (const key of visible) {
+      const px = key % 1000;
+      const py = Math.floor(key / 1000);
+      this.pageFor(px, py).used = this.frameNo;
+      for (let cy = py * per; cy < (py + 1) * per && cy * Renderer.CH < w.h; cy++)
+        for (let cx = px * per; cx < (px + 1) * per && cx * Renderer.CH < w.w; cx++) {
+          const ci = cy * cxN + cx;
+          if (!this.built[ci] && !this.queue.includes(ci)) this.queue.push(ci);
+        }
+    }
+    this.evictPages(w, vis);
+    if (!this.queue.length) return;
+    const c = this.toWorld(this.cw / 2, this.ch / 2);
+    const mid = (ci: number) => Math.hypot(((ci % cxN) + 0.5) * Renderer.CH - c.x, (Math.floor(ci / cxN) + 0.5) * Renderer.CH - c.y);
+    const t0 = performance.now();
+    let did = false;
+    while (this.queue.length && (performance.now() - t0 < budgetMs || !did)) {
+      let bi = 0;
+      for (let k = 1; k < this.queue.length; k++) if (mid(this.queue[k]) < mid(this.queue[bi])) bi = k;
+      const ci = this.queue.splice(bi, 1)[0];
+      const cx = ci % cxN;
+      const cy = Math.floor(ci / cxN);
+      const pg = this.pageOfChunk(cx, cy);
+      if (!vis.has(pg.py * 1000 + pg.px)) continue;
+      did = true;
+      this.ensureFields(w, cx, cy);
+      this.composeChunk(w, cx, cy);
+      this.built[ci] = 1;
+    }
+  }
+
+  /** Draw the ground pages that touch the screen, in the already-projected transform. */
+  private drawPages(visible: number[]) {
+    const P = Renderer.PAGE;
+    for (const key of visible) {
+      const px = key % 1000;
+      const py = Math.floor(key / 1000);
+      this.ctx.drawImage(this.pageFor(px, py).cv, px * P * TS, py * P * TS);
+    }
+  }
+
+  // Zoomed far out, individual surfaces are too small to read: one flat-colour tile map stands in for the
+  // detailed ground, and trees and props are skipped. It is one pixel per tile, rebuilt when the world changes.
+  private static readonly OVERVIEW_ZOOM = 0.42;
+  private ovCv = document.createElement('canvas');
+  private ovVersion = -1;
+  private ovFor: World | null = null;
+  private ovAt = 0;
+  private drawOverview(w: World) {
+    const now = performance.now();
+    if (this.ovFor !== w || (this.ovVersion !== w.version && now - this.ovAt > 400)) {
+      this.ovFor = w;
+      this.ovVersion = w.version;
+      this.ovAt = now;
+      if (this.ovCv.width !== w.w) { this.ovCv.width = w.w; this.ovCv.height = w.h; }
+      const c = this.ovCv.getContext('2d')!;
+      const img = c.createImageData(w.w, w.h);
+      const pal: RGB[] = [COL.roughGood, COL.fairGood, COL.greenGood, COL.teeGood, COL.sand, COL.water, COL.path, [150, 138, 112], [150, 112, 72]];
+      const canopy: RGB = [42, 92, 56];
+      for (let i = 0; i < w.terrain.length; i++) {
+        let col = pal[w.terrain[i]] ?? COL.roughGood;
+        if (w.tree[i]) col = mix(col, canopy, 0.78);
+        else if (w.terrain[i] === T.ROUGH) col = mix(col, COL.roughBad, 0.25 * (1 - Math.min(1, w.cond[i] / 70)));
+        img.data[i * 4] = col[0];
+        img.data[i * 4 + 1] = col[1];
+        img.data[i * 4 + 2] = col[2];
+        img.data[i * 4 + 3] = 255;
+      }
+      c.putImageData(img, 0, 0);
+    }
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'medium';
+    this.ctx.drawImage(this.ovCv, 0, 0, w.w * TS, w.h * TS);
+  }
+
+  /** Compose the chunks an edit touched. Chunks on pages that are not resident are simply marked unbuilt. */
   compose(w: World) {
+    const cxN = this.chunksX(w);
+    const per = Renderer.PAGE / Renderer.CH;
     this.buildColorMaps(w);
-    for (const key of this.dirtyChunks) this.composeChunk(w, key % 1000, Math.floor(key / 1000));
+    for (const key of this.dirtyChunks) {
+      const cx = key % 1000;
+      const cy = Math.floor(key / 1000);
+      const ci = cy * cxN + cx;
+      if (this.pages.has(Math.floor(cy / per) * 1000 + Math.floor(cx / per)) && this.built[ci]) {
+        this.ensureFields(w, cx, cy);
+        this.composeChunk(w, cx, cy);
+      } else this.built[ci] = 0;
+    }
     this.dirtyChunks.clear();
   }
 
@@ -739,6 +925,7 @@ export class Renderer {
     const Y = ty0 * TS;
     const CW = (tx1 - tx0) * TS;
     const CHH = (ty1 - ty0) * TS;
+    this.tctx2 = this.pageFor(Math.floor(tx0 / Renderer.PAGE), Math.floor(ty0 / Renderer.PAGE)).ctx;
     const t = this.tctx2;
     if (this.layerCv.width !== CW || this.layerCv.height !== CHH) {
       this.layerCv.width = this.maskCv.width = CW;
@@ -902,6 +1089,15 @@ export class Renderer {
       fillStamp(path, inside, pat(this.pattern(t, 'paving', () => makePavingTexture(COL.path))));
       flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
       flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
+    }
+
+    // ---- bridges: a plank deck over the water with a shadow below and a rail along each edge
+    const bridge = dist('bridge');
+    if (bridge) {
+      flatStamp(bridge, falloff(0.1), [10, 30, 44], 0.45);
+      fillStamp(bridge, inside, pat(this.pattern(t, 'deck', () => makeDeckTexture())));
+      flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
+      flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }
   }
 
@@ -1073,7 +1269,16 @@ export class Renderer {
     // magnified ground uses cubic filtering so anti-aliased contours stay smooth instead of showing the pixel grid
     ctx.imageSmoothingQuality = 'low';
     // Only the ground is projected. Trees, people, roofs and signs stay upright.
-    ctx.save(); ctx.transform(ISO_X * z, ISO_Y * z, -ISO_X * z, ISO_Y * z, o.x, o.y); ctx.drawImage(this.terr, 0, 0); ctx.restore();
+    const far = z < Renderer.OVERVIEW_ZOOM;
+    ctx.save();
+    ctx.transform(ISO_X * z, ISO_Y * z, -ISO_X * z, ISO_Y * z, o.x, o.y);
+    if (far) this.drawOverview(w);
+    else {
+      const visible = this.visiblePages(w);
+      this.pumpChunks(w, visible, this.frameBudget);
+      this.drawPages(visible);
+    }
+    ctx.restore();
     ctx.imageSmoothingQuality = 'low';
     const ts = this.ts;
     const corners = [[0,0],[this.cw,0],[0,this.ch],[this.cw,this.ch]].map(([x,y]) => this.toWorld(x,y));
@@ -1085,7 +1290,7 @@ export class Renderer {
     // restrained water glints: one pre-rendered sprite, slowly twinkling
     const gw = Math.max(8, ts * 0.9);
     const gh = gw * 0.3;
-    for (let y = y0; y <= y1; y++)
+    if (!far) for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         if (w.terrain[y * w.w + x] !== T.WATER || hash2(x, y, 300) > 0.4) continue;
         const ph = Math.sin(time * 0.7 + hash2(x, y, 301) * 40);
@@ -1123,7 +1328,7 @@ export class Renderer {
           { y: club.y + 17, draw: () => this.drawStructures(game, time) },
         ]
       : [];
-    for (let y = y0; y <= y1; y++)
+    if (!far) for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * w.w + x;
         if (!w.tree[i]) continue;
@@ -1131,11 +1336,11 @@ export class Renderer {
         const variant = this.treeVariant(game, x, y, i, hh);
         items.push({ y: x + y + 1, draw: () => this.drawTree(x, y, variant, hh) });
       }
-    for (const d of this.decor) {
+    if (!far) for (const d of this.decor) {
       if (d.x < x0 || d.x > x1 + 1 || d.y < y0 || d.y > y1 + 1 || w.tree[d.i]) continue;
       items.push({ y: d.x + d.y, draw: () => this.drawDecor(d) });
     }
-    this.teeFurniture(game, items);
+    if (!far) this.teeFurniture(game, items);
     for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
@@ -1278,7 +1483,8 @@ export class Renderer {
     for (let k = 0; k < wts.length; k++) if ((r -= wts[k]) <= 0) { v = k; break; }
     if (v === 0 && game.region !== 'desert') {
       const hh = hash2(x, y, 402);
-      const club = Math.hypot(x - 8, y - 43);
+      const cl = w.clubhouse;
+      const club = cl ? Math.hypot(x - cl.x - 3, y - cl.y - 2) : 99;
       let nearTee = 99;
       for (const h of w.holes) nearTee = Math.min(nearTee, Math.hypot(x - h.tee.x, y - h.tee.y));
       if ((club < 14 || nearTee < 5) && hh > 0.62) v = 7; // ornamental blossom framing the clubhouse and tees
@@ -1308,6 +1514,11 @@ export class Renderer {
     return v;
   }
 
+  private shaded(x: number, y: number): boolean {
+    const w = this.builtFor;
+    if (!w) return false;
+    return x + 1 < w.w && y + 1 < w.h && w.tree[(y + 1) * w.w + x + 1] === 1 && w.tree[y * w.w + x + 1] === 1;
+  }
   private drawTree(x: number, y: number, v: number, hh: number) {
     const ctx = this.ctx;
     const ts = this.ts;
@@ -1317,12 +1528,14 @@ export class Renderer {
     // sun is upper left: the cast shadow stretches toward the lower right, with a tight contact shadow at the trunk
     const reach = v === 2 ? 1.05 : v === 6 ? 0.5 : 0.85;
     const k = s * reach;
-    ctx.drawImage(this.treeShadow, p.x - SHADOW_AX * k, p.y - SHADOW_AY * k, SHADOW_W * k, SHADOW_H * k);
+    // In a dense stand a neighbour's canopy to the lower right already covers this shadow: skip it when zoomed out
+    if (ts >= 22 || !this.shaded(x, y)) ctx.drawImage(this.treeShadow, p.x - SHADOW_AX * k, p.y - SHADOW_AY * k, SHADOW_W * k, SHADOW_H * k);
     const small = size * this.dpr < 80;
     const spr = small ? this.treesSmall[v] : this.trees[v];
     const h = size * (TREE_H / TREE_W);
     const baseY = h * TREE_BASE;
-    if (v === 3) {
+    // Swaying costs a save/rotate/restore per tree, so it is only worth it when trees are big enough to see it
+    if (v === 3 || ts < 26) {
       ctx.drawImage(spr, p.x - size / 2, p.y - baseY, size, h);
       return;
     }
@@ -1811,12 +2024,10 @@ export class Renderer {
     ctx.fillRect(0, 0, this.cw, this.ch);
   }
 
-  /** Yardage chips along a tee-bend-cup route: one per leg when it doglegs, plus par and total at the green. */
+  /** Yardage chips along a route: one per leg when it turns, plus par and the total length at the green. */
   private drawYardage(route: Pt[], par: number, ghost = false) {
     const ctx = this.ctx;
     const yd = (a: Pt, b: Pt) => Math.round(Math.hypot(b.x - a.x, b.y - a.y) * CFG.grid.yardsPerTile);
-    const [tee, bend, cup] = route;
-    const lineDev = Math.abs((cup.x - tee.x) * (tee.y - bend.y) - (tee.x - bend.x) * (cup.y - tee.y)) / (Math.hypot(cup.x - tee.x, cup.y - tee.y) || 1);
     const chip = (text: string, wx: number, wy: number, lift: number) => {
       const s = this.toScreen(wx, wy);
       ctx.font = '700 11px system-ui, sans-serif';
@@ -1834,12 +2045,16 @@ export class Renderer {
       ctx.fillText(text, s.x, s.y - lift + 0.5);
       ctx.textAlign = 'left';
     };
-    if (lineDev > 1.5) {
-      chip(`${yd(tee, bend)} y`, (tee.x + bend.x) / 2, (tee.y + bend.y) / 2, 4);
-      chip(`${yd(bend, cup)} y`, (bend.x + cup.x) / 2, (bend.y + cup.y) / 2, 4);
-    }
-    const total = Math.round((Math.hypot(bend.x - tee.x, bend.y - tee.y) + Math.hypot(cup.x - bend.x, cup.y - bend.y)) * CFG.grid.yardsPerTile);
-    chip(`Par ${par} · ${total} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, lineDev > 1.5 ? 4 : 4);
+    const tee = route[0];
+    const cup = route[route.length - 1];
+    const dev = (p: Pt) => Math.abs((cup.x - tee.x) * (tee.y - p.y) - (tee.x - p.x) * (cup.y - tee.y)) / (Math.hypot(cup.x - tee.x, cup.y - tee.y) || 1);
+    const turns = route.length > 2 && route.slice(1, -1).some((p) => dev(p) > 1.5);
+    if (turns) for (let k = 0; k + 1 < route.length; k++) chip(`${yd(route[k], route[k + 1])} y`, (route[k].x + route[k + 1].x) / 2, (route[k].y + route[k + 1].y) / 2, 4);
+    let total = 0;
+    for (let k = 0; k + 1 < route.length; k++) total += Math.hypot(route[k + 1].x - route[k].x, route[k + 1].y - route[k].y);
+    // a straight hole wears its total at the middle; one with turns wears it above the green so it never sits on a leg chip
+    if (turns) chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, cup.x, cup.y, 36);
+    else chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, 4);
   }
 
   private drawOverlay(game: Game, ov: Overlay, time: number) {
@@ -1940,45 +2155,6 @@ export class Renderer {
       mk(center(h.tee), 'T', '#2d6ccb');
       mk(center(h.cup), String(h.id), '#c2552d');
       this.drawYardage(holePath(h), h.par);
-      if (ov.ghost) {
-        const g = ov.ghost;
-        const route = [center(g.tee ?? h.tee), center(g.bend ?? h.bend), center(g.cup ?? h.cup)];
-        const pts2 = route.map((p) => this.toScreen(p.x, p.y));
-        ctx.setLineDash([3, 6]);
-        ctx.strokeStyle = '#ffe27a';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        pts2.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.lineCap = 'butt';
-        const pin = (p: Pt | undefined, label: string) => {
-          if (!p) return;
-          const s = this.toScreen(p.x + 0.5, p.y + 0.5);
-          ctx.fillStyle = '#ffe27a';
-          ctx.strokeStyle = '#3a2d0c';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y - ts * 1.9, 11, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(s.x, s.y - ts * 1.9 + 11);
-          ctx.lineTo(s.x, s.y);
-          ctx.stroke();
-          ctx.fillStyle = '#2a2110';
-          ctx.font = '800 11px system-ui, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
-          ctx.textAlign = 'left';
-        };
-        pin(g.tee, 'T');
-        pin(g.cup, 'G');
-        pin(g.bend, '◆');
-        this.drawYardage(route, g.par, true);
-      }
       if (!h.open) {
         const v = game.validate(h.id);
         if (v.breakAt) {
@@ -1992,11 +2168,57 @@ export class Renderer {
           ctx.fillStyle = '#ff5a40';
           ctx.font = '700 11px system-ui, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText('fairway breaks here', s.x, s.y - ts * 1.6);
+          ctx.fillText(v.issues[0]?.fix === 'path' ? 'needs a bridge' : 'fairway breaks here', s.x, s.y - ts * 1.6);
           ctx.textAlign = 'left';
         }
       }
     }
+    this.drawGhost(ov, h);
+  }
+
+  /** The unbuilt tee, green and turning points a pending hole plan would create, with its route and length. */
+  private drawGhost(ov: Overlay, h?: { tee: Pt; cup: Pt; bend: Pt }) {
+    const g = ov.ghost;
+    if (!g) return;
+    const ctx = this.ctx;
+    const ts = this.ts;
+    const route = g.route ? g.route.map(center) : h ? [center(g.tee ?? h.tee), center(g.bend ?? h.bend), center(g.cup ?? h.cup)] : [];
+    if (route.length < 2) return;
+    const pts2 = route.map((p) => this.toScreen(p.x, p.y));
+    ctx.setLineDash([3, 6]);
+    ctx.strokeStyle = '#ffe27a';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    pts2.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
+    const pin = (p: Pt | undefined, label: string) => {
+      if (!p) return;
+      const s = this.toScreen(p.x + 0.5, p.y + 0.5);
+      ctx.fillStyle = '#ffe27a';
+      ctx.strokeStyle = '#3a2d0c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - ts * 1.9, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y - ts * 1.9 + 11);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      ctx.fillStyle = '#2a2110';
+      ctx.font = '800 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, s.x, s.y - ts * 1.9 + 0.5);
+      ctx.textAlign = 'left';
+    };
+    pin(g.tee, 'T');
+    pin(g.cup, 'G');
+    (g.bends ?? (g.bend ? [g.bend] : [])).forEach((b, k) => pin(b, String(k + 1)));
+    this.drawYardage(route, g.par, true);
   }
 }
 

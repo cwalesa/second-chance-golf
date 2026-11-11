@@ -1,4 +1,5 @@
 import { Game } from './game';
+import { CFG } from './config';
 import { World, computeZones } from './terrain';
 import { createWilderness } from './wilderness';
 import { Rng } from './rng';
@@ -36,6 +37,8 @@ export function serialize(g: Game): string {
       clubhouse: w.clubhouse,
       gate: w.gate,
       landSeed: w.landSeed,
+      w: w.w,
+      h: w.h,
     },
     cash: g.cash,
     cartFee: g.cartFee,
@@ -69,12 +72,15 @@ export function deserialize(text: string): LoadedSave | null {
     if (d.v !== VERSION || !REGIONS[d.region as keyof typeof REGIONS]) return null;
     if (!Number.isFinite(d.cash) || !Number.isInteger(d.day) || d.day < 1 || !Number.isFinite(d.clock) || d.clock < 0 || !Number.isFinite(d.total) || d.total < 0) return null;
     if (!d.world || typeof d.world.terrain !== 'string' || typeof d.world.tree !== 'string' || !Array.isArray(d.world.cond) || !Array.isArray(d.world.parcels)) return null;
-    if (!/^[0-7]+$/.test(d.world.terrain) || !/^[01]+$/.test(d.world.tree) || d.world.cond.some((v: number) => !Number.isFinite(v) || v < 0 || v > 100)) return null;
+    if (!/^[0-8]+$/.test(d.world.terrain) || !/^[01]+$/.test(d.world.tree) || d.world.cond.some((v: number) => !Number.isFinite(v) || v < 0 || v > 100)) return null;
     if (!Array.isArray(d.days) || !Array.isArray(d.log) || !Array.isArray(d.recent) || !d.today) return null;
-    if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || d.campaign.stage > 4 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
+    if (d.campaign && (!Number.isInteger(d.campaign.stage) || d.campaign.stage < 0 || !Array.isArray(d.campaign.claimed) || !Array.isArray(d.campaign.completed))) return null;
     if (d.experience && (!Number.isFinite(d.experience.xp) || d.experience.xp < 0 || !Array.isArray(d.experience.earned) || !Array.isArray(d.experience.archives))) return null;
     if (!d.world.gate || !Number.isInteger(d.world.landSeed) || d.world.landSeed < 1) return null; // saves from before the blank-canvas start have no land to rebuild
-    const base = createWilderness(d.world.landSeed, d.region);
+    // Maps used to be 120x80. Saves that predate the bigger map carry no size, so infer it from their length and keep playing them at that size.
+    const dims = Number.isInteger(d.world.w) && Number.isInteger(d.world.h) ? { w: d.world.w, h: d.world.h } : d.world.terrain.length === 9600 ? { w: 120, h: 80 } : { w: CFG.grid.w, h: CFG.grid.h };
+    if (dims.w < 20 || dims.h < 20 || dims.w > 1000 || dims.h > 1000 || dims.w * dims.h !== d.world.terrain.length) return null;
+    const base = createWilderness(d.world.landSeed, d.region, dims);
     const n = base.terrain.length;
     if (d.world.terrain.length !== n || d.world.tree.length !== n || d.world.cond.length !== n || d.world.parcels.length !== base.parcels.length) return null;
     const world: World = { ...base, terrain: new Uint8Array(n), tree: new Uint8Array(n), cond: new Float32Array(n), holes: d.world.holes, zone: new Uint8Array(n), parcels: Uint8Array.from(d.world.parcels) };
@@ -94,7 +100,7 @@ export function deserialize(text: string): LoadedSave | null {
     for (const h of world.holes) {
       if (!Number.isInteger(h.id) || h.id < 1 || h.id > 255 || seen.has(h.id) || typeof h.name !== 'string' || ![3, 4, 5].includes(h.par)) return null;
       seen.add(h.id);
-      for (const p of [h.tee, h.cup, h.bend]) if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x >= base.w || p.y >= base.h) return null;
+      for (const p of [h.tee, h.cup, h.bend, ...(Array.isArray(h.bends) ? h.bends : [])]) if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x >= base.w || p.y >= base.h) return null;
     }
     computeZones(world);
     world.version = 2;

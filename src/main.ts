@@ -101,7 +101,7 @@ async function boot() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     studio.update(dt);
-    const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.introOpen || document.hidden || !game.world.clubhouse ? 0 : game.settings.speed;
+    const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.menuOpen || ui.introOpen || document.hidden || !game.world.clubhouse ? 0 : game.settings.speed;
     acc += dt * speed;
     let steps = 0;
     while (acc >= STEP && steps < CFG.sim.maxStepsPerFrame) {

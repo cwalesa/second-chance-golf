@@ -22,15 +22,24 @@ export interface Land {
   /** 0 = valley floor, 1 = ridge top, one value per tile. */
   relief: Float32Array;
 }
-const lands = new Map<number, Land>();
+const lands = new Map<string, Land>();
+export interface Dims {
+  w: number;
+  h: number;
+}
 
 const nearestCreek = (creek: Pt[], x: number, y: number) => polyDist(x, y, creek).d;
 
+/** How much the ground rises and falls: mountains are rugged, prairie and coast are gentle. */
+const RELIEF_GAIN: Record<RegionId, number> = { parkland: 1, coast: 0.7, mountain: 1.6, plains: 0.5, desert: 0.9 };
+
 /** The land for a seed: a creek crossing the map, ponds in hollows, and a smooth height field with valleys carved around them. */
-export function landOf(seed: number): Land {
-  const hit = lands.get(seed);
+export function landOf(seed: number, dims: Dims & { region?: RegionId } = CFG.grid): Land {
+  const gain = RELIEF_GAIN[dims.region ?? 'parkland'];
+  const key = `${seed}:${dims.w}x${dims.h}:${gain}`;
+  const hit = lands.get(key);
   if (hit) return hit;
-  const { w, h } = CFG.grid;
+  const { w, h } = dims;
   const s = seed | 0;
   const creek: Pt[] = [];
   const base = h * (0.3 + 0.4 * hash2(s, 1, 5));
@@ -57,29 +66,29 @@ export function landOf(seed: number): Land {
       const d = nearestCreek(creek, x + 0.5, y + 0.5);
       v -= 0.34 * Math.exp(-Math.pow(d / 9, 2));
       for (const p of ponds) v -= 0.3 * Math.exp(-Math.pow(Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) / (p.r * 2.1), 2));
-      relief[y * w + x] = clamp(v * 1.35 + 0.1);
+      relief[y * w + x] = clamp((clamp(v * 1.35 + 0.1) - 0.5) * gain + 0.5);
     }
   const land = { creek, ponds, relief };
-  lands.set(seed, land);
+  lands.set(key, land);
   return land;
 }
 
 /** Height at a tile, 0 (valley floor) to 1 (ridge). Returns 0.5 for the classic course, which has no relief. */
-export function reliefAt(seed: number, x: number, y: number): number {
+export function reliefAt(seed: number, x: number, y: number, dims: Dims & { region?: RegionId } = CFG.grid): number {
   if (!seed) return 0.5;
-  const { w, h } = CFG.grid;
-  return landOf(seed).relief[clamp(Math.floor(y), 0, h - 1) * w + clamp(Math.floor(x), 0, w - 1)];
+  const { w, h } = dims;
+  return landOf(seed, dims).relief[clamp(Math.floor(y), 0, h - 1) * w + clamp(Math.floor(x), 0, w - 1)];
 }
 
 /** A random-looking but repeatable land seed. */
 export const newLandSeed = (n: number) => 1 + (Math.floor(Math.abs(n)) % 99991);
 
 /** Untouched wilderness: no holes, no clubhouse, every tile ready to build on. */
-export function createWilderness(landSeed: number, region: RegionId = 'parkland'): World {
-  const { w, h } = CFG.grid;
+export function createWilderness(landSeed: number, region: RegionId = 'parkland', dims: Dims = CFG.grid): World {
+  const { w, h } = dims;
   const n = w * h;
   const s = landSeed;
-  const land = landOf(s);
+  const land = landOf(s, { ...dims, region });
   const world: World = {
     w,
     h,
@@ -96,30 +105,70 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
     gate: { x: 0.5, y: h / 2 + 0.5 },
     landSeed: s,
   };
+  // Coast: the sea fills the top or bottom edge (never the sides, so the entrance road always has land to leave by).
+  const seaTop = hash2(s, 90, 3) < 0.5;
+  const seaDepth = (x: number) => 18 + 12 * vnoise(x / 22, 4, s + 91) + 4 * vnoise(x / 6, 9, s + 92);
+  const seaDist = (x: number, y: number) => (seaTop ? y + 0.5 : h - y - 0.5) - seaDepth(x);
+  const desert = region === 'desert';
+  const reg = REGIONS[region];
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const relief = land.relief[i];
       const d = nearestCreek(land.creek, x + 0.5, y + 0.5);
       const wob = (vnoise(x / 2.5, y / 2.5, s + 40) - 0.5) * 1.1;
-      let wet = d < 1.15 + wob * 0.8;
-      for (const p of land.ponds) if (Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) < p.r * (1 + wob * 0.55)) wet = true;
+      // the desert creek is a dry wash; its ponds become oases
+      let wet = !desert && d < 1.15 + wob * 0.8;
+      for (const p of land.ponds) if (Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) < p.r * (desert ? 1.35 : 1) * (1 + wob * 0.55)) wet = true;
+      const sea = region === 'coast' ? seaDist(x, y) : 99;
+      if (sea < wob * 1.2) wet = true;
       if (wet) {
         world.terrain[i] = T.WATER;
         world.cond[i] = 100;
         continue;
       }
+      const shore = Math.min(desert ? 99 : d - 1.2, sea - 0.5, ...land.ponds.map((q) => Math.hypot(x + 0.5 - q.x, y + 0.5 - q.y) - q.r * (desert ? 1.35 : 1)));
       // Meadows gather on valley floors; ridges and slopes are forest.
       const valley = smooth(0.62, 0.34, relief);
       const open = clamp(0.1 + 0.6 * valley + 1.15 * (vnoise(x / 10, y / 10, s + 7) - 0.5));
-      let p = (0.04 + 0.64 * (1 - open)) * Math.min(1.35, REGIONS[region].treeDensity);
-      const shore = Math.min(d - 1.2, ...land.ponds.map((q) => Math.hypot(x + 0.5 - q.x, y + 0.5 - q.y) - q.r));
-      if (shore < 2.2) p *= 0.45;
+      let p = (0.04 + 0.64 * (1 - open)) * Math.min(1.35, reg.treeDensity);
+      let flowers = open > 0.6 && vnoise(x / 4.5, y / 4.5, s + 50) > 0.58;
+      let natural: number = T.ROUGH;
+      let dry = 0;
+      if (region === 'parkland') p *= 0.8 - 0.3 * smooth(0.4, 0.7, vnoise(x / 24, y / 24, s + 60)); // big clearings
+      else if (region === 'plains') p *= 0.25 + 1.6 * smooth(0.55, 0.78, vnoise(x / 15, y / 15, s + 61)); // a few groves in open grass
+      else if (region === 'mountain') {
+        p = Math.min(0.95, (0.32 + 0.8 * (1 - open)) * (0.85 + 0.5 * relief)) * (1 - 0.85 * smooth(0.82, 0.97, relief)); // dense pines up to a bare treeline
+        flowers = false;
+      } else if (region === 'coast') {
+        // beach, then dunes of sand and scrub, then thin grass inland
+        const dune = vnoise(x / 4, y / 5, s + 62) + 0.35 * vnoise(x / 2, y / 2, s + 63);
+        if (sea < 3.2 + wob) natural = T.BUNKER;
+        else if (sea < 30 && dune > 0.82 + sea * 0.01) natural = T.BUNKER;
+        p *= 0.5 + 0.6 * smooth(0.3, 0.7, vnoise(x / 12, y / 12, s + 64));
+        dry = sea < 30 ? 1 : 0;
+        flowers = false;
+      } else if (desert) {
+        const dune = vnoise(x / 9, y / 7, s + 65) + 0.3 * vnoise(x / 3, y / 3, s + 66);
+        const wash = nearestCreek(land.creek, x + 0.5, y + 0.5) < 1.6 + wob;
+        if (wash || dune > 0.98) natural = T.BUNKER;
+        // sparse scrub, with palms gathered around the oases
+        p = 0.012 + 0.03 * (1 - open);
+        if (shore < 6) p = Math.max(p, 0.55 - shore * 0.07);
+        dry = 1;
+        flowers = false;
+      }
+      if (!desert && shore < 2.2) p *= 0.45;
       const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
-      if (edge < 3) p = Math.max(p, 0.9 - edge * 0.12);
+      if (edge < 3 && !desert) p = Math.max(p, 0.9 - edge * 0.12);
+      if (natural === T.BUNKER) {
+        world.terrain[i] = T.BUNKER;
+        world.cond[i] = 60;
+        if (hash2(x, y, s + 23) < p * 0.12) world.tree[i] = 1;
+        continue;
+      }
       if (hash2(x, y, s + 21) < p) world.tree[i] = 1;
-      const flowers = open > 0.6 && vnoise(x / 4.5, y / 4.5, s + 50) > 0.58;
-      world.cond[i] = flowers ? 24 + hash2(x, y, 3) * 14 : world.tree[i] ? 54 + hash2(x, y, 2) * 14 : 60 + hash2(x, y, 1) * 16;
+      world.cond[i] = flowers ? 24 + hash2(x, y, 3) * 14 : dry ? 30 + hash2(x, y, 1) * 14 : world.tree[i] ? 54 + hash2(x, y, 2) * 14 : 60 + hash2(x, y, 1) * 16;
     }
   computeZones(world);
   world.version++;
@@ -137,7 +186,7 @@ export function slopeAt(world: World, c: Pt): number {
   let lo = 1;
   let hi = 0;
   for (const [dx, dy] of [[0, 0], [CLUB_W, 0], [0, CLUB_H], [CLUB_W, CLUB_H], [CLUB_W / 2, CLUB_H / 2]]) {
-    const v = reliefAt(world.landSeed, c.x + dx, c.y + dy);
+    const v = reliefAt(world.landSeed, c.x + dx, c.y + dy, world);
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
   }
@@ -164,12 +213,16 @@ export function suggestClubhouse(world: World): Pt | null {
       if (clubhouseProblem(world, c)) continue;
       const lot = clubLot(c);
       let trees = 0;
-      for (let yy = lot.y0; yy <= lot.y1; yy++) for (let xx = lot.x0; xx <= lot.x1; xx++) if (world.tree[idx(world, xx, yy)]) trees++;
+      for (let yy = lot.y0; yy <= lot.y1; yy++) for (let xx = lot.x0; xx <= lot.x1; xx++) if (world.tree[idx(world, xx, yy)] || world.terrain[idx(world, xx, yy)] === T.BUNKER) trees++;
+      // a view of water: some within sight, but not right under the clubhouse
       let nearWater = 0;
-      for (const p of landOf(world.landSeed || 1).ponds) {
-        const d = Math.hypot(x + 3.5 - p.x, y + 2.5 - p.y) - p.r;
-        if (d > 5 && d < 16) nearWater = 12;
-      }
+      for (let ry = -24; ry <= 24 && !nearWater; ry += 4)
+        for (let rx = -24; rx <= 24; rx += 4) {
+          const d = Math.hypot(rx, ry);
+          if (d < 8 || d > 24) continue;
+          const xx = x + 3 + rx, yy = y + 2 + ry;
+          if (inBounds(world, xx, yy) && world.terrain[idx(world, xx, yy)] === T.WATER) { nearWater = 12; break; }
+        }
       // Holes will fan out from the clubhouse, so sitting near the middle of the map gives the most room.
       const middle = Math.hypot(x + 3.5 - world.w * 0.45, y + 2.5 - world.h * 0.5);
       const score = -trees - middle * 0.6 + nearWater - slopeAt(world, c) * 60;
@@ -270,7 +323,7 @@ export function suggestFirstHole(world: World): { tee: Pt; cup: Pt } | null {
                 ok = false;
                 break;
               }
-              if (k % 3 === 0 && Math.hypot(x + 0.5 - px, y + 0.5 - py) <= 2.5 && world.tree[idx(world, x, y)]) trees++;
+              if (k % 3 === 0 && Math.hypot(x + 0.5 - px, y + 0.5 - py) <= 2.5 && (world.tree[idx(world, x, y)] || world.terrain[idx(world, x, y)] === T.BUNKER)) trees++;
             }
         }
         if (!ok) continue;

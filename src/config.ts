@@ -1,8 +1,8 @@
 // Central tuning values. Distances are in tiles (1 tile = 10 yards = 30 feet).
 export const CFG = {
-  grid: { w: 120, h: 80, yardsPerTile: 10, feetPerTile: 30 },
+  grid: { w: 240, h: 160, yardsPerTile: 10, feetPerTile: 30 },
 
-  land: { pw: 24, ph: 20, cols: 5, rows: 4, base: 900, growth: 1.3, startCols: 3, startRows: 3 },
+  land: { pw: 48, ph: 40, cols: 5, rows: 4, base: 900, growth: 1.3, startCols: 3, startRows: 3 },
   offline: { realSecondsPerDay: 300, maxDays: 6, efficiency: 0.6, minAwaySeconds: 90 },
 
   sim: { dt: 1 / 30, maxStepsPerFrame: 400, speeds: [0, 1, 3, 8] as const },
@@ -62,6 +62,7 @@ export const CFG = {
     moveCupPerTile: 7,
     moveCupSameGreen: 15,
     newHole: 250,
+    bridge: 36, // per tile of path painted over water
   },
 
   turf: {

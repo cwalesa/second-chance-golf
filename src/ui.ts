@@ -1,15 +1,15 @@
 import { paintToolTile } from './classic-art';
-import { journalPanel, JournalView, drawJournalArchives, paintArchive } from './journal';
+import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
-import { activeLocation } from './campaign';
+import { GOALS } from './campaign';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
 import { Editor, terrainLabel } from './input';
-import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint } from './editing';
+import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint, planStraighten } from './editing';
 import { EVENTS, EVENT_IDS, EventId } from './events';
-import { Hole, holeCondition, holeYards, idx } from './terrain';
+import { Hole, MAX_BENDS, PAR_YARDS, holeBends, holeCondition, holeYards, idx } from './terrain';
 import { BANDS, CLUB_LEVELS, REGIONS } from './progression';
 import { HIDDEN_GOALS, MILESTONES } from './goals';
 import { logoDesigner, paintLogo } from './start';
@@ -63,6 +63,8 @@ export class UI {
   get modalOpen() { return !this.$('modal').hidden; }
   get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
+  /** Phone only: the menu sheet the round button opens. */
+  menuOpen = false;
   onInsets: () => void = () => {};
   private busy = false;
   private cache = new Map<string, string>();
@@ -78,6 +80,8 @@ export class UI {
 
   constructor(private game: Game, private editor: Editor) {
     document.addEventListener('pointerdown', (e) => {
+      // a tap outside the open phone menu closes it
+      if (this.menuOpen && !(e.target as HTMLElement).closest('#nav, #fab, #modal')) { this.menuOpen = false; this.refresh(true); }
       if ((e.target as HTMLElement).closest('#side, #top, #tools')) this.busy = true;
     });
     const release = () => (this.busy = false);
@@ -208,7 +212,6 @@ export class UI {
           if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
         }
         else if (el.dataset.act === 'project') this.projectModal(el.dataset.id!);
-        else if (el.dataset.act === 'archive') this.archiveModal(el.dataset.id!);
         else if (el.dataset.act === 'reserve') useOperatingReserve(this.game);
         else if (el.dataset.act === 'claim') this.game.claimObjective(el.dataset.id!);
         else if (el.dataset.act === 'hire') this.game.hire(el.dataset.id as StaffId);
@@ -256,6 +259,8 @@ export class UI {
           if (this.mobile) this.tab = 'build';
         } else if (el.dataset.act === 'rename') this.renameModal(this.game.selectedHole);
         else if (el.dataset.act === 'removehole') this.removeModal(this.game.selectedHole);
+        else if (el.dataset.act === 'setpar') this.game.setHolePar(this.game.selectedHole, id);
+        else if (el.dataset.act === 'straighten') { const pl = planStraighten(this.game.world, this.game.hole(this.game.selectedHole)); if (typeof pl === 'string') this.game.notify('bad', pl); else this.game.commitEdit(pl); }
         else if (el.dataset.act === 'editlogo') this.logoModal();
         else if (el.dataset.act === 'renameclub') this.nameModal();
       }
@@ -272,9 +277,37 @@ export class UI {
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
+    // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
+    const ic = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    this.$('nav').insertAdjacentHTML('afterbegin', '<div class="mhead"><b>Menu</b><small>Time is paused while this is open</small></div>');
+    this.$('nav').insertAdjacentHTML('beforeend', `<div class="mrow">
+      <button data-m="fit">${ic('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')}<span>Whole map</span></button>
+      <button data-m="club">${ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>')}<span>Clubhouse</span></button>
+      <button data-m="map">${ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}<span>Mini map</span></button>
+      <button data-m="settings">${ic('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>')}<span>Save &amp; settings</span></button>
+    </div>`);
+    const fab = document.createElement('button');
+    fab.id = 'fab';
+    fab.setAttribute('aria-label', 'Menu');
+    document.getElementById('app')!.append(fab);
+    fab.onclick = () => {
+      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); }
+      else this.menuOpen = !this.menuOpen;
+      this.refresh(true);
+      this.onInsets();
+    };
     this.$('nav').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
+      if (b.dataset.m) {
+        this.menuOpen = false;
+        if (b.dataset.m === 'settings') this.openMenu();
+        else (document.querySelector(`#map-controls [data-camera="${b.dataset.m}"]`) as HTMLElement | null)?.click();
+        this.refresh(true);
+        return;
+      }
+      if (!b.dataset.nav) return;
+      this.menuOpen = false;
       const t = b.dataset.nav as Tab;
       this.tab = this.tab === t ? 'none' : t;
       if (this.tab === t && t !== 'build') this.sheet = 'half';
@@ -316,8 +349,10 @@ export class UI {
     const vis = (id: string) => { const el = document.getElementById(id); if (!el || el.style.display === 'none' || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.height > 0 ? r : null; };
     const top = vis('top');
     let dockTop = H;
-    if (this.mobile && !this.landscape) for (const id of ['nav', 'tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    if (this.mobile && !this.landscape) for (const id of ['tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
     if (this.mobile && this.landscape) { const r = vis('tools'); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    // the round menu button sits in the bottom corner: docked cards and bars stay above it
+    if (this.mobile && !this.landscape) dockTop = Math.min(dockTop, H - 82);
     const side = this.mobile && this.landscape ? vis('side') : null;
     const vals = `${Math.round(top ? top.bottom : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(window.innerWidth - side.left) : 0}`;
     if (vals === this.layoutKey) return;
@@ -385,7 +420,7 @@ export class UI {
   private panelInsets() {
     const r = (id: string) => (document.getElementById(id) as HTMLElement).getBoundingClientRect();
     if (this.mobile) {
-      const nav = r('nav');
+      const nav = { right: 0, height: 0 };
       if (this.landscape) {
         const side = this.tab !== 'none' && this.tab !== 'build' ? r('side') : null;
         return { l: nav.right + 10, r: side ? window.innerWidth - side.left + 10 : 12,
@@ -421,14 +456,27 @@ export class UI {
     const placing = !p && this.editor.isPlacement && !this.game.owner.active && (!this.mobile || this.tab === 'build' || this.tab === 'none');
     const hn = this.game.selectedHole;
     const hint = this.editor.tool === 'tee' ? `Tap where hole ${hn}'s new tee goes` : this.editor.tool === 'cup' ? `Tap where hole ${hn}'s new green goes` : this.editor.tool === 'bend' ? `Tap a new turning point for hole ${hn}` : this.editor.buildStarted ? 'Now tap where the green goes' : 'Tap where the new tee goes';
-    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span></span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
-      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span></span><button class="btn" id="cfStop">Cancel</button>` : '';
+    const building = this.editor.tool === 'build';
+    const adding = this.editor.addingBend;
+    const nh = p?.newHole;
+    const parBar = building && (nh || placing)
+      ? `<span class="cf-pars" role="group" aria-label="Par"><b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}${nh ? `<button class="mini wide ${adding ? 'on' : ''}" id="cfBend" ${this.editor.newBends.length >= MAX_BENDS ? 'disabled' : ''}>${adding ? 'Tap the map' : '+ Bend'}</button>${this.editor.newBends.length ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}` : ''}</span>`
+      : '';
+    const route = nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
+    const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
+    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
+      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
     el.style.display = p || placing ? 'flex' : 'none';
     el.classList.toggle('placing', placing);
     document.body.classList.toggle('has-proposal', !!p || placing);
+    el.querySelectorAll<HTMLElement>('[data-par]').forEach((b) => { b.onclick = () => this.editor.setNewPar(Number(b.dataset.par)); });
+    const bendBtn = el.querySelector<HTMLElement>('#cfBend');
+    if (bendBtn) bendBtn.onclick = () => this.editor.startAddBend();
+    const straight = el.querySelector<HTMLElement>('#cfStraight');
+    if (straight) straight.onclick = () => this.editor.clearNewBends();
     if (placing) (this.$('cfStop') as HTMLElement).onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
     if (p) {
       (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
@@ -538,12 +586,6 @@ export class UI {
       if (!commissionProject(this.game, id)) this.toast('This project is not available at the current budget.', 'bad');
       this.closeModal(); this.refresh(true);
     };
-  }
-  private archiveModal(id: string) {
-    const a = this.game.experience.archives.find(a => a.id === id); if (!a) return;
-    const m = this.modal(`<span class="eyebrow">Completed course</span><h2>${escapeHtml(a.name)}</h2><canvas id="archiveMap" width="720" height="480" aria-label="Preserved course plan"></canvas><div class="archive-summary"><div><b>${a.holes}</b><small>Open holes</small></div><div><b>${a.design}</b><small>Design rating</small></div><div><b>${a.members}</b><small>Members</small></div></div><p class="dim">Preserved on day ${a.day} · ${a.rounds} rounds · ${fmtMoney(a.profit)} operating profit.</p><p class="dim">This is a record of your completed course. Your active property stays unchanged.</p><div class="actions"><button class="btn primary" id="archiveClose">Back to portfolio</button></div>`);
-    paintArchive(m.querySelector('#archiveMap') as HTMLCanvasElement, a);
-    (m.querySelector('#archiveClose') as HTMLElement).onclick = () => this.closeModal();
   }
   private settingsModal() {
     const prefs = this.game.preferences;
@@ -660,6 +702,18 @@ export class UI {
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
+    if (!this.mobile) this.menuOpen = false;
+    document.body.classList.toggle('menu-open', this.menuOpen);
+    const fabState = this.tab === 'build' ? 'done' : this.menuOpen ? 'close' : 'menu';
+    if (this.cache.get('fab') !== fabState) {
+      this.cache.set('fab', fabState);
+      const fab = this.$('fab');
+      fab.dataset.state = fabState;
+      fab.setAttribute('aria-label', fabState === 'done' ? 'Done building' : fabState === 'close' ? 'Close menu' : 'Menu');
+      fab.innerHTML = fabState === 'done' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Done</span>'
+        : fabState === 'close' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    }
     document.body.dataset.journalView = this.journalView;
     const titleHole = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
     this.$('sheetTitle').textContent = titleHole ? titleHole.name : this.tab === 'none' ? '' : TAB_LABEL[this.tab] ?? this.tab;
@@ -686,7 +740,6 @@ export class UI {
       this.cache.set('side', html);
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
-      drawJournalArchives(body, g);
     }
   }
 
@@ -732,9 +785,8 @@ export class UI {
   }
   private renderGoalBar() {
     const g = this.game;
-    const loc = activeLocation(g);
-    const next = loc.objectives.find(o => !g.campaign.claimed.includes(o.id));
-    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${loc.name}</div><div class="p">Keep refining your course.</div>`;
+    const next = GOALS.find(o => !g.campaign.claimed.includes(o.id));
+    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${escapeHtml(g.name)}</div><div class="p">Keep refining your course.</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
@@ -799,10 +851,11 @@ export class UI {
     const repair = this.greenPlan();
     const totalPar = w.holes.reduce((a, x) => a + x.par, 0);
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
-    const dogleg = Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
+    const dogleg = holeBends(h).length > 0 || Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
     const nHoles = w.holes.length;
     let html = `<div class="sec"><h3>Hole ${h.id}</h3><div class="card hole-detail"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><button class="btn sm" data-act="rename" aria-label="Rename hole">Rename</button></div>
-      <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>`;
+      <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>
+      <div class="par-row"><span>Par</span>${[3, 4, 5].map((n) => `<button class="mini ${n === h.par ? 'on' : ''}" data-act="setpar" data-id="${n}">${n}</button>`).join('')}<small class="dim">${PAR_YARDS[h.par][0]} to ${PAR_YARDS[h.par][1]} yd suits a par ${h.par}</small></div>`;
     if (h.open) {
       for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
       html += `<div class="note good">Open for play. Editing its ground closes it so nobody is caught mid-hole.</div>`;
@@ -817,7 +870,8 @@ export class UI {
     html += `<div class="sec edit-hole"><h3>Edit hole ${h.id}</h3><p class="dim small">Pick an action, then tap the map. You'll see a preview and the price before anything is built.</p><div class="edit-grid">
       <button class="edit-act" data-act="holetool" data-id="tee">${icon('<path d="M8 21l4-7 4 7"/><circle cx="12" cy="10" r="3"/>')}<span><b>Move tee</b><small>New tee box</small></span></button>
       <button class="edit-act" data-act="holetool" data-id="cup">${icon('<path d="M12 21V4l7 3-7 3"/><ellipse cx="12" cy="21" rx="5" ry="1.5"/>')}<span><b>Move cup</b><small>New green</small></span></button>
-      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Dogleg</b><small>Turning point</small></span></button>
+      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Turning points</b><small>Tap to add, move or remove</small></span></button>
+      <button class="edit-act" data-act="straighten" ${holeBends(h).length ? '' : 'disabled'}>${icon('<path d="M4 20L20 4"/>')}<span><b>Straighten</b><small>Remove all turns</small></span></button>
       <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
       <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>
     </div></div>`;

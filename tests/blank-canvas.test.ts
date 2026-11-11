@@ -4,7 +4,7 @@ import { CFG } from '../src/config';
 import { CLUB_H, CLUB_W, T, clubSites, idx } from '../src/terrain';
 import { createWilderness, clubhouseProblem, landOf, placeClubhouse, reliefAt, suggestClubhouse, suggestFirstHole } from '../src/wilderness';
 import { planNewHole } from '../src/editing';
-import { activeLocation } from '../src/campaign';
+import { GOALS } from '../src/campaign';
 import { deserialize, serialize } from '../src/save';
 import { run } from './helpers';
 import { createTestCourse } from './fixtures/classic-course';
@@ -39,7 +39,7 @@ describe('blank canvas world', () => {
       expect(w.holes).toEqual([]);
       expect(w.clubhouse).toBeNull();
       expect(w.parcels.every((p) => p === 1)).toBe(true);
-      expect(water / n).toBeGreaterThan(0.025);
+      expect(water / n).toBeGreaterThan(0.015);
       expect(water / n).toBeLessThan(0.14);
       expect(trees / n).toBeGreaterThan(0.35); // a forest
       expect(open / n).toBeGreaterThan(0.25); // with meadows to build on
@@ -65,7 +65,7 @@ describe('blank canvas world', () => {
     expect(g.cash).toBe(CFG.economy.startCash);
     expect(g.avgCondition).toBe(0);
     expect(g.designRating).toBe(0);
-    expect(activeLocation(g).objectives.map((o) => o.id)).toEqual(['holes', 'rounds', 'profit']);
+    expect(GOALS.length).toBeGreaterThan(3); // optional milestones, not chapters
     run(g, 40);
     expect(g.sim.golfers).toHaveLength(0);
   });
@@ -75,7 +75,7 @@ describe('choosing the clubhouse spot', () => {
   it('refuses water, the map edge and steep ground, and offers a spot that works', () => {
     const w = createWilderness(1);
     expect(clubhouseProblem(w, { x: 0, y: 0 })).toMatch(/edge/);
-    expect(clubhouseProblem(w, { x: 110, y: 40 })).toMatch(/edge/);
+    expect(clubhouseProblem(w, { x: w.w - 6, y: 40 })).toMatch(/edge/);
     let wet = null as { x: number; y: number } | null;
     for (let i = 0; i < w.terrain.length && !wet; i++) {
       const x = i % w.w, y = Math.floor(i / w.w);

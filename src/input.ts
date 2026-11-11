@@ -1,9 +1,9 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
-import { CLUB_H, CLUB_W, Pt, idx, inBounds } from './terrain';
+import { CLUB_H, CLUB_W, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
 import { clubhouseProblem, suggestClubhouse } from './wilderness';
 
 export interface Preview {
@@ -40,6 +40,13 @@ export class Editor {
   private proposalCache: { rev: number; plan: EditPlan | null } = { rev: -1, plan: null };
   private rev = 0;
   private buildTee: Pt | null = null;
+  private buildCup: Pt | null = null;
+  /** The par chosen for the next new hole, picked before or after placing it. */
+  newPar = 4;
+  /** Turning points on the new hole being planned. */
+  newBends: Pt[] = [];
+  /** True while the next tap on the map adds a turning point to the new hole. */
+  addingBend = false;
   preview: Preview | null = null;
   /** Where the clubhouse would stand (top-left tile) and why it cannot, while the player is choosing. */
   clubSpot: { x: number; y: number; problem: string | null } | null = null;
@@ -133,7 +140,7 @@ export class Editor {
   setTool(t: ToolId) {
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
-    if (t !== 'build') this.buildTee = null, this.overlay.buildTee = null, this.overlay.buildLine = null;
+    if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.addingBend = false; this.overlay.buildTee = null; this.overlay.buildLine = null; }
     this.tool = t;
     this.game.settings.tool = t;
     this.overlay.tool = t;
@@ -191,6 +198,9 @@ export class Editor {
     this.rev++;
     this.clearPending();
     this.buildTee = null;
+    this.buildCup = null;
+    this.newBends = [];
+    this.addingBend = false;
     this.overlay.buildTee = null;
     this.overlay.buildLine = null;
     this.syncStagedOverlay();
@@ -219,6 +229,38 @@ export class Editor {
   }
   confirmBuild() {
     this.confirm();
+  }
+  private newHolePlan(tee: Pt, cup: Pt) {
+    return planNewHole(this.game.world, this.game.nextHoleId(), tee, cup, { par: this.newPar, bends: this.newBends });
+  }
+  /** Re-plan the pending new hole after its par or turning points changed. */
+  private replanNew() {
+    if (!this.buildTee || !this.buildCup) return;
+    const plan = this.newHolePlan(this.buildTee, this.buildCup);
+    if (typeof plan === 'string') { this.game.notify('bad', plan); return; }
+    this.pending = plan;
+    this.rev++;
+    this.showPlan(plan, []);
+    this.overlay.buildLine = { from: this.buildTee, to: this.buildCup };
+    this.onChange();
+  }
+  setNewPar(par: number) {
+    this.newPar = par;
+    this.replanNew();
+    this.onChange();
+  }
+  /** Ask for a turning point: the next map tap adds one. */
+  startAddBend() {
+    if (this.pending?.newHole && this.newBends.length < MAX_BENDS) {
+      this.addingBend = true;
+      this.onChange();
+    }
+  }
+  clearNewBends() {
+    this.newBends = [];
+    this.addingBend = false;
+    this.replanNew();
+    this.onChange();
   }
   /** Choose which hole the hole tools work on; unbuilt placements belonged to the old one. */
   selectHole(id: number) {
@@ -481,7 +523,7 @@ export class Editor {
       this.overlay.buildTee = this.buildTee;
       this.overlay.buildLine = this.buildTee ? { from: this.buildTee, to: h } : null;
       if (this.buildTee && !this.pending) {
-        const plan = planNewHole(world, this.game.nextHoleId(), this.buildTee, h);
+        const plan = this.newHolePlan(this.buildTee, h);
         if (typeof plan === 'string') this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: false, message: plan, stroking: false, limited: false };
         else this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
       } else if (!this.buildTee) this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: true, message: 'Step 1 of 2: tap where the tee box goes.', stroking: false, limited: false };
@@ -610,8 +652,10 @@ export class Editor {
       ? {
           tee: !before || before.tee.x !== after.tee.x || before.tee.y !== after.tee.y ? after.tee : undefined,
           cup: !before || before.cup.x !== after.cup.x || before.cup.y !== after.cup.y ? after.cup : undefined,
-          bend: !before || before.bend.x !== after.bend.x || before.bend.y !== after.bend.y ? after.bend : undefined,
+          bends: !before || JSON.stringify(holeBends(before)) !== JSON.stringify(holeBends(after)) ? holeBends(after) : undefined,
+          route: [after.tee, ...holeBends(after), after.cup],
           par: after.par,
+          notes: plan.notes,
         }
       : null;
   }
@@ -629,6 +673,12 @@ export class Editor {
       return;
     }
     if (this.tool === 'build') {
+      if (this.pending?.newHole && this.addingBend && this.buildTee && this.buildCup) {
+        this.newBends = insertBend(this.buildTee, this.newBends, this.buildCup, t);
+        this.addingBend = false;
+        this.replanNew();
+        return;
+      }
       if (!this.buildTee) {
         this.buildTee = t;
         this.overlay.buildTee = t;
@@ -636,11 +686,12 @@ export class Editor {
         this.updateHover();
         return;
       }
-      const plan = planNewHole(this.game.world, this.game.nextHoleId(), this.buildTee, t);
+      const plan = this.newHolePlan(this.buildTee, t);
       if (typeof plan === 'string') {
         this.game.notify('bad', plan);
         return;
       }
+      this.buildCup = t;
       this.pending = plan;
       this.rev++;
       this.showPlan(plan, []);

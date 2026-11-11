@@ -2,75 +2,25 @@ import { describe, it, expect } from 'vitest';
 import { CFG } from '../src/config';
 import { Game, STAFF } from '../src/game';
 import { assessDesign, designEnjoyment } from '../src/design';
-import { LOCATIONS, activeLocation, stageComplete } from '../src/campaign';
 import { T, holeCondition, idx } from '../src/terrain';
 import { planMoveBend, planPaint } from '../src/editing';
 import { deserialize, serialize } from '../src/save';
 import { run } from './helpers';
-import { createTestCourse, createTestCampaign } from './fixtures/classic-course';
+import { createTestCourse } from './fixtures/classic-course';
 
-describe('restoration campaign', () => {
-  it('each new location has its own valid routing and playable opening holes', () => {
-    const routes = new Set<string>();
-    for (const region of ['coast', 'mountain', 'plains', 'desert'] as const) {
-      const g = new Game(createTestCampaign(region));
-      routes.add(JSON.stringify(g.world.holes.map(h => [h.tee, h.bend, h.cup])));
-      expect(g.validate(1).problems).toEqual([]);
-      expect(g.validate(2).problems).toEqual([]);
-      expect(g.validate(3).ok).toBe(false);
-      expect(g.designRating).toBeGreaterThan(30);
-    }
-    expect(routes.size).toBe(4);
-  });
+describe('course goals', () => {
   it('only pays a completed objective once, and books the grant in the ledger', () => {
     const g = new Game(createTestCourse());
-    expect(g.claimObjective('rounds')).toBe(false);
+    expect(g.claimObjective('rounds12')).toBe(false);
     g.campaign.rounds = 12;
     const cash = g.cash, bonus = g.today.bonus;
-    expect(g.claimObjective('rounds')).toBe(true);
+    expect(g.claimObjective('rounds12')).toBe(true);
     expect(g.cash).toBe(cash + 400);
     expect(g.today.bonus).toBe(bonus + 400);
-    expect(g.claimObjective('rounds')).toBe(false);
+    expect(g.claimObjective('rounds12')).toBe(false);
     expect(g.campaign.medals).toBe(1);
   });
-  it('gates travel and gives the next property a fresh budget without losing medals', () => {
-    const g = new Game(createTestCourse());
-    expect(g.travel()).toBe(false);
-    g.campaign.claimed = activeLocation(g).objectives.map(o => o.id);
-    g.campaign.medals = 4;
-    g.staff.ranger = true; g.members.push({ name: 'Avery', type: 'regular', visits: 2, happiness: 90, joined: 1 });
-    g.owner.start(g); g.bookEvent('scramble');
-    expect(stageComplete(g)).toBe(true);
-    const before = g.world;
-    expect(g.travel()).toBe(true);
-    expect(g.world).not.toBe(before);
-    expect(g.sim.world).toBe(g.world);
-    expect(g.region).toBe('coast');
-    expect(g.cash).toBe(LOCATIONS[1].budget);
-    expect(g.campaign.medals).toBe(4);
-    expect(g.campaign.completed).toContain('willow');
-    expect(g.campaign.claimed).toEqual([]);
-    expect(g.members).toEqual([]);
-    expect(g.staff.ranger).toBe(false);
-    expect(g.owner.active).toBe(false);
-    expect(g.bookings).toEqual([]);
-    // the new property is untouched land: no holes, and the player chooses where the clubhouse goes
-    expect(g.world.holes).toEqual([]);
-    expect(g.world.clubhouse).toBeNull();
-    expect(g.selectedHole).toBe(0);
-    run(g, 30);
-    expect(g.sim.golfers).toHaveLength(0);
-  });
-  it('allows all five locations and retains the final property', () => {
-    const g = new Game(createTestCourse());
-    for (let i = 0; i < 4; i++) { g.campaign.claimed = activeLocation(g).objectives.map(o => o.id); expect(g.travel()).toBe(true); }
-    g.campaign.claimed = activeLocation(g).objectives.map(o => o.id);
-    const w = g.world;
-    expect(g.travel()).toBe(false);
-    expect(g.campaign.completed.length).toBe(5);
-    expect(g.world).toBe(w);
-  });
-  it('rounds and daily operating profit advance location objectives', () => {
+  it('rounds and daily operating profit advance goals', () => {
     const g = new Game(createTestCourse()); run(g, 305);
     expect(g.campaign.rounds).toBeGreaterThan(0);
     expect(g.campaign.profit).toBe(g.days[0].profit);

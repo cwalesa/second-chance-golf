@@ -31,7 +31,8 @@ export function lieAt(world: World, x: number, y: number): Lie {
     case T.FAIRWAY: return { kind: 'fairway', distF: condDist, dispF: condDisp, cond };
     case T.GREEN: return { kind: 'green', distF: condDist, dispF: condDisp, cond };
     case T.BUNKER: return { kind: 'bunker', distF: 0.55, dispF: 1.8, cond: 100 };
-    case T.PATH: return { kind: 'fairway', distF: 0.95, dispF: 1.1, cond: 80 };
+    case T.PATH:
+    case T.BRIDGE: return { kind: 'fairway', distF: 0.95, dispF: 1.1, cond: 80 };
     default: return { kind: 'rough', distF: 0.78 * condDist, dispF: 1.4 * condDisp, cond };
   }
 }
@@ -76,7 +77,7 @@ export interface ShotResult {
   penalty: number;
 }
 
-const ROLL: Record<number, number> = { [T.FAIRWAY]: 1.4, [T.GREEN]: 1.0, [T.TEE]: 1.2, [T.PATH]: 2.0, [T.ROUGH]: 0.3, [T.BUNKER]: 0 };
+const ROLL: Record<number, number> = { [T.FAIRWAY]: 1.4, [T.GREEN]: 1.0, [T.TEE]: 1.2, [T.PATH]: 2.0, [T.BRIDGE]: 0, [T.ROUGH]: 0.3, [T.BUNKER]: 0 };
 
 /** Deterministic outcome of a ball hit from `from` along `angle` for `dist` tiles. */
 export function resolveShot(world: World, from: Pt, angle: number, dist: number): ShotResult {

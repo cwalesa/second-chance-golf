@@ -2,7 +2,7 @@ import type { Game } from './game';
 import { CFG } from './config';
 import { EditPlan, TileEdit, planPaint } from './editing';
 import { T, holePath, polyDist, holeCondition, center, isOwned } from './terrain';
-import { activeLocation } from './campaign';
+import { GOALS } from './campaign';
 
 export const CAREER = [
   { xp: 0, title: 'Course caretaker', perk: 'Restore the basics and welcome your first regulars.' },
@@ -37,18 +37,6 @@ export function awardExperience(g: Game, amount: number, once?: string) {
     g.notify('good', `Career level up: ${CAREER[careerLevel(g)].title}. ${CAREER[careerLevel(g)].perk}`);
     g.onFeedback('level');
   }
-}
-export function archiveCourse(g: Game) {
-  const id = activeLocation(g).id;
-  const entry: CourseArchive = {
-    id, name: g.name, region: g.region, day: g.day, design: g.designRating, rounds: g.campaign.rounds,
-    profit: Math.round(g.campaign.profit), members: g.members.length, holes: g.openHoles.length,
-    terrain: Array.from(g.world.terrain).join(''), trees: Array.from(g.world.tree).join(''),
-    pins: g.world.holes.map(h => ({ x: h.cup.x, y: h.cup.y, id: h.id })),
-  };
-  const i = g.experience.archives.findIndex(a => a.id === id);
-  if (i < 0) g.experience.archives.push(entry); else g.experience.archives[i] = entry;
-  g.dirtySave = true;
 }
 export function greenProject(g: Game): EditPlan | null {
   const h = [...g.world.holes].filter(h => holeCondition(g.world, h).green < 75).sort((a, b) => Number(b.open) - Number(a.open) || holeCondition(g.world, a).green - holeCondition(g.world, b).green)[0];
@@ -110,8 +98,8 @@ export function commissionProject(g: Game, id: string): boolean {
   return true;
 }
 export function nextSuggestion(g: Game): { title: string; description: string; action: string } {
-  const ready = activeLocation(g).objectives.find(o => !g.campaign.claimed.includes(o.id) && o.value(g) >= o.target);
-  if (ready) return { title: 'A restoration reward is ready', description: ready.title, action: 'progress' };
+  const ready = GOALS.find(o => !g.campaign.claimed.includes(o.id) && o.value(g) >= o.target);
+  if (ready) return { title: 'A goal is ready to collect', description: ready.title, action: 'progress' };
   if (greenProject(g)) return { title: 'Start with the greens', description: 'A reliable putting surface gives golfers a reason to come back.', action: 'projects' };
   if (g.world.holes.some(h => !h.open)) return { title: 'Bring another hole back into play', description: 'More open holes mean more tee times and a better day out.', action: 'projects' };
   if (!g.experience.site.garden) return { title: 'Give your clubhouse a proper welcome', description: 'Add a garden to lift guest satisfaction and make the entrance your own.', action: 'projects' };

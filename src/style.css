@@ -354,6 +354,20 @@ body.owner-playing #tools,body.owner-playing #side,body.owner-playing #goalbar,b
 .identity summary { cursor:pointer; }
 #start .logo-box { background:#244734; margin-top:12px; color:#f2ead6; border-radius:10px; padding:10px; }
 #start .start-play { background:#214b37; color:#f6edda; display:flex; justify-content:space-between; width:100%; font-size:13px; min-height:48px; border:0; }
+.lbl-row { margin:0 0 8px; }
+.regions { display:grid; gap:8px; margin-bottom:10px; }
+.region { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; align-items:center; text-align:left; min-height:56px; padding:10px 12px; border-radius:12px; border:2px solid #c9c8b2; background:#fffaf0; color:#18392b; font:inherit; cursor:pointer; touch-action:manipulation; }
+.region.on { border-color:#214b37; background:#e6efd9; box-shadow:0 0 0 2px #214b3733; }
+.region .swatch { grid-row:1 / span 2; display:grid; grid-template-columns:1fr 1fr; width:38px; height:38px; border-radius:9px; overflow:hidden; }
+.region .swatch i { display:block; }
+.region .rname { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.region .rname b { font-size:15px; }
+.region .rblurb { font-size:12px; line-height:1.4; color:#5b6853; }
+.region .lvl { font-style:normal; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:2px 7px; border-radius:99px; background:#d9e6c4; color:#2d5a2f; }
+.region .lvl.l2 { background:#e5e8b8; color:#555c1a; } .region .lvl.l3 { background:#f1e3a8; color:#6d5a10; } .region .lvl.l4 { background:#f0c9a0; color:#7a3d10; } .region .lvl.l5 { background:#eeaaa0; color:#8a2318; }
+.region-note { font-size:11px; color:#7f8875; margin:0 0 12px; line-height:1.5; }
+.tut-toggle { display:flex; align-items:center; gap:10px; min-height:44px; font-size:13px; color:#37523e; margin-bottom:12px; }
+#start .tut-toggle input { width:22px; height:22px; margin:0; padding:0; accent-color:#214b37; }
 .start-foot { font-size:10px; color:#7f8875; margin:15px 0 0; line-height:1.6; }
 #intro { top:172px; }
 @media(max-width:1000px) { #top { gap:10px; } #top .brand span { max-width:130px; overflow:hidden; text-overflow:ellipsis; } #side { width:320px; } }
@@ -991,7 +1005,7 @@ body.mobile #holebar .hb-name b { font-size: 13.5px; }
 body.mobile #map-controls { position: absolute; left: auto; right: calc(8px + env(safe-area-inset-right)); top: calc(var(--hdr) + 8px); bottom: auto; flex-direction: column; gap: 6px; justify-content: flex-start; pointer-events: auto; }
 body.mobile #map-controls button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; margin: 0; border-radius: 12px; font-size: 18px; background: var(--panel-solid); border: 1px solid var(--line-soft); color: var(--text); }
 body.mobile #map-controls button[data-camera="design"], body.mobile #map-controls button[data-camera="fit"] { display: none; }
-body.mobile #minimap, body.mobile #pill, body.mobile #goalbar { display: none !important; }
+body.mobile #pill, body.mobile #goalbar { display: none !important; }
 body.mobile #brushbar { left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(var(--hdr) + 8px); bottom: auto; transform: none; flex-direction: column; }
 
 body.mobile #nav { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; height: calc(58px + env(safe-area-inset-bottom)); padding: 2px 6px env(safe-area-inset-bottom); flex-direction: row; gap: 0; border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; }
@@ -1147,3 +1161,103 @@ h2 { font-weight: 700; }
 .property-cover h3 { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 19px; }
 .start-play { display: flex; align-items: center; justify-content: center; min-height: 46px; box-shadow: none !important; font-size: 15px; }
 .sheet-title b, .sheet-title #sheetTitle { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight: 700; }
+
+/* ---- Course map: always on desktop, a toggle on phones; clubhouse button joins the map buttons ---- */
+#mapBtn { display: none; }
+#minimap { width: 204px; height: 136px; bottom: 112px; left: 12px; border: 2px solid #8fa7b3; border-radius: 8px; background: #18331f; touch-action: none; }
+body.mobile #mapBtn { display: inline-flex; }
+body.mobile #minimap { display: none; left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(var(--hdr) + 8px); bottom: auto; width: 150px; height: 100px; z-index: 6; box-shadow: 0 6px 18px #020c1980; }
+body.mobile.minimap-open #minimap { display: block; }
+body.mobile.minimap-open #mapBtn { background: #f0c96a; color: #172a3b; }
+body.mobile.minimap-open #brushbar { top: calc(var(--hdr) + 116px); }
+body.mobile[data-sheet="full"] #minimap, body.owner-playing #minimap { display: none !important; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #minimap { left: calc(74px + env(safe-area-inset-left)); top: calc(var(--hdr) + 6px); width: 132px; height: 88px; }
+  body.mobile.minimap-open #brushbar { top: calc(var(--hdr) + 100px); }
+  body.mobile #map-controls button[data-camera="in"], body.mobile #map-controls button[data-camera="out"] { display: none; }
+}
+
+/* ---- New-hole controls inside the confirm bar: par, bends, and a caution line ---- */
+.cf-note { display: block; margin-top: 2px; font-size: 11.5px; color: #ffd9a0; line-height: 1.3; }
+.cf-pars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.cf-pars b { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
+.cf-pars .mini { min-width: 44px; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); font-weight: 700; font-size: 14px; }
+.cf-pars .mini.wide { padding: 0 14px; font-size: 12.5px; }
+.cf-pars .mini.on { background: #f0c96a; color: #172a3b; border-color: transparent; }
+.cf-pars .mini:disabled { opacity: .4; }
+.par-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.par-row > span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-right: 2px; }
+.par-row .mini { min-width: 44px; height: 40px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-raise); color: var(--text); font-weight: 700; font-size: 14px; }
+.par-row .mini.on { background: #f0c96a; color: #172a3b; border-color: transparent; }
+.par-row small { flex-basis: 100%; font-size: 11px; }
+
+/* ---------- Phone: the course is the screen ----------
+   Only a small status chip (cash, time, speed) and one round menu button sit over the map.
+   Everything else opens from the menu, and the build tools only appear while building. */
+#fab, #nav .mhead, #nav .mrow { display: none; }
+body.mobile #fab {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  position: fixed; z-index: 21; right: calc(14px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom));
+  min-width: 58px; height: 58px; padding: 0 16px; border-radius: 29px; border: 2px solid #fff3cf;
+  background: linear-gradient(#ffe2a3, #e9b85c); color: #1d3a2a; font: 700 14px/1 system-ui, sans-serif;
+  box-shadow: 0 6px 18px #0a1d2a66, inset 0 2px #fffbe8; touch-action: manipulation;
+}
+body.mobile #fab svg { width: 26px; height: 26px; }
+body.mobile #fab:active { transform: scale(.94); }
+body.mobile #fab[data-state="done"] { bottom: calc(var(--dock) + 10px); background: linear-gradient(#bfe6a2, #7fbf63); }
+body.mobile #fab[data-state="close"] { background: linear-gradient(#f4efe0, #d9d0b6); }
+body.mobile:is([data-tab="course"], [data-tab="guests"], [data-tab="money"], [data-tab="club"], [data-tab="journey"], [data-tab="events"]) #fab,
+body.mobile.has-proposal #fab, body.mobile.placing-club #fab, body.mobile.owner-playing #fab { display: none; }
+
+/* the menu sheet (the old bottom navigation, now hidden until asked for) */
+body.mobile #nav { display: none !important; }
+body.mobile.menu-open #nav {
+  display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  position: fixed; z-index: 20; top: auto; left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(86px + env(safe-area-inset-bottom)); width: auto; height: auto; max-height: calc(100dvh - 120px); overflow: auto;
+  padding: 12px; border-radius: 20px; border: 2px solid #8fd1d566;
+  box-shadow: 0 0 0 100vmax #06121c66, 0 10px 30px #061322aa; animation: menuUp .16s ease-out;
+}
+@keyframes menuUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+body.mobile.menu-open #nav .mhead { display: flex; grid-column: 1 / -1; align-items: baseline; justify-content: space-between; color: #f2e6c4; padding: 2px 4px 4px; }
+body.mobile.menu-open #nav .mhead b { font-size: 17px; }
+body.mobile.menu-open #nav .mhead small { font-size: 11px; color: #a9c6c9; }
+body.mobile.menu-open #nav button[data-nav] { flex-direction: column; width: auto; min-height: 78px; gap: 7px; font-size: 12.5px; font-weight: 600; border-radius: 14px; background: #ffffff0d; }
+body.mobile.menu-open #nav button span { display: block !important; }
+body.mobile.menu-open #nav button[data-nav] svg { width: 22px; height: 22px; padding: 8px; }
+body.mobile.menu-open #nav .mrow { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); gap: 6px; border-top: 1px solid #8fd1d533; padding-top: 10px; margin-top: 2px; }
+body.mobile.menu-open #nav .mrow button { flex-direction: column; width: auto; min-height: 58px; gap: 4px; font-size: 10.5px; border-radius: 12px; background: none; }
+body.mobile.menu-open #nav .mrow svg { width: 22px; height: 22px; padding: 0; background: none; border: 0; box-shadow: none; color: #d5e7e8; }
+
+/* status chip: cash, day and clock, and speed; undo/redo join it while building */
+body.mobile #top {
+  left: calc(8px + env(safe-area-inset-left)); right: auto; top: calc(6px + env(safe-area-inset-top)); width: auto; max-width: calc(100vw - 16px);
+  height: 46px; padding: 0 4px 0 12px; gap: 12px; border-radius: 23px; flex-wrap: nowrap;
+}
+body.mobile #top > * { display: none !important; }
+body.mobile #top > .stat:has(#cash), body.mobile #top > .stat:has(#clock) { display: flex !important; }
+body.mobile #top > #speed { display: flex !important; }
+body.mobile #top .daybar { width: 52px; }
+body.mobile:is([data-tab="build"], .has-proposal) #top > #editbtns { display: flex !important; }
+body.mobile #top #editbtns button span { display: none; }
+body.mobile #top #editbtns button { min-width: 36px; min-height: 36px; }
+
+/* map extras stay out of the way: no button column, no goal card; the mini map only when asked for */
+body.mobile #map-controls, body.mobile #goalbar, body.mobile #minimap { display: none !important; }
+body.mobile.minimap-open:not(.menu-open)[data-tab="none"] #minimap { display: block !important; top: calc(60px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); left: auto; bottom: auto; width: 150px; height: 100px; }
+body.mobile #toasts { top: calc(60px + env(safe-area-inset-top)); bottom: auto; }
+body.mobile #confirm, body.mobile[data-tab] #confirm { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #confirm, body.mobile[data-tab] #confirm { right: auto; width: min(460px, calc(100vw - 100px - var(--side-w))); }
+  body.mobile.menu-open #nav { grid-template-columns: repeat(6, 1fr); left: auto; width: min(560px, calc(100vw - 110px)); right: calc(84px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); }
+  body.mobile.menu-open #nav button[data-nav] { min-height: 70px; }
+  body.mobile.menu-open #nav .mrow { grid-template-columns: repeat(4, 1fr); }
+}
+#coach[hidden] { display: none !important; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools { left: calc(8px + env(safe-area-inset-left)); }
+  body.mobile #brushbar { left: calc(8px + env(safe-area-inset-left)); }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile.coaching #coach { margin-right: 76px; }
+}
