@@ -49,6 +49,12 @@ describe('goal chain', () => {
     expect(chainStep(back)).toBe(1); // first hole is open already; 10 rounds is not
     expect(back.cash).toBe(g.cash);
     back.campaign.step = 5;
+    back.campaign.goalId = CHAIN[5].id;
     expect(chainStep(deserialize(serialize(back))!.game)).toBe(5);
+    // a save from the first chain stored only the position: position 3 was "Earn $1,500 profit"
+    const v1 = JSON.parse(serialize(back));
+    v1.campaign.step = 3;
+    delete v1.campaign.goalId;
+    expect(currentGoal(deserialize(JSON.stringify(v1))!.game)!.id).toBe('c-profit1500');
   });
 });

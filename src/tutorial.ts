@@ -112,7 +112,7 @@ const STEPS: Step[] = [
     check: (c) => !!hole(c, myId(c))?.open,
   },
   {
-    short: () => 'Your first hole is open. Golfers are on their way!',
+    short: () => 'Your first hole is open! Your next goal is at the top left. Tap it any time.',
     view: 'map',
     enter: (c) => { if (c.ui.tab === 'course') { c.ui.tab = 'none'; c.ui.refresh(true); c.ui.onInsets(); } },
     nextLabel: 'Play',

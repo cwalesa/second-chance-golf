@@ -49,9 +49,10 @@ export interface Region {
   seasonWear: [number, number, number, number];
 }
 
+// Sunny and bright, like a summer afternoon: warm meadow greens, pale sandy paths and clear turquoise water.
 const base: Palette = {
-  roughGood: [54, 116, 60], roughBad: [104, 128, 64], fairGood: [100, 170, 74], fairWorn: [158, 146, 88], greenGood: [122, 198, 94], greenWorn: [156, 144, 90],
-  teeGood: [112, 186, 82], dirt: [146, 116, 78], sand: [242, 224, 180], sandRim: [196, 168, 110], water: [56, 162, 176], waterDeep: [24, 94, 140], path: [209, 198, 174],
+  roughGood: [84, 152, 66], roughBad: [138, 150, 78], fairGood: [124, 196, 82], fairWorn: [176, 160, 96], greenGood: [146, 216, 104], greenWorn: [170, 160, 100],
+  teeGood: [132, 206, 92], dirt: [168, 134, 90], sand: [248, 234, 194], sandRim: [210, 182, 122], water: [74, 190, 204], waterDeep: [34, 128, 172], path: [230, 218, 190],
 };
 
 export const REGIONS: Record<RegionId, Region> = {

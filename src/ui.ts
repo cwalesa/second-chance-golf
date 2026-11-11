@@ -2,7 +2,7 @@ import { paintToolTile } from './classic-art';
 import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
-import { currentGoal, goalProgressText } from './campaign';
+import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
@@ -210,12 +210,7 @@ export class UI {
       } else if (el.dataset.act) {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
-        else if (el.dataset.act === 'goalgo') {
-          const go = el.dataset.id!;
-          if (go === 'build') { this.tab = 'build'; this.editor.setTool('build'); }
-          else this.tab = (go === 'course' ? 'course' : go === 'club' ? 'club' : go === 'money' ? 'money' : 'events') as Tab;
-          if (!this.mobile && go === 'build') this.tab = 'none';
-        }
+        else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
         else if (el.dataset.act === 'suggest') {
           if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
         }
@@ -815,16 +810,51 @@ export class UI {
       this.celebrate(done.title, done.reward, done.next);
     }
   }
+  /** "Show me" on a goal: open the right place, pick up the right tool, and point at the control to use. */
+  showGoal(id: string) {
+    const goal = CHAIN.find((c) => c.id === id);
+    if (!goal) return;
+    this.menuOpen = false;
+    if (goal.tool) {
+      this.tab = 'build';
+      this.editor.setTool(goal.tool);
+    } else if (goal.go) this.tab = goal.go === 'money' ? 'money' : goal.go === 'guests' ? 'guests' : goal.go === 'events' ? 'events' : goal.go === 'club' ? 'club' : goal.go === 'course' ? 'course' : 'none';
+    else this.tab = 'none';
+    if (goal.guide?.startsWith('#nav')) { this.tab = 'none'; this.menuOpen = true; }
+    if (this.portraitSheet && this.tab !== 'none' && this.tab !== 'build') this.sheet = 'half';
+    this.cache.delete('side');
+    this.refresh(true);
+    this.onInsets();
+    const sel = goal.tool ? `#tools .ph-tools [data-tool="${goal.tool}"]` : goal.guide;
+    if (sel) window.setTimeout(() => this.pointTo(sel), 380);
+  }
+  /** A pulsing ring on one control for a few seconds, scrolled into view if it sits in a panel. */
+  private pointTo(sel: string) {
+    const el = [...document.querySelectorAll<HTMLElement>(sel)].find((x) => x.getClientRects().length > 0);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    document.querySelectorAll('.guide-ring').forEach((x) => x.classList.remove('guide-ring'));
+    el.classList.add('guide-ring');
+    const clear = () => el.classList.remove('guide-ring');
+    el.addEventListener('click', clear, { once: true });
+    window.setTimeout(clear, 6000);
+  }
   private celebrate(title: string, reward: number, next: string | null) {
     document.getElementById('goalpop')?.remove();
     const pop = document.createElement('div');
     pop.id = 'goalpop';
     pop.setAttribute('role', 'status');
     pop.innerHTML = `<div class="gp-k">Goal complete</div><div class="gp-t">${escapeHtml(title)}</div><div class="gp-r">+${fmtMoney(reward)}</div>${next ? `<div class="gp-n">Next: ${escapeHtml(next)}</div>` : '<div class="gp-n">Every goal is done. The course is yours to build freely.</div>'}`;
-    pop.onclick = () => pop.remove();
+    const nextGoal = currentGoal(this.game);
+    if (next && nextGoal && (nextGoal.go || nextGoal.guide)) pop.insertAdjacentHTML('beforeend', '<button class="gp-go">Show me</button>');
+    pop.onclick = (e) => {
+      pop.remove();
+      const g2 = currentGoal(this.game);
+      if ((e.target as HTMLElement).closest('.gp-go') && g2) this.showGoal(g2.id);
+    };
     document.getElementById('app')!.append(pop);
-    window.setTimeout(() => pop.classList.add('out'), 4200);
-    window.setTimeout(() => pop.remove(), 4700);
+    window.setTimeout(() => pop.classList.add('out'), 6200);
+    window.setTimeout(() => pop.remove(), 6700);
   }
 
 

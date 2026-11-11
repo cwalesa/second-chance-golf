@@ -5,7 +5,7 @@ import { escapeHtml } from './panels';
 
 export type JournalView = 'progress' | 'projects';
 
-const GO_LABEL: Record<string, string> = { build: 'Start building', course: 'Open Course', club: 'Open Clubhouse', money: 'Open Finances', events: 'Open Events' };
+const GO_LABEL: Record<string, string> = { build: 'Show me', course: 'Show me', club: 'Show me', money: 'Show me', events: 'Show me', guests: 'Show me' };
 
 /** The Goals panel: the one goal to work on now, then the road from first hole to eighteen. */
 export function journalPanel(g: Game, _view: JournalView): string {
@@ -21,7 +21,7 @@ export function journalPanel(g: Game, _view: JournalView): string {
       <p>${goal.how}</p>
       <div class="chain-bar"><i style="width:${pct}%"></i></div>
       <div class="chain-row"><span>${goalProgressText(goal, g)}</span><span class="chain-reward">Reward ${fmtMoney(goal.reward)}</span></div>
-      ${goal.go ? `<button class="btn primary chain-go" data-act="goalgo" data-id="${goal.go}">${GO_LABEL[goal.go]}</button>` : ''}
+      ${goal.go || goal.guide ? `<button class="btn primary chain-go" data-act="goalgo" data-id="${goal.id}">${GO_LABEL[goal.go ?? 'build']}</button>` : ''}
     </div>`;
   } else {
     html += `<div class="chain-now chain-free"><span class="chain-k">All ${CHAIN.length} goals done</span><h3>${escapeHtml(g.name)} is complete</h3><p>Eighteen holes and a grand clubhouse. From here it is a sandbox: build, reshape and decorate however you like.</p></div>`;

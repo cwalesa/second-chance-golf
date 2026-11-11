@@ -21,9 +21,9 @@ const mixc = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1]
 export const TREE_VARIANTS = 10;
 
 const LOOKS: Record<number, Look> = {
-  0: { light: [150, 190, 90], mid: [84, 140, 66], dark: [40, 86, 52], bark: [92, 70, 48], barkLight: [150, 122, 88] },
-  1: { light: [104, 158, 86], mid: [52, 104, 64], dark: [28, 62, 46], bark: [78, 62, 46], barkLight: [128, 106, 80] },
-  2: { light: [88, 148, 104], mid: [42, 98, 70], dark: [22, 58, 48], bark: [86, 64, 44], barkLight: [134, 108, 78] },
+  0: { light: [170, 210, 96], mid: [102, 162, 70], dark: [50, 104, 54], bark: [92, 70, 48], barkLight: [150, 122, 88] },
+  1: { light: [126, 182, 90], mid: [66, 126, 66], dark: [34, 78, 48], bark: [78, 62, 46], barkLight: [128, 106, 80] },
+  2: { light: [104, 168, 108], mid: [52, 116, 74], dark: [26, 70, 52], bark: [86, 64, 44], barkLight: [134, 108, 78] },
   4: { light: [196, 178, 84], mid: [150, 142, 66], dark: [98, 100, 52], bark: [96, 76, 52], barkLight: [146, 120, 88] },
   6: { light: [160, 168, 98], mid: [112, 130, 74], dark: [68, 88, 56], bark: [96, 80, 56], barkLight: [140, 118, 90] },
   7: { light: [250, 206, 220], mid: [222, 156, 184], dark: [160, 104, 140], bark: [84, 64, 52], barkLight: [138, 112, 92] },
