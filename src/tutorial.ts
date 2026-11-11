@@ -2,10 +2,8 @@ import type { Game } from './game';
 import type { Editor } from './input';
 import type { Renderer } from './render';
 import type { UI } from './ui';
-import type { ToolId } from './editing';
-import { T, Pt } from './terrain';
+import { Pt } from './terrain';
 import { suggestFirstHole } from './wilderness';
-import { REGIONS } from './progression';
 
 /** Saved progress through Level 1's guided walkthrough. */
 export interface TutorialState {
@@ -46,20 +44,6 @@ const hole = (c: Ctx, id: number) => c.g.world.holes.find((h) => h.id === id);
 const newestHole = (c: Ctx) => c.g.world.holes.reduce((a, h) => (h.id > a.id ? h : a), c.g.world.holes[0]);
 /** The hole the player built in this walkthrough: the newest one, worked out from the course so it survives a reload. */
 const myId = (c: Ctx) => newestHole(c).id;
-const groupOf: Partial<Record<ToolId, string>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
-
-/** Point at a tool: open the Design tray, then its group, then the tool itself. */
-const toolTarget = (c: Ctx, tool: ToolId) => {
-  if (c.e.tool === tool) return c.e.proposal ? ['#cfOk'] : [];
-  if (c.ui.mobile && c.ui.tab !== 'build') return ['#nav [data-nav="build"]', '#fab'];
-  return [`#tools [data-tool="${tool}"]`, `#tools [data-cat="${groupOf[tool]}"]`, '#tools .cat.on'];
-};
-/** Point at a button in the Holes panel, opening the panel first on phones. */
-const panelTarget = (c: Ctx, sel: string) => (c.ui.tab !== 'course' ? ['#nav [data-nav="course"]', '#side .tabs [data-tab="course"]', '#fab'] : [sel]);
-/** Make sure the hole bar and Holes panel are on the hole the step is about. */
-const holeTarget = (c: Ctx, id: number, then: string[]) => (c.g.selectedHole !== id ? ['#holebar [data-hb="next"]', `[data-hole="${id}"]`] : then);
-
-const isLandscape = (c: Ctx) => c.ui.landscape;
 const touchWords = (c: Ctx) => c.ui.mobile || matchMedia('(pointer: coarse)').matches;
 
 /** The first hole the coach suggests, worked out once from the player's own clubhouse spot. */
@@ -75,127 +59,65 @@ const holeHint = (c: Ctx) => {
 };
 const clubReady = (c: Ctx) => !!c.g.world.clubhouse;
 
-/** Untouched land in any region: the player picks the clubhouse spot, then builds one hole from nothing. */
+/**
+ * Four steps, each one tap or two: place the clubhouse, build a hole, open it, play.
+ * The game opens the right tool or panel for each step, so the player never has to hunt through menus.
+ */
 const STEPS: Step[] = [
-  {
-    short: (c) => `Welcome to ${c.g.name}.`,
-    more: (c) => `${REGIONS[c.g.region].blurb.split('.')[0]}. Nothing is built yet. Time is paused while you set up. You will place the clubhouse and build one hole. The gold ring shows where to tap.`,
-    nextLabel: 'Start',
-    view: 'map',
-  },
-  {
-    short: (c) => (touchWords(c) ? 'Drag one finger to move the map, then pinch to zoom.' : 'Drag to move the map, then scroll to zoom.'),
-    more: (c) => `Moving the map changes nothing. Meadows sit in the valleys; the ridges are forest.${isLandscape(c) ? '' : ' The + and − buttons zoom too.'}`,
-    view: 'map',
-    enter: (c) => { c.mark.x = c.r.cam.x; c.mark.y = c.r.cam.y; c.mark.z = c.r.cam.zoom; },
-    check: (c) => clubReady(c) || (Math.hypot(c.r.cam.x - (c.mark.x as number), c.r.cam.y - (c.mark.y as number)) * c.r.cam.zoom > 60 && Math.abs(c.r.cam.zoom / (c.mark.z as number) - 1) > 0.06),
-    skippable: true,
-  },
   {
     id: 'clubhouse',
     short: (c) => {
       const s = c.e.clubSpot;
-      if (!s) return `${touchWords(c) ? 'Tap' : 'Click'} the ground where the clubhouse should stand.`;
+      if (!s) return `${touchWords(c) ? 'Tap' : 'Click'} the ground to place your clubhouse.`;
       if (s.problem) return s.problem;
-      return c.e.clubLocked ? 'Tap Build here.' : `${touchWords(c) ? 'Tap' : 'Click'} to choose this spot.`;
+      return c.e.clubLocked ? 'Looks good. Tap Build here.' : `${touchWords(c) ? 'Tap' : 'Click'} again to choose this spot.`;
     },
-    more: () => 'Flat ground is best. Trees on the lot are cleared and an entrance road runs to the nearest edge, where golfers arrive. Suggest a spot picks one for you.',
     view: 'map',
-    target: (c) => (c.e.clubSpot && !c.e.clubSpot.problem && c.e.clubLocked ? ['#clubOk'] : ['#clubSuggest']),
+    target: (c) => (c.e.clubSpot && !c.e.clubSpot.problem && c.e.clubLocked ? ['#clubOk'] : []),
     check: (c) => clubReady(c),
   },
   {
-    short: () => 'Clubhouse built.',
-    more: () => 'Golfers arrive by the entrance road. The clubhouse is free; holes cost money.',
+    short: (c) => (c.e.tool !== 'build' ? 'Tap New hole in the tray.' : c.e.proposal ? 'Tap Build.' : c.e.overlay.buildTee ? 'Now tap the glowing green.' : 'Tap the glowing spot to put your first tee there.'),
     view: 'map',
-    enter: (c) => { const k = c.g.world.clubhouse; if (k) c.e.focusPoint({ x: k.x + 6, y: k.y + 2 }, 0.62); },
-    nextLabel: 'Next',
-  },
-  {
-    short: (c) => (c.ui.mobile ? (c.ui.menuOpen ? 'Tap Design to open the building tools.' : 'Tap the round menu button.') : 'The building tools are along the bottom of the screen.'),
-    more: () => 'Tools come in three groups: Terrain, Nature and Holes.',
-    view: 'map',
-    target: (c) => (c.ui.mobile ? ['#nav [data-nav="build"]', '#fab'] : []),
-    check: (c) => !c.ui.mobile || c.ui.tab === 'build',
-    nextLabel: 'Next',
-  },
-  {
-    short: (c) => (c.e.tool !== 'build' ? 'Tap Holes, then New hole.' : c.e.proposal ? 'Tap Build to lay out your hole.' : c.e.overlay.buildTee ? 'Tap where the green goes.' : 'Tap where the tee goes.'),
-    more: (c) => `${suggestion(c) ? 'Tee here and Green here mark a short par 3; any spot works. ' : ''}The preview shows par and yardage. Fairway, tee and green are laid out and trees in the way are cleared. Nothing is built until you tap Build.`,
-    view: 'map',
-    enter: (c) => { c.mark.n = c.g.world.holes.length; const s = suggestion(c); if (s) c.e.focusPoints([s.tee, s.cup]); },
-    target: (c) => toolTarget(c, 'build'),
-    hint: holeHint,
+    enter: (c) => {
+      c.mark.n = c.g.world.holes.length;
+      c.e.setNewPar(3);
+      c.e.setTool('build');
+      if (c.ui.mobile) { c.ui.tab = 'build'; c.ui.refresh(true); c.ui.onInsets(); }
+      const s = suggestion(c);
+      if (s) c.e.focusPoints([s.tee, s.cup]);
+    },
+    target: (c) => (c.e.tool !== 'build' ? ['#tools .ph-tools [data-tool="build"]', '#tools [data-tool="build"]'] : c.e.proposal ? ['#cfOk'] : []),
+    hint: (c) => {
+      // once the tee is down, frame the green too (on a short landscape screen it can start under the tip)
+      const s = suggestion(c);
+      if (s && c.e.overlay.buildTee && !c.mark.cupShown) { c.mark.cupShown = true; c.e.focusPoints([s.tee, s.cup]); }
+      return holeHint(c);
+    },
     check: (c) => c.g.world.holes.length > (c.mark.n as number) && !c.e.proposal,
   },
   {
-    short: () => 'Hole 1 built.',
-    more: (c) => { const h = newestHole(c); return `${h.name} is a par ${h.par}. Move tee and Move cup adjust it; Undo refunds the cost. New holes start closed.`; },
-    view: 'map',
-    enter: (c) => { c.e.selectHole(myId(c)); c.e.focusHole(); },
-    nextLabel: 'Next',
-  },
-  {
-    short: (c) => (c.e.tool !== 'bunker' ? 'Tap Terrain, then Bunker.' : c.e.proposal ? 'Tap Build to dig the bunker.' : 'Hold and drag beside the green.'),
-    more: () => 'Keep a fairway route open to the green or the hole cannot open. Optional.',
-    view: 'map',
-    enter: (c) => { c.mark.sand = sandNear(c); const h = hole(c, myId(c)); if (h) c.e.focusPoint(h.cup, 0.95); },
-    target: (c) => toolTarget(c, 'bunker'),
-    check: (c) => sandNear(c) >= (c.mark.sand as number) + 3 && !c.e.proposal,
-    skippable: true,
-  },
-  {
-    short: (c) => (c.ui.tab === 'course' ? 'Tap Open hole.' : 'Tap Course, then Open hole.'),
-    more: () => "If it can't open, the panel says why and Show on map takes you there.",
+    id: 'open',
+    short: () => 'Tap Open hole to let golfers play it.',
     view: 'sheet',
-    target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="open"]')),
+    enter: (c) => {
+      c.e.selectHole(myId(c));
+      c.e.setTool('inspect');
+      c.ui.tab = 'course';
+      if (c.ui.portraitSheet) c.ui.sheet = 'half';
+      c.ui.refresh(true);
+      c.ui.onInsets();
+    },
+    target: () => ['[data-act="open"]'],
     check: (c) => !!hole(c, myId(c))?.open,
   },
   {
-    id: 'testgolfers',
-    short: () => 'Tap Send test golfers.',
-    more: () => 'A beginner, a regular and a skilled golfer play the hole for free. Scores appear in the Course panel.',
-    view: 'sheet',
-    target: (c) => holeTarget(c, myId(c), panelTarget(c, '[data-act="testgolfers"]')),
-    check: (c) => c.g.sim.golfers.some((x) => x.test && x.route.includes(myId(c))) || c.g.testResults.some((r) => r.hole === myId(c)),
-  },
-  {
-    short: (c) => (c.g.settings.speed < 3 ? `Tap ${c.ui.mobile && !isLandscape(c) ? '3×' : '8×'} to speed up time.` : 'Watch them finish the hole.'),
-    more: () => 'II pauses and 1× is normal speed.',
+    short: () => 'Your first hole is open. Golfers are on their way!',
     view: 'map',
-    target: (c) => (c.g.settings.speed < 3 ? ['#speed [data-speed="8"]', '#speed [data-speed="3"]'] : []),
-    check: (c) => c.g.testResults.some((r) => r.hole === myId(c)),
-    skippable: true,
-  },
-  {
-    short: (c) => (c.g.owner.active ? 'Tap Start swing, then tap again in the middle.' : c.ui.tab === 'course' ? 'Tap Play it.' : 'Tap Course, then Play it.'),
-    more: () => 'Pick a club, then tap the map to aim. Stop the needle in the middle for clean contact. Optional.',
-    view: 'sheet',
-    target: (c) => (c.g.owner.active ? ['[data-owner="hit"]'] : holeTarget(c, myId(c), panelTarget(c, '[data-act="practice"]'))),
-    check: (c) => c.g.owner.active && c.g.owner.strokes >= 1,
-    skippable: true,
-  },
-  {
-    short: () => 'Tap Finish when you are done.',
-    target: (c) => (c.g.owner.active ? ['[data-owner="stop"]'] : []),
-    check: (c) => !c.g.owner.active,
-  },
-  {
-    short: () => 'Open the course.',
-    more: () => 'Next: build up to nine holes. The Goals tab starts with opening three. Tap below to start the clock and let golfers in.',
-    nextLabel: 'Start clock',
+    enter: (c) => { if (c.ui.tab === 'course') { c.ui.tab = 'none'; c.ui.refresh(true); c.ui.onInsets(); } },
+    nextLabel: 'Play',
   },
 ];
-
-function sandNear(c: Ctx) {
-  const h = hole(c, myId(c));
-  if (!h) return 0;
-  const w = c.g.world;
-  let n = 0;
-  for (let y = h.cup.y - 8; y <= h.cup.y + 8; y++)
-    for (let x = h.cup.x - 8; x <= h.cup.x + 8; x++) if (x >= 0 && y >= 0 && x < w.w && y < w.h && w.terrain[y * w.w + x] === T.BUNKER) n++;
-  return n;
-}
 
 /** Level 1's coach: one short instruction at a time, docked beside the free map area, with a ring on the target. */
 export class Tutorial {
@@ -208,7 +130,6 @@ export class Tutorial {
   private more = false;
   /** While a confirm or placement bar is up, the coach shrinks to its instruction; ⋯ shows Back/More/Skip. */
   private toolsOpen = false;
-  private slim = false;
   private doneFlash = 0;
   /** Highest step reached this session; Back reviews earlier steps without re-checking them. */
   private furthest = 0;
@@ -230,7 +151,7 @@ export class Tutorial {
       else if (act === 'fold') this.collapsed = !this.collapsed;
       else if (act === 'tools') this.toolsOpen = !this.toolsOpen;
       else if (act === 'skip') {
-        if (confirm('Skip the tutorial? You can replay it from the Menu.')) this.finish();
+        this.finish();
       }
       this.update(true);
       this.ui.onInsets();
@@ -314,11 +235,7 @@ export class Tutorial {
     }
     const flash = performance.now() - this.doneFlash < 900;
     const manual = !step.check || this.reviewing;
-    const moreText = step.more?.(this.ctx);
-    const confirm = document.getElementById('confirm');
-    this.slim = this.ui.mobile && (!this.ui.landscape || (!!confirm && confirm.style.display !== 'none'));
-    const showTools = !this.slim || this.toolsOpen;
-    const html = `<div class="coach-row"><span class="coach-count">${flash ? '✓ ' : ''}${t.step + 1}/${STEPS.length}</span><p class="coach-short">${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${this.reviewing ? 'Next' : step.nextLabel ?? 'Next'}</button>` : step.skippable ? '<button class="btn coach-next" data-coach="next">Skip step</button>' : ''}${this.slim && !this.collapsed ? `<button class="coach-dots" data-coach="tools" aria-label="${showTools ? 'Hide' : 'Show'} tutorial options" aria-expanded="${showTools}">⋯</button>` : ''}</div>${this.collapsed || !showTools ? '' : `${this.more && moreText ? `<p class="coach-more">${moreText}</p>` : ''}<div class="coach-tools"><button data-coach="back" ${t.step === 0 ? 'disabled' : ''} aria-label="Previous step">‹<span> Back</span></button>${moreText ? `<button data-coach="more" aria-expanded="${this.more}">${this.more ? 'Less' : 'More'}</button>` : ''}<button data-coach="skip">Skip</button><button data-coach="fold" aria-label="Collapse instructions">▾</button></div>`}${this.collapsed ? '<button class="coach-unfold" data-coach="fold" aria-label="Expand instructions">▴</button>' : ''}`;
+    const html = `<div class="coach-row"><p class="coach-short">${flash ? '✓ ' : ''}${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${step.nextLabel ?? 'Next'}</button>` : ''}${manual && t.step === STEPS.length - 1 ? '' : '<button class="coach-x" data-coach="skip" aria-label="Skip the tutorial">Skip</button>'}</div>`;
     if (force || entering || html !== this.html) {
       const resized = this.html === '' || entering || force || this.card.classList.contains('collapsed') !== this.collapsed;
       this.html = html;
@@ -332,34 +249,15 @@ export class Tutorial {
     this.pointAt(step.target?.(this.ctx) ?? []);
   }
 
-  /** Sit just above whatever occupies the bottom of the screen: nav, tool tray, sheet or confirm bar. */
+  /** Phones: the top of the screen is free, so the coach sits under the status chip and the bottom stays for building. */
   private dock() {
-    if (!this.ui.mobile) { this.card.style.bottom = ''; this.card.style.left = ''; this.card.style.width = ''; this.card.classList.remove('beside'); return; }
-    // Phone portrait: the top of the screen is free, so the coach sits under the status chip and the bottom stays for building.
-    if (!this.ui.landscape) {
-      const hdr = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 56;
-      const top = `${Math.round(hdr + 8)}px`;
-      this.card.classList.add('ontop');
-      if (this.card.style.top !== top || this.card.style.bottom !== 'auto') { this.card.style.top = top; this.card.style.bottom = 'auto'; this.card.style.left = ''; this.card.style.width = ''; this.ui.onInsets(); }
-      return;
-    }
-    this.card.classList.remove('ontop');
-    this.card.style.top = '';
-    const confirm = document.getElementById('confirm');
-    const cr = confirm && confirm.style.display !== 'none' ? confirm.getBoundingClientRect() : null;
-    const dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock')) || 0;
-    const sideW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 0;
-    // In landscape there is usually room beside the confirm bar; stacking would leave almost no map.
-    const room = cr ? window.innerWidth - cr.right - 14 - sideW : 0;
-    const beside = this.ui.landscape && !!cr && room >= 250;
-    const bottom = beside ? `${Math.round(window.innerHeight - cr!.bottom)}px` : `${Math.round(dock + (cr ? cr.height + 8 : 0) + 8)}px`;
-    const left = beside ? `${Math.round(cr!.right + 8)}px` : '';
-    const width = beside ? `${Math.round(Math.min(room, 420))}px` : '';
-    this.card.classList.toggle('beside', beside);
-    if (this.card.style.bottom !== bottom || this.card.style.left !== left || this.card.style.width !== width) {
-      this.card.style.bottom = bottom;
-      this.card.style.left = left;
-      this.card.style.width = width;
+    if (!this.ui.mobile) { this.card.style.top = ''; this.card.style.bottom = ''; this.card.classList.remove('ontop'); return; }
+    const hdr = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 56;
+    const top = `${Math.round(hdr + 8)}px`;
+    this.card.classList.add('ontop');
+    if (this.card.style.top !== top || this.card.style.bottom !== 'auto') {
+      this.card.style.top = top;
+      this.card.style.bottom = 'auto';
       this.ui.onInsets();
     }
   }
@@ -391,4 +289,4 @@ export class Tutorial {
 
 export const TUTORIAL_STEPS = STEPS.length;
 /** Index of 'Send test golfers': from here on the clock must be allowed to run. */
-const TEST_GOLFER_STEP = STEPS.findIndex((st) => st.id === 'testgolfers');
+const TEST_GOLFER_STEP = STEPS.findIndex((st) => st.id === 'open') + 1;

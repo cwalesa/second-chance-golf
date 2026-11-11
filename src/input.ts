@@ -130,11 +130,11 @@ export class Editor {
   /** Zoom and centre so every given tile is on screen, clear of the panels. */
   focusPoints(pts: Pt[], maxZoom = 0.95) {
     const width = this.r.cw - this.r.insets.l - this.r.insets.r - 40;
-    const height = this.r.ch - this.r.insets.t - this.r.insets.b - 60;
+    const height = this.r.ch - this.r.insets.t - this.r.insets.b - 30;
     const points = pts.map((p) => projectGround(p.x * 32, p.y * 32));
     const spanX = Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)) + 240;
-    const spanY = Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)) + 200;
-    const zoom = Math.max(0.25, Math.min(maxZoom, width / spanX, Math.max(180, height) / spanY));
+    const spanY = Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)) + 130;
+    const zoom = Math.max(0.25, Math.min(maxZoom, width / spanX, Math.max(120, height) / spanY));
     this.r.focus((Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2 + 0.5, (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2 + 0.5, zoom, this.game.world);
   }
   setTool(t: ToolId) {

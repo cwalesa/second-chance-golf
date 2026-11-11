@@ -43,8 +43,6 @@ body.mobile #top {
 }
 body.mobile #top > * { display: none !important; }
 body.mobile #top > .stat:has(#cash), body.mobile #top > .stat:has(#clock) { display: flex !important; }
-body.mobile #top > #speed { display: flex !important; }
-body.mobile:is([data-tab="build"], .has-proposal) #top > #editbtns { display: flex !important; }
 body.mobile #top .stat .k { font-size: 9px !important; letter-spacing: .06em; color: var(--ink-dim) !important; font-weight: 700; }
 body.mobile #top .stat .v { color: var(--ink) !important; font-size: 15px !important; font-weight: 800; }
 body.mobile #top .stat .v.small { font-size: 12px !important; font-weight: 700; }
@@ -317,4 +315,51 @@ body.mobile #side .note.warn { border-color: var(--sun-d) !important; color: #7a
 body.mobile #side .note.good { border-color: var(--leaf) !important; }
 @media (orientation: landscape) and (max-height: 600px) {
   body.mobile #side { width: min(390px, 48vw) !important; height: auto !important; }
+}
+
+/* ---------- simpler: the chip only shows money and time; speed lives in the menu, undo in the tray ---------- */
+body.mobile #top { height: 38px !important; padding: 0 14px !important; gap: 14px !important; border-radius: 19px !important; background: #fff8e7e6 !important; box-shadow: 0 2px 0 var(--pp-deep), 0 4px 10px #1b2a1330 !important; pointer-events: none; }
+body.mobile #top .stat .k { display: none !important; }
+body.mobile #top .daybar { display: none !important; }
+body.mobile #top .stat .v.small { font-size: 13px !important; }
+
+#nav .mspeed, #nav .mset, #tools .phonerow { display: none; }
+body.mobile.menu-open #nav .mspeed { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 18px; background: var(--pp2); margin-bottom: 4px; }
+body.mobile.menu-open #nav .mspeed button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; border: 0; border-radius: 14px; background: none; color: var(--ink-dim); font-weight: 800; font-size: 14px; }
+body.mobile.menu-open #nav .mspeed button svg { width: 18px; height: 18px; }
+body.mobile.menu-open #nav .mspeed button.on { background: #fff; color: var(--ink); box-shadow: 0 2px 0 var(--pp-edge); }
+body.mobile.menu-open #nav .mset { display: block; grid-column: 1 / -1; min-height: 40px; border: 0; background: none; color: var(--ink-dim); font-weight: 700; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+
+/* the build tray is a single row: undo, the tools, done */
+body.mobile #tools .catrow, body.mobile #tools .toolrow, body.mobile #brushbar { display: none !important; }
+body.mobile #tools { padding-top: 10px !important; }
+body.mobile #tools .phonerow { display: flex; align-items: center; gap: 8px; }
+body.mobile #tools .ph-tools { display: flex; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 5px; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+body.mobile #tools .ph-tools::-webkit-scrollbar { display: none; }
+body.mobile #tools .ph-tools .tool {
+  flex: none; width: 64px; height: 66px; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border-radius: 16px; border: 2px solid var(--pp2); background: #fff; color: var(--ink); font-size: 11px; font-weight: 700; box-shadow: 0 3px 0 var(--pp-edge); transition: transform .12s;
+}
+body.mobile #tools .ph-tools .tool canvas { width: 48px; height: 32px; }
+body.mobile #tools .ph-tools .tool span { white-space: nowrap; color: var(--ink); }
+body.mobile #tools .ph-tools .tool.on { background: #fff6d2; border-color: var(--sun); box-shadow: 0 3px 0 var(--sun-d); transform: translateY(-2px); }
+body.mobile #tools .ph-undo { flex: none; width: 44px; height: 44px; border-radius: 22px; border: 0; background: var(--pp2); color: var(--ink); display: flex; align-items: center; justify-content: center; }
+body.mobile #tools .ph-undo svg { width: 20px; height: 20px; }
+body.mobile #tools .phonerow .tray-done { display: flex; height: 44px; border-radius: 22px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools { padding: 6px 8px !important; }
+  body.mobile #tools .phonerow { flex: 1; }
+}
+
+/* the tutorial tip: one sentence and a quiet Skip */
+body.mobile #coach .coach-x, #coach .coach-x { flex: none; border: 0; background: none; color: var(--ink-dim, #b9b49d); font-size: 12px; font-weight: 700; min-height: 36px; padding: 0 6px; text-decoration: underline; text-underline-offset: 3px; }
+/* while the tutorial talks, the placement bar does not repeat it */
+body.mobile.coaching #confirm.placing:not(:has(#clubOk)) { display: none !important; }
+body.mobile.coaching.placing-club #confirm .cf-text { display: none !important; }
+body.mobile.menu-open #nav .mspeed button { width: auto !important; flex-direction: row !important; min-height: 44px !important; font-size: 14px !important; color: var(--ink-dim) !important; }
+body.mobile.menu-open #nav .mspeed button span { display: inline !important; }
+body.mobile.menu-open #nav .mspeed button.on { color: var(--ink) !important; }
+body.mobile.menu-open #nav .mset { width: auto !important; min-height: 40px !important; font-size: 13px !important; color: var(--ink-dim) !important; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach.ontop { right: auto !important; width: min(460px, calc(100vw - 24px)) !important; margin-right: 0; }
 }

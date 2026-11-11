@@ -111,6 +111,7 @@ export class UI {
     const cat = (id: ToolCat, label: string) => `<button class="cat" data-cat="${id}">${label}</button>`;
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div><button class="tray-done" data-done="1" aria-label="Done building">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/></svg></button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -130,6 +131,7 @@ export class UI {
     this.$('tools').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
+      if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
       if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
       else if (b.dataset.cat) {
@@ -280,13 +282,8 @@ export class UI {
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
     // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
     const ic = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    this.$('nav').insertAdjacentHTML('afterbegin', '<div class="mhead"><b>Menu</b><small>Time is paused while this is open</small></div>');
-    this.$('nav').insertAdjacentHTML('beforeend', `<div class="mrow">
-      <button data-m="fit">${ic('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')}<span>Whole map</span></button>
-      <button data-m="club">${ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>')}<span>Clubhouse</span></button>
-      <button data-m="map">${ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}<span>Mini map</span></button>
-      <button data-m="settings">${ic('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>')}<span>Save &amp; settings</span></button>
-    </div>`);
+    this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${ic('<path d="M9 6v12M15 6v12"/>')}<span>Pause</span></button><button data-mspeed="1">${ic('<path d="M8 5l11 7-11 7z"/>')}<span>Play</span></button><button data-mspeed="3">${ic('<path d="M4 6l8 6-8 6zM12 6l8 6-8 6z"/>')}<span>Fast</span></button></div>`);
+    this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
     const fab = document.createElement('button');
     fab.id = 'fab';
     fab.setAttribute('aria-label', 'Menu');
@@ -300,6 +297,7 @@ export class UI {
     this.$('nav').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
+      if (b.dataset.mspeed !== undefined) { this.game.setSpeed(Number(b.dataset.mspeed)); this.menuOpen = false; this.refresh(true); return; }
       if (b.dataset.m) {
         this.menuOpen = false;
         if (b.dataset.m === 'settings') this.openMenu();
@@ -424,9 +422,11 @@ export class UI {
     if (this.mobile) {
       const nav = { right: 0, height: 0 };
       if (this.landscape) {
-        const side = this.tab !== 'none' && this.tab !== 'build' ? r('side') : null;
-        return { l: nav.right + 10, r: side ? window.innerWidth - side.left + 10 : 12,
-          t: r('top').bottom + 10, b: this.tab === 'build' ? window.innerHeight - r('tools').top + 10 : 12 };
+        // sizes, not positions: panels slide in, and a rect taken mid-animation would be wrong
+        const el = (id: string) => document.getElementById(id) as HTMLElement;
+        const sideOpen = this.tab !== 'none' && this.tab !== 'build';
+        return { l: nav.right + 10, r: sideOpen ? el('side').offsetWidth + 16 : 12,
+          t: r('top').bottom + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
       }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
       return { l: 0, r: 0, t: r('top').bottom + 8, b: nav.height + sheet };
@@ -632,6 +632,8 @@ export class UI {
   }
 
   toast(text: string, kind: 'info' | 'good' | 'bad' = 'info') {
+    // During the tutorial the coach already says what happened; only problems get through.
+    if (this.mobile && kind !== 'bad' && document.body.classList.contains('coaching')) return;
     const t = document.createElement('div');
     t.className = `toast ${kind}`;
     t.textContent = text;
@@ -706,6 +708,7 @@ export class UI {
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
     document.body.classList.toggle('menu-open', this.menuOpen);
+    this.$('nav').querySelectorAll<HTMLElement>('[data-mspeed]').forEach((b) => b.classList.toggle('on', Number(b.dataset.mspeed) === g.settings.speed));
     const fabState = this.tab === 'build' ? 'done' : this.menuOpen ? 'close' : 'menu';
     if (this.cache.get('fab') !== fabState) {
       this.cache.set('fab', fabState);
