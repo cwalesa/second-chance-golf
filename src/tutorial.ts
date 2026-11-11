@@ -51,11 +51,11 @@ const groupOf: Partial<Record<ToolId, string>> = { fairway: 'terrain', green: 't
 /** Point at a tool: open the Design tray, then its group, then the tool itself. */
 const toolTarget = (c: Ctx, tool: ToolId) => {
   if (c.e.tool === tool) return c.e.proposal ? ['#cfOk'] : [];
-  if (c.ui.mobile && c.ui.tab !== 'build') return ['#nav [data-nav="build"]'];
+  if (c.ui.mobile && c.ui.tab !== 'build') return ['#nav [data-nav="build"]', '#fab'];
   return [`#tools [data-tool="${tool}"]`, `#tools [data-cat="${groupOf[tool]}"]`, '#tools .cat.on'];
 };
 /** Point at a button in the Holes panel, opening the panel first on phones. */
-const panelTarget = (c: Ctx, sel: string) => (c.ui.tab !== 'course' ? ['#nav [data-nav="course"]', '#side .tabs [data-tab="course"]'] : [sel]);
+const panelTarget = (c: Ctx, sel: string) => (c.ui.tab !== 'course' ? ['#nav [data-nav="course"]', '#side .tabs [data-tab="course"]', '#fab'] : [sel]);
 /** Make sure the hole bar and Holes panel are on the hole the step is about. */
 const holeTarget = (c: Ctx, id: number, then: string[]) => (c.g.selectedHole !== id ? ['#holebar [data-hb="next"]', `[data-hole="${id}"]`] : then);
 
@@ -112,10 +112,10 @@ const STEPS: Step[] = [
     nextLabel: 'Next',
   },
   {
-    short: (c) => (c.ui.mobile ? 'Tap Design to open the building tools.' : 'The building tools are along the bottom of the screen.'),
+    short: (c) => (c.ui.mobile ? (c.ui.menuOpen ? 'Tap Design to open the building tools.' : 'Tap the round menu button.') : 'The building tools are along the bottom of the screen.'),
     more: () => 'Tools come in three groups: Terrain, Nature and Holes.',
     view: 'map',
-    target: (c) => (c.ui.mobile ? ['#nav [data-nav="build"]'] : []),
+    target: (c) => (c.ui.mobile ? ['#nav [data-nav="build"]', '#fab'] : []),
     check: (c) => !c.ui.mobile || c.ui.tab === 'build',
     nextLabel: 'Next',
   },
@@ -357,7 +357,7 @@ export class Tutorial {
   private pointAt(selectors: string[]) {
     let el: HTMLElement | null = null;
     for (const s of selectors) {
-      const found = [...document.querySelectorAll<HTMLElement>(s)].find((x) => x.offsetParent !== null && x.getBoundingClientRect().width > 0);
+      const found = [...document.querySelectorAll<HTMLElement>(s)].find((x) => x.getClientRects().length > 0 && x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden');
       if (found) { el = found; break; }
     }
     if (el && el.closest('#side') && this.ui.portraitSheet && this.ui.sheet === 'peek') this.ui.setSheet('half');

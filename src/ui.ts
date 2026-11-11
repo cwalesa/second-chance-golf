@@ -63,6 +63,8 @@ export class UI {
   get modalOpen() { return !this.$('modal').hidden; }
   get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
+  /** Phone only: the menu sheet the round button opens. */
+  menuOpen = false;
   onInsets: () => void = () => {};
   private busy = false;
   private cache = new Map<string, string>();
@@ -78,6 +80,8 @@ export class UI {
 
   constructor(private game: Game, private editor: Editor) {
     document.addEventListener('pointerdown', (e) => {
+      // a tap outside the open phone menu closes it
+      if (this.menuOpen && !(e.target as HTMLElement).closest('#nav, #fab, #modal')) { this.menuOpen = false; this.refresh(true); }
       if ((e.target as HTMLElement).closest('#side, #top, #tools')) this.busy = true;
     });
     const release = () => (this.busy = false);
@@ -273,9 +277,37 @@ export class UI {
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
+    // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
+    const ic = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    this.$('nav').insertAdjacentHTML('afterbegin', '<div class="mhead"><b>Menu</b><small>Time is paused while this is open</small></div>');
+    this.$('nav').insertAdjacentHTML('beforeend', `<div class="mrow">
+      <button data-m="fit">${ic('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')}<span>Whole map</span></button>
+      <button data-m="club">${ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>')}<span>Clubhouse</span></button>
+      <button data-m="map">${ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}<span>Mini map</span></button>
+      <button data-m="settings">${ic('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>')}<span>Save &amp; settings</span></button>
+    </div>`);
+    const fab = document.createElement('button');
+    fab.id = 'fab';
+    fab.setAttribute('aria-label', 'Menu');
+    document.getElementById('app')!.append(fab);
+    fab.onclick = () => {
+      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); }
+      else this.menuOpen = !this.menuOpen;
+      this.refresh(true);
+      this.onInsets();
+    };
     this.$('nav').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
+      if (b.dataset.m) {
+        this.menuOpen = false;
+        if (b.dataset.m === 'settings') this.openMenu();
+        else (document.querySelector(`#map-controls [data-camera="${b.dataset.m}"]`) as HTMLElement | null)?.click();
+        this.refresh(true);
+        return;
+      }
+      if (!b.dataset.nav) return;
+      this.menuOpen = false;
       const t = b.dataset.nav as Tab;
       this.tab = this.tab === t ? 'none' : t;
       if (this.tab === t && t !== 'build') this.sheet = 'half';
@@ -317,8 +349,10 @@ export class UI {
     const vis = (id: string) => { const el = document.getElementById(id); if (!el || el.style.display === 'none' || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.height > 0 ? r : null; };
     const top = vis('top');
     let dockTop = H;
-    if (this.mobile && !this.landscape) for (const id of ['nav', 'tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    if (this.mobile && !this.landscape) for (const id of ['tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
     if (this.mobile && this.landscape) { const r = vis('tools'); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
+    // the round menu button sits in the bottom corner: docked cards and bars stay above it
+    if (this.mobile && !this.landscape) dockTop = Math.min(dockTop, H - 82);
     const side = this.mobile && this.landscape ? vis('side') : null;
     const vals = `${Math.round(top ? top.bottom : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(window.innerWidth - side.left) : 0}`;
     if (vals === this.layoutKey) return;
@@ -386,7 +420,7 @@ export class UI {
   private panelInsets() {
     const r = (id: string) => (document.getElementById(id) as HTMLElement).getBoundingClientRect();
     if (this.mobile) {
-      const nav = r('nav');
+      const nav = { right: 0, height: 0 };
       if (this.landscape) {
         const side = this.tab !== 'none' && this.tab !== 'build' ? r('side') : null;
         return { l: nav.right + 10, r: side ? window.innerWidth - side.left + 10 : 12,
@@ -668,6 +702,18 @@ export class UI {
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
+    if (!this.mobile) this.menuOpen = false;
+    document.body.classList.toggle('menu-open', this.menuOpen);
+    const fabState = this.tab === 'build' ? 'done' : this.menuOpen ? 'close' : 'menu';
+    if (this.cache.get('fab') !== fabState) {
+      this.cache.set('fab', fabState);
+      const fab = this.$('fab');
+      fab.dataset.state = fabState;
+      fab.setAttribute('aria-label', fabState === 'done' ? 'Done building' : fabState === 'close' ? 'Close menu' : 'Menu');
+      fab.innerHTML = fabState === 'done' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Done</span>'
+        : fabState === 'close' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    }
     document.body.dataset.journalView = this.journalView;
     const titleHole = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
     this.$('sheetTitle').textContent = titleHole ? titleHole.name : this.tab === 'none' ? '' : TAB_LABEL[this.tab] ?? this.tab;
