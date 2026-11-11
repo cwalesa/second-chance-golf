@@ -5,6 +5,7 @@ import { createWilderness } from './wilderness';
 import { Rng } from './rng';
 import { noUpgrades } from './economy';
 import { REGIONS } from './progression';
+import { CHAIN, CHAIN_V1 } from './campaign';
 import { defaultLogo } from './logo';
 
 const KEY = 'second-chance-golf.save.v2';
@@ -110,6 +111,15 @@ export function deserialize(text: string): LoadedSave | null {
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
     if (d.campaign?.step === undefined) g.catchUpGoals();
+    else {
+      // find the saved goal in the current chain; saves from before ids were stored used the first chain's order
+      const id = d.campaign.goalId ?? CHAIN_V1[d.campaign.step] ?? 'done';
+      const at = CHAIN.findIndex((c) => c.id === id);
+      g.campaign.step = at >= 0 ? at : CHAIN.length;
+      g.campaign.goalId = id;
+      // goals added before this point that the course has already met are skipped, unpaid
+      g.catchUpGoals();
+    }
     // Saves from before the walkthrough existed already know the controls.
     g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
     g.staff = { ...g.staff, ...(d.staff ?? {}) };

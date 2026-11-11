@@ -488,3 +488,6 @@ button { touch-action: manipulation; }
 #start .sub { font-size: 12px !important; margin-bottom: 14px !important; }
 #start { background: radial-gradient(120% 80% at 50% 0%, #6b9c57, #2f6424) !important; backdrop-filter: none !important; }
 #confirm .cf-hint { display: block; font-size: 11.5px; color: var(--ink-dim, #b9b49d); margin-top: 2px; }
+@keyframes guide-pulse { 0%, 100% { box-shadow: 0 0 0 3px #ffd25e, 0 0 0 7px #ffd25e55; } 50% { box-shadow: 0 0 0 3px #ffd25e, 0 0 0 13px #ffd25e00; } }
+.guide-ring { position: relative; z-index: 3; animation: guide-pulse 1.1s ease-in-out infinite !important; border-radius: 14px; }
+#goalpop .gp-go { margin-top: 10px; min-height: 40px; padding: 0 20px; border: 0; border-radius: 20px; background: #4d8a3a; color: #fff; font: 800 14px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; box-shadow: 0 3px 0 #2f6424; }

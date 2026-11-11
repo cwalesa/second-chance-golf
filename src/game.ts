@@ -570,6 +570,7 @@ export class Game {
     const goal = CHAIN[i];
     if (!goal || goal.value(this) < goal.target) return;
     this.campaign.step = i + 1;
+    this.campaign.goalId = CHAIN[i + 1]?.id ?? 'done';
     this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
     const next = CHAIN[i + 1] ?? null;
     this.goalJustDone = { title: goal.title, reward: goal.reward, next: next ? next.title : null };
@@ -581,6 +582,7 @@ export class Game {
     let i = chainStep(this);
     while (CHAIN[i] && CHAIN[i].value(this) >= CHAIN[i].target) i++;
     this.campaign.step = i;
+    this.campaign.goalId = CHAIN[i]?.id ?? 'done';
   }
 
   // ---- player actions ----
