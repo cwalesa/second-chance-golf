@@ -3,6 +3,8 @@ import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { ITEMS, ITEM_KINDS, ItemKind } from './items';
+import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
 import type { Cheer } from './game';
@@ -21,6 +23,27 @@ type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
 const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'journey'];
+/** Plain help for each tool, the first time it is picked. */
+const TOOL_TIPS: Partial<Record<string, string>> = {
+  build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust. Nothing is built until you tap Build.',
+  fairway: 'Hold a finger on the map, then drag to paint fairway. Golfers aim for it. Every hole needs fairway from tee to green.',
+  green: 'Hold and drag to grow or reshape a green. Bigger greens are easier to hit.',
+  bunker: 'Hold and drag to dig sand. Bunkers beside greens and fairways make holes more interesting, but keep a clear way to the green.',
+  water: 'Hold and drag to dig ponds and streams. Water is a hazard; golfers can play over it but cannot walk through it.',
+  path: 'Hold and drag to lay a cart path. Golfers walk faster on paths, and a path over water becomes a bridge.',
+  treeAdd: 'Hold and drag to plant trees. Trees frame holes and punish wild shots.',
+  treeDel: 'Hold and drag to clear trees out of the way of a hole.',
+  rough: 'Hold and drag to turn anything back into rough grass.',
+};
+/** What each panel is for, the first time it opens. */
+const TAB_TIPS: Partial<Record<string, string>> = {
+  course: 'Every hole you build, with its par, length and whether it is open. Only open holes earn money.',
+  guests: 'How happy your golfers are, and why. Happy golfers come back and may join as members.',
+  money: 'Set green fees for each time of day; keep them near what guests think is fair. Improvements here earn extra money.',
+  club: 'Upgrade the clubhouse to allow more holes, hire staff and see what raises your rating.',
+  events: 'Book a tournament or outing for a big one-day crowd. Each event lists what it needs.',
+  journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
+};
 const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
 const TAB_ICON: Record<string, string> = {
   journey: '<path d="M4 18l5-12 6 12 5-12M4 18h.01M20 6h.01"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/>',
@@ -65,6 +88,8 @@ export class UI {
   get modalOpen() { return !this.$('modal').hidden; }
   get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
+  /** Which row the phone build tray shows: course tools or decorations. */
+  traySet: 'course' | 'decor' = 'course';
   private dayCheck = 0;
   /** Phone only: the menu sheet the round button opens. */
   menuOpen = false;
@@ -76,6 +101,8 @@ export class UI {
   private toolShown = '';
   private cat: ToolCat = 'terrain';
   onReset: () => void = () => {};
+  onPractice: () => void = () => {};
+  onGraduate: () => void = () => {};
   onSaveNow: () => void = () => {};
   onExport: () => void = () => {};
   onImport: () => void = () => {};
@@ -114,7 +141,8 @@ export class UI {
     const cat = (id: ToolCat, label: string) => `<button class="cat" data-cat="${id}">${label}</button>`;
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div><button class="tray-done" data-done="1" aria-label="Done building">Done</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/></svg></button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/></svg></button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor">${ITEM_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -131,10 +159,21 @@ export class UI {
       if (b?.dataset.brush) { this.editor.setBrush(this.mobile ? (this.editor.brush + 1) % BRUSH_RADII.length : Number(b.dataset.brush)); this.refresh(true); }
     });
     this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
+    {
+      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+      this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-decorthumb]').forEach((c) => {
+        const sp = sprites[c.dataset.decorthumb!];
+        const x = c.getContext('2d')!;
+        const k = Math.min((c.width - 8) / sp.cv.width, (c.height - 6) / sp.cv.height);
+        x.drawImage(sp.cv, (c.width - sp.cv.width * k) / 2, c.height - 3 - sp.cv.height * k, sp.cv.width * k, sp.cv.height * k);
+      });
+    }
     this.$('tools').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
       if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
+      if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor'; if (this.traySet === 'decor') this.editor.setTool('decor'); else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
+      if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
       if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
       else if (b.dataset.cat) {
@@ -531,16 +570,17 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdTutorial">Replay the tutorial</button>
+      <button class="btn" id="mdTutorial">${g.practice ? 'Leave the practice course' : 'Play the practice course'}</button>
       <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdTutorial') as HTMLElement).onclick = () => {
-      const t = this.modal(`<h2>Replay the tutorial?</h2><p>This starts a new game on fresh land. Your current course is deleted.</p><div class="actions"><button class="btn" id="tuNo">Keep course</button><button class="btn primary" id="tuOk">Start new game</button></div>`);
+      if (g.practice) { this.closeModal(); this.onGraduate(); return; }
+      const t = this.modal(`<h2>Play the practice course?</h2><p>A short guided course to learn the basics. Your own course is kept safe and comes back when you finish.</p><div class="actions"><button class="btn" id="tuNo">Not now</button><button class="btn primary" id="tuOk">Practice</button></div>`);
       (t.querySelector('#tuNo') as HTMLElement).onclick = () => this.closeModal();
-      (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onReset(); };
+      (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onPractice(); };
     };
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
@@ -607,7 +647,7 @@ export class UI {
   private settingsModal() {
     const prefs = this.game.preferences;
     const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
-    m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { this.game.preferences[input.dataset.pref as keyof typeof prefs] = input.checked; this.game.dirtySave = true; }; });
+    m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
   }
   private showRecap() {
@@ -686,11 +726,12 @@ export class UI {
     }
     if (performance.now() - this.dayCheck > 2000) {
       this.dayCheck = performance.now();
-      if (!document.body.classList.contains('coaching') && rollDay(g)) {
+      if (!g.practice && !document.body.classList.contains('coaching') && rollDay(g)) {
         g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
       }
     }
-    const badge = claimable(g);
+    document.body.classList.toggle('practice', g.practice);
+    const badge = g.practice ? 0 : claimable(g);
     if (this.cache.get('badge') !== String(badge)) {
       this.cache.set('badge', String(badge));
       this.$('fab').dataset.badge = badge ? String(badge) : '';
@@ -726,6 +767,11 @@ export class UI {
 
     // tool buttons
     this.$('tools').querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tool === this.editor.tool));
+    if (this.editor.tool === 'decor') this.traySet = 'decor';
+    else if (this.editor.tool !== 'inspect' && this.editor.tool !== 'pan') this.traySet = 'course';
+    this.$('tools').dataset.set = this.traySet;
+    this.$('tools').querySelectorAll<HTMLElement>('[data-trayset]').forEach((b) => b.classList.toggle('on', b.dataset.trayset === this.traySet));
+    this.$('tools').querySelectorAll<HTMLElement>('[data-decor]').forEach((b) => b.classList.toggle('on', this.editor.tool === 'decor' && b.dataset.decor === this.editor.decorKind));
     if (this.toolShown !== this.editor.tool) {
       this.toolShown = this.editor.tool;
       this.cat = CAT_OF[this.editor.tool] ?? this.cat;
@@ -767,6 +813,7 @@ export class UI {
 
     this.renderPill();
     this.renderGoalBar();
+    this.helpTips();
     if (this.busy && !force) return;
     const html = this.sideHtml();
     if (force || this.cache.get('side') !== html) {
@@ -843,6 +890,33 @@ export class UI {
     if (c.kind === 'level') return { kicker: 'Level up', title: c.title, sub: c.sub };
     if (c.kind === 'ace') return { kicker: 'Amazing', title: c.title, reward: c.reward, sub: c.sub };
     return { kicker: 'Daily challenges', title: c.title, reward: c.reward, sub: c.sub };
+  }
+  /** First-time help: one short tip the first time each tool or panel is used. */
+  private tipKey = '';
+  private helpTips() {
+    const g = this.game;
+    if (document.body.classList.contains('coaching') || this.modalOpen) return;
+    const tool = this.editor.tool;
+    let key = '', title = '', text = '';
+    if (this.tab === 'build' && tool !== 'inspect' && tool !== 'pan') {
+      if (tool === 'decor') { const k = this.editor.decorKind; key = `decor:${k}`; title = ITEMS[k].label; text = `${ITEMS[k].hint} Costs $${ITEMS[k].cost}. Pretty things near tees and greens make golfers happier.`; }
+      else { key = `tool:${tool}`; title = TOOL_INFO[tool].label; text = TOOL_TIPS[tool] ?? TOOL_INFO[tool].hint; }
+    } else if (this.tab !== 'none' && this.tab !== 'build' && TAB_TIPS[this.tab]) { key = `tab:${this.tab}`; title = TAB_LABEL[this.tab] ?? ''; text = TAB_TIPS[this.tab] ?? ''; }
+    if (!key || key === this.tipKey) return;
+    this.tipKey = key;
+    const seen = (g.preferences.tipsSeen ??= []);
+    if (seen.includes(key)) return;
+    seen.push(key);
+    g.dirtySave = true;
+    document.getElementById('tip')?.remove();
+    const tip = document.createElement('div');
+    tip.id = 'tip';
+    tip.setAttribute('role', 'status');
+    tip.innerHTML = `<span class="tip-i" aria-hidden="true">💡</span><div><b>${escapeHtml(title)}</b><p>${escapeHtml(text)}</p></div><button aria-label="Got it">Got it</button>`;
+    const close = () => { tip.classList.add('out'); window.setTimeout(() => tip.remove(), 300); };
+    tip.querySelector('button')!.addEventListener('click', close);
+    document.getElementById('app')!.append(tip);
+    window.setTimeout(close, 9000);
   }
   /** "Show me" on a goal: open the right place, pick up the right tool, and point at the control to use. */
   showGoal(id: string) {

@@ -104,6 +104,7 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
     clubhouse: null,
     gate: { x: 0.5, y: h / 2 + 0.5 },
     landSeed: s,
+    items: [],
   };
   // Coast: the sea fills the top or bottom edge (never the sides, so the entrance road always has land to leave by).
   const seaTop = hash2(s, 90, 3) < 0.5;

@@ -40,7 +40,7 @@ export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => strin
 }
 
 /** Pick a starting location, name the club and begin. The map stays visible once play begins. */
-export function startScreen(): Promise<NewGameOptions> {
+export function startScreen(practiced = false): Promise<NewGameOptions> {
   return new Promise(resolve => {
     const root = document.getElementById('start')!;
     root.hidden = false;
@@ -56,7 +56,7 @@ export function startScreen(): Promise<NewGameOptions> {
         return `<button type="button" class="region ${id === region ? 'on' : ''}" role="radio" aria-checked="${id === region}" data-region="${id}"><span class="swatch" aria-hidden="true"><i style="background:${css(p.roughGood)}"></i><i style="background:${css(p.fairGood)}"></i><i style="background:${css(p.sand)}"></i><i style="background:${css(p.water)}"></i></span><span class="rname"><b>${r.name}</b><em class="lvl l${r.level}">${r.difficulty}</em></span><span class="rblurb">${r.blurb}</span></button>`;
       }).join('')}</div>
       <p class="region-note">You can build anywhere on the map. This only sets the land and how hard it is to make money.</p>
-      <label class="tut-toggle"><input type="checkbox" id="tutOn" checked /> <span>Show the short tutorial</span></label>
+      ${practiced ? '<p class="practiced">Practice done. Now pick where to build your own course.</p>' : '<label class="tut-toggle"><input type="checkbox" id="tutOn" checked /> <span>Learn on a practice course first (5 minutes)</span></label>'}
       <label class="eyebrow" for="newClubName">Club name</label><input id="newClubName" maxlength="28" value="Willow Creek" aria-label="Club name" />
       <details class="identity"><summary>Club crest</summary><div id="logoBox" class="logo-box"></div></details>
       <button class="btn primary start-play" id="startBtn">Start new course</button><p class="start-foot">Saves automatically on this device.</p></div></div>`;
@@ -71,7 +71,7 @@ export function startScreen(): Promise<NewGameOptions> {
     }));
     (root.querySelector('#startBtn') as HTMLElement).onclick = () => {
       root.hidden = true;
-      resolve({ region, name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) }, tutorial: (root.querySelector('#tutOn') as HTMLInputElement).checked });
+      resolve({ region, name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) }, tutorial: false, practice: !practiced && !!(root.querySelector('#tutOn') as HTMLInputElement | null)?.checked });
     };
   });
 }

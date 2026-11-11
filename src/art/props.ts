@@ -280,3 +280,62 @@ export function paintLilyPad(c: CanvasRenderingContext2D, x: number, y: number, 
     c.fill();
   }
 }
+
+/** A round stone fountain with a little spray. */
+export function makeFountain(): Sprite {
+  return sprite(84, 76, 42, 62, (c) => {
+    groundShadow(c, 48, 62, 38, 11, 0.3);
+    // basin
+    c.fillStyle = '#b9b2a2';
+    c.beginPath(); c.ellipse(42, 56, 36, 13, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#d8d2c2';
+    c.beginPath(); c.ellipse(42, 52, 36, 13, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#5fc0d0';
+    c.beginPath(); c.ellipse(42, 52, 29, 9.5, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#9fe0e8';
+    c.beginPath(); c.ellipse(36, 50, 12, 3, 0, 0, Math.PI * 2); c.fill();
+    // column and bowl
+    c.fillStyle = '#c9c2b2';
+    c.fillRect(38, 26, 8, 24);
+    c.fillStyle = '#e2dccd';
+    c.beginPath(); c.ellipse(42, 26, 14, 5, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#6fcbd8';
+    c.beginPath(); c.ellipse(42, 25, 10, 3, 0, 0, Math.PI * 2); c.fill();
+    // spray
+    c.strokeStyle = 'rgba(220,248,255,0.95)';
+    c.lineWidth = 2;
+    for (const dx of [-9, -4, 0, 4, 9]) {
+      c.beginPath();
+      c.moveTo(42, 22);
+      c.quadraticCurveTo(42 + dx * 0.6, 4, 42 + dx * 1.4, 22);
+      c.stroke();
+    }
+  });
+}
+
+/** A bronze golfer mid-swing on a stone plinth. */
+export function makeStatue(): Sprite {
+  return sprite(48, 96, 24, 88, (c) => {
+    groundShadow(c, 30, 88, 20, 6, 0.32);
+    c.fillStyle = '#a9a294';
+    c.fillRect(10, 62, 28, 26);
+    c.fillStyle = '#cfc8b8';
+    c.fillRect(10, 62, 28, 4);
+    c.fillRect(8, 84, 32, 4);
+    // the golfer
+    const g = c.createLinearGradient(14, 0, 34, 0);
+    g.addColorStop(0, '#b78a45');
+    g.addColorStop(1, '#6e4f22');
+    c.fillStyle = g;
+    c.strokeStyle = g;
+    c.beginPath(); c.arc(24, 18, 5, 0, Math.PI * 2); c.fill();
+    c.fillRect(20, 23, 8, 18);
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(22, 41); c.lineTo(17, 61); c.moveTo(26, 41); c.lineTo(31, 61); c.stroke();
+    c.lineWidth = 3;
+    c.beginPath(); c.moveTo(21, 27); c.lineTo(33, 16); c.moveTo(27, 27); c.lineTo(34, 17); c.stroke();
+    c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(34, 16); c.lineTo(40, 3); c.stroke();
+  });
+}

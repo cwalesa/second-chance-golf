@@ -6,6 +6,7 @@ import { Rng } from './rng';
 import { noUpgrades } from './economy';
 import { REGIONS } from './progression';
 import { CHAIN, CHAIN_V1 } from './campaign';
+import { ITEMS } from './items';
 import { defaultLogo } from './logo';
 
 const KEY = 'second-chance-golf.save.v2';
@@ -20,6 +21,7 @@ export function serialize(g: Game): string {
     savedAt: Date.now(),
     campaign: g.campaign,
     daily: g.daily,
+    practice: g.practice,
     tutorial: g.tutorial,
     experience: g.experience,
     preferences: g.preferences,
@@ -39,6 +41,7 @@ export function serialize(g: Game): string {
       clubhouse: w.clubhouse,
       gate: w.gate,
       landSeed: w.landSeed,
+      items: w.items ?? [],
       w: w.w,
       h: w.h,
     },
@@ -98,6 +101,9 @@ export function deserialize(text: string): LoadedSave | null {
     world.clubhouse = d.world.clubhouse ? { x: d.world.clubhouse.x, y: d.world.clubhouse.y } : null;
     world.gate = { x: d.world.gate.x, y: d.world.gate.y };
     world.landSeed = d.world.landSeed;
+    world.items = Array.isArray(d.world.items)
+      ? d.world.items.filter((it: { x: number; y: number; k: string }) => it && Number.isInteger(it.x) && Number.isInteger(it.y) && it.x >= 0 && it.y >= 0 && it.x < base.w && it.y < base.h && it.k in ITEMS)
+      : [];
     const seen = new Set<number>();
     for (const h of world.holes) {
       if (!Number.isInteger(h.id) || h.id < 1 || h.id > 255 || seen.has(h.id) || typeof h.name !== 'string' || ![3, 4, 5].includes(h.par)) return null;
@@ -111,6 +117,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
+    g.practice = d.practice === true;
     if (d.daily && typeof d.daily.date === 'string' && Array.isArray(d.daily.challenges)) g.daily = { ...g.daily, ...d.daily };
     if (d.campaign?.step === undefined) g.catchUpGoals();
     else {
@@ -124,6 +131,8 @@ export function deserialize(text: string): LoadedSave | null {
     }
     // Saves from before the walkthrough existed already know the controls.
     g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
+    // the walkthrough only runs on the practice course; a real course from an older version is past it
+    if (!g.practice) g.tutorial.done = true;
     g.staff = { ...g.staff, ...(d.staff ?? {}) };
     g.members = Array.isArray(d.members) ? d.members : [];
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];
@@ -192,6 +201,23 @@ export function loadGame(): LoadedSave | null {
     const recovered = backup ? deserialize(backup) : null;
     return recovered ? { ...recovered, recovered: true } : null;
   } catch { return null; }
+}
+const PARKED_KEY = KEY + '.parked';
+export const PRACTICED_KEY = 'second-chance-golf.practiced';
+/** Put the current course aside (for a replay of the practice course). */
+export function parkSave(g: Game) {
+  try { localStorage.setItem(PARKED_KEY, serialize(g)); localStorage.removeItem(KEY); localStorage.removeItem(BACKUP_KEY); } catch { /* No storage available. */ }
+}
+/** Bring a parked course back; false if there was none. */
+export function restoreParked(): boolean {
+  try {
+    const parked = localStorage.getItem(PARKED_KEY);
+    if (!parked) return false;
+    localStorage.setItem(KEY, parked);
+    localStorage.removeItem(PARKED_KEY);
+    localStorage.removeItem(BACKUP_KEY);
+    return true;
+  } catch { return false; }
 }
 export function clearSave() {
   try { localStorage.removeItem(KEY); localStorage.removeItem(BACKUP_KEY); } catch { /* No storage available. */ }

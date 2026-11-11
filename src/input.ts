@@ -1,6 +1,7 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
+import { ItemKind, toggleItem } from './items';
 import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
 import { CLUB_H, CLUB_W, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
@@ -45,6 +46,8 @@ export class Editor {
   newPar = 4;
   /** Turning points on the new hole being planned. */
   newBends: Pt[] = [];
+  /** What the Decorate tool places. */
+  decorKind: ItemKind = 'flowers';
   /** True while the next tap on the map adds a turning point to the new hole. */
   addingBend = false;
   preview: Preview | null = null;
@@ -397,7 +400,7 @@ export class Editor {
       return;
     }
     if (this.tool === 'inspect' || this.placingClub) this.mode = 'inspect';
-    else if (this.touch && (this.isPaint || this.isPlacement || this.tool === 'land')) {
+    else if (this.touch && (this.isPaint || this.isPlacement || this.tool === 'land' || this.tool === 'decor')) {
       // Touch: one finger drags the map. Only a clean tap, or a press-and-hold for painting, edits.
       this.mode = 'hold';
       this.hover = this.tileAt(p);
@@ -735,6 +738,13 @@ export class Editor {
 
   private commitPlace(t: Pt) {
     if (!inBounds(this.game.world, t.x, t.y)) return;
+    if (this.tool === 'decor') {
+      const r = toggleItem(this.game, t, this.decorKind);
+      if (!r.ok) this.game.notify('bad', r.message ?? 'Not there.');
+      else this.game.onFeedback('build');
+      this.onChange();
+      return;
+    }
     if (this.tool === 'land') {
       this.parcel = { col: Math.floor(t.x / CFG.land.pw), row: Math.floor(t.y / CFG.land.ph) };
       this.overlay.parcel = this.parcel;

@@ -1,7 +1,7 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
-import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
+import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, Sprite } from './art/props';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
@@ -68,6 +68,7 @@ export class Renderer {
   private rocks = [0, 1].map(makeRock);
   private flowers = [0, 1, 2].map(makeFlowers);
   private reeds = [0, 1].map(makeReeds);
+  private placed: Record<string, Sprite> | null = null;
   private bench = makeBench();
   private washer = makeBallWasher();
   private decor: Decor[] = [];
@@ -1341,6 +1342,10 @@ export class Renderer {
       items.push({ y: d.x + d.y, draw: () => this.drawDecor(d) });
     }
     if (!far) this.teeFurniture(game, items);
+    for (const it of w.items ?? []) {
+      if (it.x < x0 - 1 || it.x > x1 + 1 || it.y < y0 - 1 || it.y > y1 + 1) continue;
+      items.push({ y: it.x + it.y + 1, draw: () => this.drawPlaced(it.k, it.x, it.y) });
+    }
     for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
@@ -1424,6 +1429,15 @@ export class Renderer {
     if (alpha !== 1) ctx.globalAlpha = 1;
   }
 
+  /** Something the player placed: flowers, a shrub, a bench, a lamp, a ball wash, a fountain or a statue. */
+  drawPlaced(k: string, x: number, y: number) {
+    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+    const sp = this.placed[k];
+    if (!sp) return;
+    const p = this.toScreen(x + 0.5, y + 0.5);
+    const big = k === 'fountain' || k === 'statue';
+    this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (big ? 1.25 : k === 'flowers' ? 1.3 : 1));
+  }
   private drawDecor(d: Decor) {
     const p = this.toScreen(d.x, d.y);
     const scale = this.ts / 52;

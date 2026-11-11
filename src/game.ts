@@ -1,9 +1,10 @@
 import { Experience, freshExperience, awardExperience, constructionFactor } from './experience';
 import type { Feedback } from './feedback';
-import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
+import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
+import { beautyNear } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -69,6 +70,8 @@ export interface NewGameOptions {
   logo?: Logo;
   /** false skips the optional tutorial. */
   tutorial?: boolean;
+  /** the practice course: the tutorial runs here, then the player starts their own course */
+  practice?: boolean;
 }
 
 export const STAFF = {
@@ -81,7 +84,7 @@ export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'
 export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 
 export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak'; title: string; sub: string; reward?: number; }
-export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; }
+export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; /** help tips already shown, by key */ tipsSeen?: string[]; }
 export class Game {
   experience: Experience = freshExperience();
   /** Level 1 walkthrough progress. New games start at step 0. */
@@ -145,6 +148,14 @@ export class Game {
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
     if (opts.tutorial === false) this.tutorial.done = true;
+    if (opts.practice) {
+      // a ready clubhouse, plenty of money, nothing that counts: just learning
+      this.practice = true;
+      this.name = 'Practice Course';
+      this.cash = 60000;
+      const spot = suggestClubhouse(this.world);
+      if (spot) placeClubhouse(this.world, spot);
+    }
     // a course handed in ready-made starts its goals at the first one it has not reached, unpaid
     if (world) this.catchUpGoals();
     this.rng = new Rng(seed);
@@ -156,7 +167,9 @@ export class Game {
       },
       onHole: (g, h) => {
         const report = assessDesign(this.world, h);
-        const bonus = designEnjoyment(report, g.type);
+        const pretty = beautyNear(this.world, h.tee) + beautyNear(this.world, h.cup);
+        if (pretty >= 4 && this.rng.next() < 0.25) this.sim.say(g, pretty >= 8 ? 'What a beautiful hole. Like a postcard.' : 'Love the flowers out here.');
+        const bonus = designEnjoyment(report, g.type) + Math.min(4, Math.floor(pretty / 2));
         if (bonus >= 4) this.sim.say(g, g.type === 'beginner' ? 'Room to miss. I could play here every week.' : g.type === 'skilled' ? 'A proper choice of shots. I like this hole.' : 'Lovely hole. Worth coming back for.');
         return bonus;
       },
@@ -583,6 +596,8 @@ export class Game {
     this.onFeedback(c.kind === 'level' ? 'level' : 'reward');
   }
   daily: DailyState = freshDaily();
+  /** The practice course the tutorial runs on: no goals, no streaks, not the player's real club. */
+  practice = false;
   /** Collect the streak reward. */
   claimStreak(): number {
     const n = this.daily.pending;
@@ -613,6 +628,7 @@ export class Game {
   goalJustDone: { title: string; reward: number; next: string | null } | null = null;
   /** Advance the goal chain: one goal at a time, each paying its grant. */
   checkGoals() {
+    if (this.practice) return;
     const i = chainStep(this);
     const goal = CHAIN[i];
     if (!goal || goal.value(this) < goal.target) return;
