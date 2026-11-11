@@ -94,7 +94,9 @@ export class Renderer {
 
   resize() {
     const r = this.canvas.getBoundingClientRect();
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    const want = Math.min(3, window.devicePixelRatio || 1);
+    // keep the backing store under ~4.2M pixels (iPhone Pro Max at 3x is about 3.9M)
+    this.dpr = Math.max(1, Math.min(want, Math.sqrt(4.2e6 / Math.max(1, r.width * r.height))));
     this.cw = Math.max(200, r.width);
     this.ch = Math.max(200, r.height);
     this.canvas.width = Math.round(this.cw * this.dpr);
@@ -119,7 +121,7 @@ export class Renderer {
   }
   zoomAt(sx: number, sy: number, factor: number, w: World) {
     const before = this.toWorld(sx, sy);
-    this.cam.zoom = Math.max(Renderer.MIN_ZOOM, Math.min(2.6, this.cam.zoom * factor));
+    this.cam.zoom = Math.max(Renderer.MIN_ZOOM, Math.min(Renderer.MAX_ZOOM, this.cam.zoom * factor));
     const after = this.toWorld(sx, sy);
     const delta = projectGround((before.x - after.x) * TS, (before.y - after.y) * TS);
     this.cam.x += delta.x; this.cam.y += delta.y;
@@ -159,6 +161,8 @@ export class Renderer {
   // constant width (collars, lips, shorelines) instead of thresholded blur.
   private time = 0;
   static readonly MIN_ZOOM = 0.12;
+  /** Closer than this and the ground texture would look soft on a 3x screen. */
+  static readonly MAX_ZOOM = 2.0;
   /** Milliseconds per frame the ground builder may spend on unbuilt chunks. */
   frameBudget = 10;
   private prevTerrain: Uint8Array | null = null;

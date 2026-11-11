@@ -140,7 +140,7 @@ export class UI {
     const mk = (id: ToolId, label?: string, cls = '') => `<button class="tool ${cls}" data-tool="${id}" title="${TOOL_INFO[id].label}: ${TOOL_INFO[id].hint}" aria-label="${TOOL_INFO[id].label}">${id === 'inspect' || id === 'pan' || id === 'bend' ? svg(id) : `<canvas class="terrain-thumb" data-thumbnail="${id}" width="112" height="74"></canvas>`}<span>${label ?? TOOL_INFO[id].label}</span></button>`;
     const cat = (id: ToolCat, label: string) => `<button class="cat" data-cat="${id}">${label}</button>`;
     this.$('tools').innerHTML = `
-      <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div><button class="tray-done" data-done="1" aria-label="Done building">Done</button></div>
+      <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button></div>
       <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/></svg></button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor">${ITEM_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
@@ -255,6 +255,7 @@ export class UI {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
         else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
+        else if (el.dataset.act === 'tipok') { this.panelTip = null; this.cache.delete('side'); }
         else if (el.dataset.act === 'claimstreak') { const n = this.game.claimStreak(); if (n) this.coinBurst(el, n); }
         else if (el.dataset.act === 'claimch') { const n = this.game.claimChallenge(Number(el.dataset.id)); if (n) { this.coinBurst(el, n); this.confetti(24); } }
         else if (el.dataset.act === 'suggest') {
@@ -466,6 +467,8 @@ export class UI {
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
     const c = coach.getBoundingClientRect(), a = this.appRect;
+    // On its side the coach sits top right, so the map frames itself to its left.
+    if (this.landscape) return { ...base, r: Math.max(base.r, a.right - c.left + 8) };
     // The map frames itself clear of the coach, above or below it.
     if (c.top + c.height / 2 > a.top + a.height / 2) return { ...base, b: Math.max(base.b, a.bottom - c.top + 8) };
     return { ...base, t: Math.max(base.t, c.bottom - a.top + 8) };
@@ -815,7 +818,9 @@ export class UI {
     this.renderGoalBar();
     this.helpTips();
     if (this.busy && !force) return;
-    const html = this.sideHtml();
+    if (this.panelTip && this.panelTip !== this.tab) this.panelTip = null;
+    const ptip = this.panelTip && TAB_TIPS[this.panelTip] ? `<div class="ptip"><span aria-hidden="true">💡</span><p>${TAB_TIPS[this.panelTip]}</p><button data-act="tipok">Got it</button></div>` : '';
+    const html = ptip + this.sideHtml();
     if (force || this.cache.get('side') !== html) {
       const body = this.$('sidebody');
       const top = body.scrollTop;
@@ -893,6 +898,8 @@ export class UI {
   }
   /** First-time help: one short tip the first time each tool or panel is used. */
   private tipKey = '';
+  /** The panel whose first-time help card is showing at the top of the panel. */
+  private panelTip: string | null = null;
   private helpTips() {
     const g = this.game;
     if (document.body.classList.contains('coaching') || this.modalOpen) return;
@@ -901,7 +908,13 @@ export class UI {
     if (this.tab === 'build' && tool !== 'inspect' && tool !== 'pan') {
       if (tool === 'decor') { const k = this.editor.decorKind; key = `decor:${k}`; title = ITEMS[k].label; text = `${ITEMS[k].hint} Costs $${ITEMS[k].cost}. Pretty things near tees and greens make golfers happier.`; }
       else { key = `tool:${tool}`; title = TOOL_INFO[tool].label; text = TOOL_TIPS[tool] ?? TOOL_INFO[tool].hint; }
-    } else if (this.tab !== 'none' && this.tab !== 'build' && TAB_TIPS[this.tab]) { key = `tab:${this.tab}`; title = TAB_LABEL[this.tab] ?? ''; text = TAB_TIPS[this.tab] ?? ''; }
+    } else if (this.tab !== 'none' && this.tab !== 'build' && TAB_TIPS[this.tab]) {
+      // panel help sits inside the panel (see sideHtml), never over it
+      const pk = `tab:${this.tab}`;
+      const seen = (g.preferences.tipsSeen ??= []);
+      if (!seen.includes(pk)) { seen.push(pk); g.dirtySave = true; this.panelTip = this.tab; this.cache.delete('side'); }
+    }
+    if (!key) { if (this.tipKey && this.tab !== 'build') { document.getElementById('tip')?.remove(); this.tipKey = ''; } return; }
     if (!key || key === this.tipKey) return;
     this.tipKey = key;
     const seen = (g.preferences.tipsSeen ??= []);
@@ -966,8 +979,8 @@ export class UI {
     };
     document.getElementById('app')!.append(pop);
     this.confetti(card.kicker === 'Level up' || card.kicker === 'Amazing' ? 60 : 36);
-    // a reward to collect waits for the tap; everything else steps aside on its own
-    if (!card.collect) window.setTimeout(close, 6200);
+    // everything steps aside on its own; a reward not collected here waits in Goals (with a badge)
+    window.setTimeout(close, card.collect ? 9000 : 6200);
   }
   /** A burst of paper confetti from the top of the screen. */
   confetti(n = 40) {
