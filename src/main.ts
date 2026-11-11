@@ -2,6 +2,7 @@ import { FeedbackPlayer } from './feedback';
 import { Studio } from './studio';
 import { Tutorial } from './tutorial';
 import './style.css';
+import './phone.css';
 import { CFG } from './config';
 import { Game } from './game';
 import { Renderer } from './render';

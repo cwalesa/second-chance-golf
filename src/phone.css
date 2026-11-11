@@ -1,0 +1,320 @@
+/*
+  Phone interface. Loaded after style.css and applies only to body.mobile.
+
+  The course fills the screen. Over it sit a small status chip (top left), the round menu button
+  (bottom right), and only while building, one tool tray along the bottom with the placement bar
+  just above it. The tutorial tip sits under the status chip, so the bottom is never stacked.
+
+  Look: warm paper panels, dark green ink and sunny yellow buttons with a pressed edge, so it
+  reads as a friendly game rather than a dashboard. Things slide in rather than appear.
+*/
+
+body.mobile {
+  --pp: #fff8e7;            /* paper */
+  --pp2: #f3e6c4;           /* paper, shaded */
+  --pp-edge: #d8c391;       /* paper rim */
+  --pp-deep: #b49a5f;       /* pressed edge */
+  --ink: #26381f;           /* text */
+  --ink-dim: #6e6a4f;
+  --leaf: #4d8a3a;
+  --leaf-d: #2f6424;
+  --sun: #ffd25e;
+  --sun-d: #d99a22;
+  --clay: #cf5b3c;
+  --ease: cubic-bezier(.2, .9, .25, 1.15);
+  --round: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+}
+body.mobile #fab, body.mobile #top, body.mobile #tools, body.mobile #confirm, body.mobile #coach,
+body.mobile #nav, body.mobile #side, body.mobile #brushbar, body.mobile #toasts, body.mobile #modal { font-family: var(--round); }
+
+/* ---------- shared pieces ---------- */
+@keyframes ph-up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ph-down { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ph-pop { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ph-tray { from { transform: translateY(100%); } to { transform: none; } }
+
+/* ---------- status chip ---------- */
+body.mobile #top {
+  left: calc(8px + env(safe-area-inset-left)) !important; right: auto !important; top: calc(6px + env(safe-area-inset-top)) !important;
+  width: auto !important; max-width: calc(100vw - 16px); height: 44px !important; padding: 0 4px 0 14px !important; gap: 12px !important;
+  flex-wrap: nowrap; border-radius: 22px !important; border: 2px solid var(--pp-edge) !important;
+  background: var(--pp) !important; color: var(--ink); box-shadow: 0 3px 0 var(--pp-deep), 0 6px 16px #1b2a1340 !important;
+  animation: ph-down .25s var(--ease);
+}
+body.mobile #top > * { display: none !important; }
+body.mobile #top > .stat:has(#cash), body.mobile #top > .stat:has(#clock) { display: flex !important; }
+body.mobile #top > #speed { display: flex !important; }
+body.mobile:is([data-tab="build"], .has-proposal) #top > #editbtns { display: flex !important; }
+body.mobile #top .stat .k { font-size: 9px !important; letter-spacing: .06em; color: var(--ink-dim) !important; font-weight: 700; }
+body.mobile #top .stat .v { color: var(--ink) !important; font-size: 15px !important; font-weight: 800; }
+body.mobile #top .stat .v.small { font-size: 12px !important; font-weight: 700; }
+body.mobile #top .daybar { width: 48px !important; height: 3px; background: #0000001a !important; border-radius: 3px; }
+body.mobile #top .daybar i { background: var(--sun-d) !important; }
+body.mobile #top .seg { gap: 3px; background: none !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+body.mobile #top .seg button, body.mobile #top #editbtns button {
+  min-width: 34px !important; width: 34px; height: 34px !important; min-height: 34px !important; padding: 0 !important; border-radius: 17px !important;
+  border: 0 !important; background: var(--pp2) !important; color: var(--ink) !important; font-size: 11px !important; font-weight: 800; box-shadow: none !important;
+  display: flex; align-items: center; justify-content: center;
+}
+body.mobile #top .seg button[data-speed="8"] { display: none; }
+body.mobile #top .seg button.on { background: var(--sun) !important; box-shadow: inset 0 -2px 0 var(--sun-d) !important; }
+body.mobile #top #editbtns { gap: 3px; padding-left: 6px; border-left: 2px solid var(--pp2); }
+body.mobile #top #editbtns button span { display: none; }
+body.mobile #top #editbtns button svg { width: 18px; height: 18px; }
+body.mobile #top #editbtns button:disabled { opacity: .35; }
+
+/* ---------- the round menu button ---------- */
+#fab, #nav .mhead, #nav .mrow, #tools .tray-done { display: none; }
+body.mobile #fab {
+  display: flex; align-items: center; justify-content: center;
+  position: fixed; z-index: 21; right: calc(14px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom));
+  width: 60px; height: 60px; padding: 0; border-radius: 50%; border: 3px solid #fff7d9;
+  background: radial-gradient(circle at 35% 30%, #ffe795, var(--sun) 55%, #f0b63c); color: var(--ink);
+  box-shadow: 0 4px 0 var(--sun-d), 0 8px 18px #1b2a1355; touch-action: manipulation;
+  transition: transform .2s var(--ease), background .2s;
+  animation: ph-pop .3s var(--ease);
+}
+body.mobile #fab svg { width: 26px; height: 26px; transition: transform .25s var(--ease); }
+body.mobile #fab:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--sun-d), 0 4px 10px #1b2a1355; }
+body.mobile #fab[data-state="close"] { background: var(--pp); border-color: var(--pp-edge); box-shadow: 0 4px 0 var(--pp-deep), 0 8px 18px #1b2a1355; }
+body.mobile #fab[data-state="close"] svg { transform: rotate(90deg); }
+body.mobile #fab span { display: none; }
+body.mobile:is([data-tab="build"], [data-tab="course"], [data-tab="guests"], [data-tab="money"], [data-tab="club"], [data-tab="journey"], [data-tab="events"]) #fab,
+body.mobile.has-proposal #fab, body.mobile.placing-club #fab, body.mobile.owner-playing #fab { display: none; }
+
+/* ---------- menu (opens from the round button) ---------- */
+body.mobile #nav { display: none !important; }
+body.mobile.menu-open #nav {
+  display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  position: fixed; z-index: 20; top: auto !important; left: calc(10px + env(safe-area-inset-left)) !important; right: calc(10px + env(safe-area-inset-right)) !important;
+  bottom: calc(90px + env(safe-area-inset-bottom)) !important; width: auto !important; height: auto !important; max-height: calc(100dvh - 130px); overflow: auto;
+  padding: 14px !important; border-radius: 24px !important; border: 2px solid var(--pp-edge) !important; background: var(--pp) !important;
+  box-shadow: 0 0 0 100vmax #10200f55, 0 4px 0 var(--pp-deep), 0 14px 30px #10200f66 !important;
+  transform-origin: 90% 100%; animation: ph-pop .22s var(--ease);
+  flex-direction: unset !important;
+}
+body.mobile.menu-open #nav .mhead { display: flex; grid-column: 1 / -1; align-items: baseline; justify-content: space-between; padding: 0 4px 2px; }
+body.mobile.menu-open #nav .mhead b { font-size: 19px; color: var(--ink); font-weight: 800; }
+body.mobile.menu-open #nav .mhead small { font-size: 11px; color: var(--ink-dim); }
+body.mobile.menu-open #nav button[data-nav] {
+  display: flex; flex-direction: column !important; align-items: center; justify-content: center; width: auto !important; min-height: 84px !important; gap: 6px !important;
+  font-size: 13px !important; font-weight: 800; color: var(--ink) !important; border-radius: 18px !important;
+  background: #fff !important; border: 2px solid var(--pp2) !important; box-shadow: 0 3px 0 var(--pp-edge) !important;
+  animation: ph-up .28s var(--ease) both;
+}
+body.mobile.menu-open #nav button[data-nav]:nth-of-type(2) { animation-delay: .02s; }
+body.mobile.menu-open #nav button[data-nav]:nth-of-type(3) { animation-delay: .04s; }
+body.mobile.menu-open #nav button[data-nav]:nth-of-type(4) { animation-delay: .06s; }
+body.mobile.menu-open #nav button[data-nav]:nth-of-type(5) { animation-delay: .08s; }
+body.mobile.menu-open #nav button[data-nav]:nth-of-type(6) { animation-delay: .10s; }
+body.mobile.menu-open #nav button[data-nav]:active { transform: translateY(3px); box-shadow: none !important; }
+body.mobile.menu-open #nav button span { display: block !important; }
+body.mobile.menu-open #nav button[data-nav] svg { width: 24px !important; height: 24px !important; padding: 9px !important; border-radius: 50%; border: 0 !important; box-shadow: none !important; color: #fff !important; background: var(--leaf) !important; }
+body.mobile.menu-open #nav button[data-nav="build"] svg { background: var(--sun-d) !important; }
+body.mobile.menu-open #nav button[data-nav="money"] svg { background: #3f8f7a !important; }
+body.mobile.menu-open #nav button[data-nav="guests"] svg { background: #4f7fb0 !important; }
+body.mobile.menu-open #nav button[data-nav="club"] svg { background: var(--clay) !important; }
+body.mobile.menu-open #nav button[data-nav="journey"] svg { background: #8a6bb0 !important; }
+body.mobile.menu-open #nav .mrow { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); gap: 4px; border-top: 2px dashed var(--pp2); padding-top: 10px; margin-top: 2px; }
+body.mobile.menu-open #nav .mrow button { display: flex; flex-direction: column; align-items: center; width: auto; min-height: 58px; gap: 4px; font-size: 10.5px; font-weight: 700; border: 0; border-radius: 14px; background: none; color: var(--ink-dim) !important; }
+body.mobile.menu-open #nav .mrow button:active { background: var(--pp2); }
+body.mobile.menu-open #nav .mrow svg { width: 22px; height: 22px; color: var(--ink); }
+
+/* ---------- build tray ---------- */
+body.mobile #tools {
+  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important; width: auto !important; height: auto !important; max-height: none !important;
+  display: flex; flex-direction: column !important; align-items: stretch !important; gap: 6px !important;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) !important; overflow: visible !important;
+  border: 0 !important; border-top: 2px solid var(--pp-edge) !important; border-radius: 22px 22px 0 0 !important;
+  background: var(--pp) !important; box-shadow: 0 -6px 20px #10200f40 !important;
+  animation: ph-tray .3s var(--ease);
+}
+body.mobile #tools .trayrow { display: flex; align-items: center; gap: 6px !important; padding: 0 !important; border: 0 !important; margin: 0; }
+body.mobile #tools .catrow { height: 40px !important; }
+body.mobile #tools .cats { display: flex !important; flex: 1; gap: 4px !important; margin: 0 !important; padding: 3px; border-radius: 14px; background: var(--pp2); width: auto !important; }
+body.mobile #tools .cat {
+  display: flex !important; align-items: center; justify-content: center; flex: 1; height: 34px !important; width: auto !important; border: 0 !important; border-radius: 11px !important;
+  background: transparent !important; color: var(--ink-dim) !important; font-size: 13px !important; font-weight: 800; box-shadow: none !important; transition: background .15s, color .15s;
+}
+body.mobile #tools .cat::after { content: none !important; }
+body.mobile #tools .cat.on { background: #fff !important; color: var(--ink) !important; box-shadow: 0 2px 0 var(--pp-edge) !important; }
+body.mobile #tools .tool.mini {
+  width: 40px !important; height: 40px !important; flex: none; border-radius: 12px !important; padding: 0 !important; border: 0 !important;
+  background: var(--pp2) !important; color: var(--ink) !important; display: flex; align-items: center; justify-content: center;
+}
+body.mobile #tools .tool.mini span { display: none !important; }
+body.mobile #tools .tool.mini svg { width: 20px !important; height: 20px !important; margin: 0 !important; }
+body.mobile #tools .tool.mini.on { background: var(--sun) !important; box-shadow: inset 0 -2px 0 var(--sun-d) !important; }
+body.mobile #tools .tray-done {
+  display: flex; align-items: center; height: 40px; padding: 0 16px; border: 0; border-radius: 20px; flex: none;
+  background: var(--leaf); color: #fff; font-weight: 800; font-size: 14px; box-shadow: 0 3px 0 var(--leaf-d);
+}
+body.mobile #tools .tray-done:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--leaf-d); }
+body.mobile #tools .toolrow { display: flex; gap: 6px !important; justify-content: flex-start !important; overflow-x: auto; scrollbar-width: none; padding: 2px 0 4px !important; }
+body.mobile #tools .toolrow::-webkit-scrollbar { display: none; }
+body.mobile #tools[data-cat="terrain"] .toolrow:not([data-tools="terrain"]),
+body.mobile #tools[data-cat="nature"] .toolrow:not([data-tools="nature"]),
+body.mobile #tools[data-cat="holes"] .toolrow:not([data-tools="holes"]) { display: none !important; }
+body.mobile #tools .toolrow .tool {
+  flex: none !important; width: 66px !important; max-width: none !important; height: 70px !important; padding: 4px 2px !important; gap: 3px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 16px !important; border: 2px solid var(--pp2) !important; background: #fff !important; color: var(--ink) !important;
+  font-size: 11px !important; font-weight: 700; box-shadow: 0 3px 0 var(--pp-edge) !important; transition: transform .12s, box-shadow .12s;
+}
+body.mobile #tools .toolrow .tool canvas { width: 50px !important; height: 33px !important; }
+body.mobile #tools .toolrow .tool svg { width: 26px !important; height: 26px !important; margin: 3px 0 4px; color: var(--ink); }
+body.mobile #tools .toolrow .tool span { color: var(--ink) !important; white-space: nowrap; }
+body.mobile #tools .toolrow .tool.on { background: #fff6d2 !important; border-color: var(--sun) !important; box-shadow: 0 3px 0 var(--sun-d) !important; transform: translateY(-2px); }
+body.mobile #tools .toolrow .tool:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--pp-edge) !important; }
+body.mobile #tools .toolrow .tool.on span { color: var(--ink) !important; }
+
+/* brush size: one small round button above the tray */
+body.mobile #brushbar {
+  left: calc(10px + env(safe-area-inset-left)) !important; right: auto !important; top: auto !important; bottom: calc(var(--dock) + 10px) !important;
+  padding: 0 !important; border: 0 !important; background: none !important; box-shadow: none !important; animation: ph-pop .25s var(--ease);
+}
+body.mobile.has-proposal #brushbar { bottom: calc(var(--dock) + 84px) !important; }
+body.mobile #brushbar button {
+  width: 52px !important; height: 52px !important; border-radius: 50% !important; border: 2px solid var(--pp-edge) !important; background: var(--pp) !important; color: var(--ink) !important;
+  box-shadow: 0 3px 0 var(--pp-deep), 0 4px 12px #10200f40 !important; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 1px !important; padding: 0 !important;
+}
+body.mobile #brushbar button.on { display: flex !important; }
+body.mobile #brushbar button i { background: var(--leaf) !important; border-radius: 50%; }
+body.mobile #brushbar button span { font-size: 11px !important; font-weight: 800; color: var(--ink) !important; }
+body.mobile #brushbar button em { display: none !important; }
+
+/* ---------- placement / confirm bar (just above the tray) ---------- */
+body.mobile #confirm, body.mobile[data-tab] #confirm {
+  left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)) !important; width: auto !important; top: auto !important; transform: none !important;
+  bottom: calc(var(--dock) + 8px) !important; padding: 8px 8px 8px 14px !important; gap: 8px !important; min-height: 56px;
+  border-radius: 20px !important; border: 2px solid var(--pp-edge) !important; background: var(--pp) !important; color: var(--ink) !important;
+  box-shadow: 0 3px 0 var(--pp-deep), 0 8px 20px #10200f44 !important; animation: ph-up .25s var(--ease);
+  flex-wrap: nowrap; align-items: center;
+}
+body.mobile #confirm .cf-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+body.mobile #confirm .cf-text b { font-size: 14px !important; font-weight: 800; color: var(--ink) !important; }
+body.mobile #confirm .cf-sub { font-size: 12px !important; color: var(--ink-dim) !important; line-height: 1.3; }
+body.mobile #confirm .cf-sub.bad { color: var(--clay) !important; }
+body.mobile #confirm .cf-cost { color: var(--leaf-d) !important; font-weight: 800; }
+body.mobile #confirm .cf-note { font-size: 11.5px; color: #9a5a17 !important; display: block; }
+/* while placing, the long "Nothing is built until you confirm" sentence is not needed: the tool says what to tap */
+body.mobile #confirm.placing .cf-sub { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+body.mobile #confirm .cf-pars { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+body.mobile #confirm .cf-pars b { font-size: 10px !important; letter-spacing: .08em; color: var(--ink-dim) !important; margin-right: 2px; text-transform: uppercase; }
+body.mobile #confirm .cf-pars .mini {
+  min-width: 34px; height: 30px; padding: 0 9px; border-radius: 15px; border: 0; background: var(--pp2); color: var(--ink); font-weight: 800; font-size: 13px;
+}
+body.mobile #confirm .cf-pars .mini.on { background: var(--sun); box-shadow: inset 0 -2px 0 var(--sun-d); }
+body.mobile #confirm .cf-pars .mini.wide { padding: 0 11px; font-size: 12px; }
+body.mobile #confirm .btn {
+  min-height: 44px !important; min-width: 0 !important; padding: 0 16px !important; border-radius: 22px !important; font-size: 14px !important; font-weight: 800;
+  border: 0 !important; background: var(--pp2) !important; color: var(--ink) !important; box-shadow: 0 3px 0 var(--pp-edge) !important; flex: none;
+}
+body.mobile #confirm .btn.primary { background: var(--leaf) !important; color: #fff !important; box-shadow: 0 3px 0 var(--leaf-d) !important; }
+body.mobile #confirm .btn:disabled { opacity: .45; }
+body.mobile #confirm .btn:active { transform: translateY(2px); box-shadow: none !important; }
+body.mobile #confirm #cfStop { width: 44px; padding: 0 !important; font-size: 0 !important; }
+body.mobile #confirm #cfStop::before { content: '✕'; font-size: 16px; }
+
+/* ---------- tutorial tip: under the status chip in portrait ---------- */
+body.mobile #coach {
+  border-radius: 18px !important; border: 2px solid var(--pp-edge) !important; background: var(--pp) !important; color: var(--ink) !important;
+  box-shadow: 0 3px 0 var(--pp-deep), 0 8px 20px #10200f44 !important; padding: 8px 8px 8px 12px !important;
+}
+body.mobile #coach.ontop { left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)) !important; width: auto !important; max-height: 40dvh; overflow: auto; animation: ph-down .25s var(--ease); }
+body.mobile #coach .coach-row { display: flex; align-items: center; gap: 8px; }
+body.mobile #coach .coach-count { flex: none; font-size: 11px !important; letter-spacing: 0 !important; padding: 4px 8px; border-radius: 10px; background: var(--sun) !important; color: var(--ink) !important; font-weight: 800; }
+body.mobile #coach .coach-short, body.mobile #coach p { color: var(--ink) !important; font-size: 14px !important; font-weight: 700; margin: 0 !important; flex: 1; line-height: 1.3; }
+body.mobile #coach .coach-more { font-weight: 500 !important; font-size: 13px !important; color: var(--ink-dim) !important; margin-top: 8px !important; }
+body.mobile #coach .btn, body.mobile #coach .coach-next {
+  min-height: 38px !important; padding: 0 14px !important; border-radius: 19px !important; border: 0 !important; font-weight: 800; font-size: 13px !important;
+  background: var(--leaf) !important; color: #fff !important; box-shadow: 0 3px 0 var(--leaf-d) !important; min-width: 0 !important; flex: none;
+}
+body.mobile #coach .coach-dots, body.mobile #coach .coach-unfold { flex: none; width: 38px; height: 38px; border-radius: 19px; border: 0; background: var(--pp2) !important; color: var(--ink) !important; font-size: 16px; }
+body.mobile #coach .coach-tools { display: flex; gap: 6px; margin-top: 8px; }
+body.mobile #coach .coach-tools button { flex: 1; min-height: 36px; border: 0; border-radius: 12px; background: var(--pp2) !important; color: var(--ink) !important; font-weight: 700; font-size: 12.5px; }
+body.mobile #coach .coach-tools button:disabled { opacity: .4; }
+body.mobile .coach-target { outline-color: var(--sun-d) !important; }
+
+/* ---------- toasts ---------- */
+body.mobile #toasts { top: auto !important; bottom: calc(var(--dock) + 14px) !important; left: 50% !important; width: calc(100% - 100px) !important; transform: translateX(-50%) !important; }
+body.mobile:not([data-tab="none"]) #toasts { bottom: calc(var(--dock) + 14px) !important; }
+body.mobile.has-proposal #toasts, body.mobile.placing-club #toasts { bottom: calc(var(--dock) + 90px) !important; }
+body.mobile #toasts .toast {
+  font-size: 13px !important; font-weight: 700; padding: 9px 14px !important; border-radius: 16px !important; border: 2px solid var(--pp-edge) !important;
+  background: var(--pp) !important; color: var(--ink) !important; box-shadow: 0 3px 0 var(--pp-deep), 0 6px 14px #10200f40 !important; animation: ph-up .25s var(--ease);
+}
+body.mobile #toasts .toast.good { border-color: #9cc883 !important; }
+body.mobile #toasts .toast.bad { border-color: #e7a08a !important; color: #8a2f18 !important; }
+
+/* ---------- map extras stay out of the way ---------- */
+body.mobile #map-controls, body.mobile #goalbar, body.mobile #minimap, body.mobile #pill { display: none !important; }
+body.mobile.minimap-open:not(.menu-open)[data-tab="none"] #minimap {
+  display: block !important; top: calc(60px + env(safe-area-inset-top)) !important; right: calc(10px + env(safe-area-inset-right)) !important; left: auto !important; bottom: auto !important;
+  width: 150px !important; height: 100px !important; border-radius: 14px !important; border: 3px solid var(--pp) !important; box-shadow: 0 3px 0 var(--pp-deep), 0 6px 14px #10200f55 !important; animation: ph-pop .2s var(--ease);
+}
+
+/* ---------- panels (Course, Golfers, Finances, ...) as paper bottom sheets ---------- */
+body.mobile #side {
+  --panel: var(--pp); --panel-2: #fff; --line: #6b54202a; --text: var(--ink); --dim: var(--ink-dim); --gold: #a76d0a; --good: #2f7d32; --bad: #b8431f;
+  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important; width: auto !important;
+  border: 0 !important; border-top: 2px solid var(--pp-edge) !important; border-radius: 24px 24px 0 0 !important;
+  background: var(--pp) !important; color: var(--ink) !important; box-shadow: 0 -8px 26px #10200f50 !important;
+  padding-bottom: env(safe-area-inset-bottom); animation: ph-tray .3s var(--ease);
+}
+body.mobile #side .tabs { display: none !important; }
+body.mobile #side .sheet-head { background: transparent !important; border-bottom: 2px dashed var(--pp2) !important; color: var(--ink) !important; }
+body.mobile #side .sheet-grip { background: var(--pp-edge) !important; }
+body.mobile #side .sheet-title b { color: var(--ink) !important; font-weight: 800; font-size: 18px; }
+body.mobile #side .sheet-title small { color: var(--ink-dim) !important; }
+body.mobile #side .sheet-btn { width: 40px; height: 40px; border-radius: 20px !important; border: 0 !important; background: var(--pp2) !important; color: var(--ink) !important; }
+body.mobile #side .body { color: var(--ink) !important; background: transparent !important; }
+body.mobile #side :is(.card, .stat-card, .goal-ticket, .project-tile, .career-card, .property-cover, .course-heading, .hole-card, .row-card, .kpi, .tile) {
+  background: #fff !important; border-color: var(--pp2) !important; color: var(--ink) !important; box-shadow: 0 2px 0 var(--pp-edge) !important;
+}
+body.mobile #side :is(h2, h3, h4, b, strong, .v) { color: var(--ink) !important; }
+body.mobile #side :is(p, small, .dim, .k, .eyebrow, label) { color: var(--ink-dim) !important; }
+body.mobile #side .btn { border-radius: 14px !important; border: 0 !important; background: var(--pp2) !important; color: var(--ink) !important; box-shadow: 0 2px 0 var(--pp-edge) !important; font-weight: 700; min-height: 40px; }
+body.mobile #side .btn.primary { background: var(--leaf) !important; color: #fff !important; box-shadow: 0 3px 0 var(--leaf-d) !important; }
+body.mobile #side .btn:disabled { opacity: .45; }
+body.mobile #side .mini { border-radius: 12px; border: 0 !important; background: var(--pp2) !important; color: var(--ink) !important; }
+body.mobile #side .mini.on { background: var(--sun) !important; color: var(--ink) !important; }
+body.mobile #side :is(input, select) { background: #fff !important; color: var(--ink) !important; border: 2px solid var(--pp2) !important; border-radius: 10px; }
+
+/* ---------- modal (settings, reports) ---------- */
+body.mobile #modal > * { border-radius: 22px !important; animation: ph-pop .22s var(--ease); }
+
+/* ---------- landscape phone ---------- */
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools { left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right) + var(--side-w)) !important; bottom: calc(6px + env(safe-area-inset-bottom)) !important; border-radius: 20px !important; border: 2px solid var(--pp-edge) !important; flex-direction: row !important; align-items: center !important; padding: 6px 8px !important; }
+  body.mobile #tools .catrow { height: auto !important; flex-direction: column; gap: 4px !important; }
+  body.mobile #tools .cats { flex-direction: column; flex: none; width: 92px !important; }
+  body.mobile #tools .cat { height: 24px !important; font-size: 11px !important; }
+  body.mobile #tools .catrow .tool.mini { display: none !important; }
+  body.mobile #tools .tray-done { height: 30px; font-size: 12px; justify-content: center; }
+  body.mobile #tools .toolrow { flex: 1; padding: 0 !important; }
+  body.mobile #tools .toolrow .tool { height: 64px !important; width: 62px !important; }
+  body.mobile #confirm, body.mobile[data-tab] #confirm { right: auto !important; width: min(480px, calc(100vw - 30px - var(--side-w))) !important; }
+  body.mobile #coach { margin-right: 76px; }
+  body.mobile.menu-open #nav { grid-template-columns: repeat(6, 1fr); left: auto !important; width: min(600px, calc(100vw - 110px)) !important; right: calc(86px + env(safe-area-inset-right)) !important; bottom: calc(10px + env(safe-area-inset-bottom)) !important; }
+  body.mobile.menu-open #nav button[data-nav] { min-height: 74px !important; }
+  body.mobile #side { left: auto !important; top: calc(6px + env(safe-area-inset-top)) !important; right: calc(6px + env(safe-area-inset-right)) !important; bottom: calc(6px + env(safe-area-inset-bottom)) !important; border-radius: 22px !important; border: 2px solid var(--pp-edge) !important; animation: ph-pop .25s var(--ease); }
+}
+
+#coach[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { body.mobile * { animation: none !important; transition: none !important; } }
+
+/* clubhouse placement: message on its own line, two big buttons under it */
+body.mobile.placing-club #confirm { flex-wrap: wrap !important; }
+body.mobile.placing-club #confirm .btn { flex: 1 1 0 !important; }
+body.mobile #confirm .cf-text { width: auto !important; }
+body.mobile #side .journal-tabs { background: var(--pp2) !important; border-radius: 14px; }
+body.mobile #side .journal-tabs button { color: var(--ink-dim) !important; font-weight: 700; }
+body.mobile #side .journal-tabs button.on { background: #fff !important; color: var(--ink) !important; box-shadow: 0 2px 0 var(--pp-edge) !important; }
+body.mobile #side .note { color: var(--ink) !important; background: #fff !important; }
+body.mobile #side .note.bad { border-color: var(--clay) !important; color: #8a2f18 !important; }
+body.mobile #side .note.warn { border-color: var(--sun-d) !important; color: #7a5208 !important; }
+body.mobile #side .note.good { border-color: var(--leaf) !important; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #side { width: min(390px, 48vw) !important; height: auto !important; }
+}

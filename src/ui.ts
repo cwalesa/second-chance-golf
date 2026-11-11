@@ -110,7 +110,7 @@ export class UI {
     const mk = (id: ToolId, label?: string, cls = '') => `<button class="tool ${cls}" data-tool="${id}" title="${TOOL_INFO[id].label}: ${TOOL_INFO[id].hint}" aria-label="${TOOL_INFO[id].label}">${id === 'inspect' || id === 'pan' || id === 'bend' ? svg(id) : `<canvas class="terrain-thumb" data-thumbnail="${id}" width="112" height="74"></canvas>`}<span>${label ?? TOOL_INFO[id].label}</span></button>`;
     const cat = (id: ToolCat, label: string) => `<button class="cat" data-cat="${id}">${label}</button>`;
     this.$('tools').innerHTML = `
-      <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
+      <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div><button class="tray-done" data-done="1" aria-label="Done building">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -130,6 +130,7 @@ export class UI {
     this.$('tools').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
+      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
       else if (b.dataset.cat) {
         const order: ToolCat[] = ['terrain', 'nature', 'holes'];
@@ -335,9 +336,10 @@ export class UI {
 
   /** Heights the sheet can rest at, measured from the top of the bottom navigation. */
   private sheetHeights() {
-    const nav = this.$('nav').getBoundingClientRect();
+    // On phones the navigation lives in the menu, so the sheet can use everything below the status chip.
+    const floor = this.mobile ? window.innerHeight : this.$('nav').getBoundingClientRect().top;
     const topBottom = this.$('top').getBoundingClientRect().bottom;
-    const room = Math.max(160, nav.top - topBottom - 8);
+    const room = Math.max(160, floor - topBottom - 8);
     return { peek: 58, half: Math.round(Math.min(room, Math.max(260, room * 0.5))), full: Math.round(room) };
   }
   /**
