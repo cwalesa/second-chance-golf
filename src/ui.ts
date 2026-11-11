@@ -477,8 +477,9 @@ export class UI {
       ? `<span class="cf-pars" role="group" aria-label="Par"><b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}${nh ? `<button class="mini wide ${adding ? 'on' : ''}" id="cfBend" ${this.editor.newBends.length >= MAX_BENDS ? 'disabled' : ''}>${adding ? 'Tap the map' : '+ Bend'}</button>${this.editor.newBends.length ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}` : ''}</span>`
       : '';
     const route = nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
+    const dragHint = nh && !adding ? `<span class="cf-hint">Drag T, G or a bend to move it${this.editor.newBends.length ? '. Tap a bend to remove it' : ''}.</span>` : '';
     const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
-    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
+    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${dragHint}${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);

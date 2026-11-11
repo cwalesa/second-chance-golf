@@ -487,3 +487,4 @@ button { touch-action: manipulation; }
 #start h1 { font-size: 40px !important; margin: 10px 0 14px !important; }
 #start .sub { font-size: 12px !important; margin-bottom: 14px !important; }
 #start { background: radial-gradient(120% 80% at 50% 0%, #6b9c57, #2f6424) !important; backdrop-filter: none !important; }
+#confirm .cf-hint { display: block; font-size: 11.5px; color: var(--ink-dim, #b9b49d); margin-top: 2px; }
