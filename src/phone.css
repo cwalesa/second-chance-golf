@@ -413,3 +413,51 @@ body.mobile #goalbar .p { font-size: 11.5px; color: var(--ink-dim) !important; f
 .chain-list li.now .chain-dot { background: #ffd25e; color: #26381f; }
 .chain-t { flex: 1; }
 .chain-r { font-size: 12px; font-weight: 700; color: var(--dim); }
+
+/* ---------- dialogs (settings, rename, reports) on paper ---------- */
+body.mobile #modal { background: #10200f66 !important; backdrop-filter: blur(2px); }
+body.mobile #modal .box {
+  --text: var(--ink); --dim: var(--ink-dim); --line: #6b54202a; --panel-2: #fff; --gold: #a76d0a;
+  background: var(--pp) !important; color: var(--ink) !important; border: 2px solid var(--pp-edge) !important; border-radius: 24px !important;
+  box-shadow: 0 4px 0 var(--pp-deep), 0 18px 40px #10200f77 !important; width: min(380px, calc(100vw - 28px)) !important; padding: 20px !important;
+  font-family: var(--round); animation: ph-pop .22s var(--ease);
+}
+body.mobile #modal .box h2 { color: var(--ink) !important; font: 800 21px/1.2 var(--round) !important; letter-spacing: 0 !important; margin: 0 0 12px !important; }
+body.mobile #modal .box :is(p, small, .dim, .eyebrow, label) { color: var(--ink-dim) !important; }
+body.mobile #modal .box :is(b, strong, h3, h4, span) { color: inherit; }
+body.mobile #modal .menu-list { display: flex; flex-direction: column; gap: 8px; }
+body.mobile #modal .btn {
+  min-height: 46px; border-radius: 16px !important; border: 0 !important; background: #fff !important; color: var(--ink) !important;
+  font: 700 15px var(--round) !important; box-shadow: 0 3px 0 var(--pp-edge) !important; text-align: left; padding: 0 16px !important;
+}
+body.mobile #modal .actions .btn, body.mobile #modal .btn.primary { text-align: center; }
+body.mobile #modal .btn.primary { background: var(--leaf) !important; color: #fff !important; box-shadow: 0 3px 0 var(--leaf-d) !important; }
+body.mobile #modal .btn.danger, body.mobile #modal #mdReset { color: #b8431f !important; }
+body.mobile #modal .btn:active { transform: translateY(2px); box-shadow: none !important; }
+body.mobile #modal input { background: #fff !important; color: var(--ink) !important; border: 2px solid var(--pp2) !important; border-radius: 12px !important; }
+body.mobile #modal .box:has(.day-report) { background: var(--pp) !important; }
+
+/* ---------- hole panel details ---------- */
+body.mobile #side .hole-stats > div { background: #fff !important; border: 2px solid var(--pp2) !important; border-radius: 14px !important; box-shadow: 0 2px 0 var(--pp-edge); color: var(--ink) !important; }
+body.mobile #side .hole-stats small { color: var(--ink-dim) !important; }
+body.mobile #side .edit-act {
+  background: #fff !important; border: 2px solid var(--pp2) !important; border-radius: 16px !important; color: var(--ink) !important; box-shadow: 0 3px 0 var(--pp-edge) !important;
+}
+body.mobile #side .edit-act b { color: var(--ink) !important; }
+body.mobile #side .edit-act small { color: var(--ink-dim) !important; }
+body.mobile #side .edit-act svg { color: var(--leaf) !important; }
+body.mobile #side .edit-act:disabled { opacity: .45; }
+body.mobile #side .sec h3 { color: var(--ink-dim) !important; font: 800 12px var(--round) !important; letter-spacing: .1em; }
+body.mobile #side .row .k { color: var(--ink-dim) !important; }
+
+/* ---------- loading card while new land is laid out ---------- */
+#splash { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: radial-gradient(120% 90% at 50% 20%, #7fb36a, #2f6424); color: #fff8e7; font-family: ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; transition: opacity .35s; }
+#splash.out { opacity: 0; pointer-events: none; }
+#splash .sp-flag { width: 74px; height: 74px; border-radius: 50%; background: #fff8e7; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 0 #d8c391, 0 10px 24px #10200f55; animation: sp-bob 1.2s ease-in-out infinite; }
+#splash .sp-flag svg { width: 40px; height: 40px; }
+#splash b { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+#splash small { font-size: 14px; opacity: .85; }
+@keyframes sp-bob { 50% { transform: translateY(-6px); } }
+body.mobile:not([data-tab="none"]) #goalpop, body.mobile:has(#modal:not([hidden])) #goalpop { display: none; }
+body.mobile:has(#modal:not([hidden])) #fab { display: none; }
