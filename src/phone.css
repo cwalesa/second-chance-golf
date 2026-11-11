@@ -566,3 +566,32 @@ body.mobile #tools .ph-decor .tool em { font-style: normal; font-size: 10px; fon
 #tip button { flex: none; align-self: center; border: 0; border-radius: 16px; padding: 8px 12px; background: #4d8a3a; color: #fff; font: 800 13px ui-rounded, system-ui, sans-serif; box-shadow: 0 2px 0 #2f6424; }
 body.practice #goalbar { display: none !important; }
 .practiced { font-size: 13px; font-weight: 700; color: #2f6424; background: #e6efd9; border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; }
+
+/* panel help: a card at the top of the panel, not over it */
+.ptip { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; margin: 0 0 12px; border-radius: 16px; background: #fff3c9; border: 2px solid #f0c860; color: #26381f; }
+.ptip span { font-size: 18px; }
+.ptip p { flex: 1; margin: 0 !important; font-size: 13px !important; line-height: 1.35; color: #4f4a2a !important; }
+.ptip button { flex: none; border: 0; border-radius: 14px; padding: 8px 12px; background: #4d8a3a; color: #fff; font: 800 13px ui-rounded, system-ui, sans-serif; box-shadow: 0 2px 0 #2f6424; }
+/* tool tips: never wider than a phone, and clear of side panels in landscape */
+#tip { max-width: 520px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  #tip { right: auto; width: min(460px, calc(100% - 24px)); }
+  /* start screen on its side: drop the picture so the choices fit */
+  #start .start-art { display: none !important; }
+  #start .start-content { padding: 18px 22px !important; }
+  #start h1 { font-size: 30px !important; margin: 0 0 8px !important; }
+  #start .premium-start { max-width: 560px !important; }
+  #start .regions { grid-template-columns: 1fr 1fr; }
+}
+body:has(#modal:not([hidden])) #tip { display: none; }
+/* a celebration never sits on top of the menu or an open panel */
+body.mobile.menu-open #goalpop, body.mobile:is([data-tab="course"], [data-tab="guests"], [data-tab="money"], [data-tab="club"], [data-tab="journey"], [data-tab="events"]) #goalpop { display: none; }
+/* phone on its side: little height, so the tutorial tip sits top right (beside the money chip)
+   and the placement bar keeps to the essentials */
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #coach.ontop { top: calc(6px + env(safe-area-inset-top)) !important; left: auto !important; right: calc(8px + env(safe-area-inset-right)) !important; width: min(430px, calc(100% - 300px)) !important; max-height: 40vh; }
+  body.mobile #confirm .cf-hint, body.mobile #confirm .cf-note { display: none !important; }
+  body.mobile #confirm { padding: 6px 8px 6px 12px !important; min-height: 0; }
+  body.mobile #confirm .cf-pars { margin-top: 2px; }
+  body.mobile #goalbar { max-width: 240px !important; }
+}

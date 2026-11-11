@@ -62,7 +62,7 @@ export const claimable = (g: Game) => (g.daily.pending > 0 ? 1 : 0) + g.daily.ch
 export function rollDay(g: Game, today = localDate()) {
   const d = g.daily;
   if (d.date === today) return false;
-  if (!g.world.clubhouse) return false; // the streak starts once there is a club to come back to
+  if (!g.world.clubhouse || g.openHoles.length === 0) return false; // the streak starts once there is a running club to come back to
   const gap = d.date ? daysBetween(d.date, today) : 1;
   if (gap < 0) { d.date = today; return false; } // the clock went backwards; do not reward it
   d.streak = gap === 1 ? d.streak + 1 : 1;
