@@ -90,8 +90,8 @@ export class UI {
     this.buildTop();
     this.buildSide();
     this.buildNav();
-    this.setMobile(window.matchMedia('(max-width: 860px), (max-height: 520px) and (pointer: coarse)').matches);
-    window.matchMedia('(max-width: 860px), (max-height: 520px) and (pointer: coarse)').addEventListener('change', (e) => this.setMobile(e.matches));
+    // One layout: the game is an iPhone game. In a wide browser window it shows in a phone-sized frame.
+    this.setMobile(true);
     game.onNotice = (n) => this.toast(n.text, n.kind);
     editor.onSelect = (what) => {
       this.tab = what === 'golfer' ? 'guests' : 'course';
@@ -331,16 +331,22 @@ export class UI {
     this.onInsets();
   }
 
-  get landscape() { return this.mobile && window.innerWidth > window.innerHeight && window.innerHeight <= 600; }
+  /** A phone on its side. Measured from the game area, which is a portrait frame in a wide browser window. */
+  get landscape() {
+    const r = document.getElementById('app')!.getBoundingClientRect();
+    return r.width > r.height && r.height <= 600;
+  }
   /** Phone portrait panels are bottom sheets with three resting heights. */
   get portraitSheet() { return this.mobile && !this.landscape; }
   sheet: 'peek' | 'half' | 'full' = 'half';
   private sheetDragH: number | null = null;
 
   /** Heights the sheet can rest at, measured from the top of the bottom navigation. */
+  /** The game area: the whole window on a phone, a phone-sized frame in a wide browser window. */
+  private get appRect() { return document.getElementById('app')!.getBoundingClientRect(); }
   private sheetHeights() {
     // On phones the navigation lives in the menu, so the sheet can use everything below the status chip.
-    const floor = this.mobile ? window.innerHeight : this.$('nav').getBoundingClientRect().top;
+    const floor = this.mobile ? this.appRect.bottom : this.$('nav').getBoundingClientRect().top;
     const topBottom = this.$('top').getBoundingClientRect().bottom;
     const room = Math.max(160, floor - topBottom - 8);
     return { peek: 58, half: Math.round(Math.min(room, Math.max(260, room * 0.5))), full: Math.round(room) };
@@ -350,7 +356,7 @@ export class UI {
    * (confirm bar, coach, toasts, map buttons) sit in the space that is actually free.
    */
   layoutVars() {
-    const root = document.documentElement.style, H = window.innerHeight;
+    const root = document.documentElement.style, a = this.appRect, H = a.bottom;
     const vis = (id: string) => { const el = document.getElementById(id); if (!el || el.style.display === 'none' || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return r.height > 0 ? r : null; };
     const top = vis('top');
     let dockTop = H;
@@ -359,7 +365,8 @@ export class UI {
     // the round menu button sits in the bottom corner: docked cards and bars stay above it
     if (this.mobile && !this.landscape) dockTop = Math.min(dockTop, H - 82);
     const side = this.mobile && this.landscape ? vis('side') : null;
-    const vals = `${Math.round(top ? top.bottom : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(window.innerWidth - side.left) : 0}`;
+    // values are relative to the game area, which positions its own fixed pieces
+    const vals = `${Math.round(top ? top.bottom - a.top : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(a.right - side.left) : 0}`;
     if (vals === this.layoutKey) return;
     this.layoutKey = vals;
     const [hdr, dock, sw] = vals.split('|');
@@ -417,10 +424,10 @@ export class UI {
     const base = this.panelInsets();
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
-    const c = coach.getBoundingClientRect();
-    // The coach docks just above the bottom controls, so the map frames itself above it.
-    if (c.top + c.height / 2 > window.innerHeight / 2) return { ...base, b: Math.max(base.b, window.innerHeight - c.top + 8) };
-    return { ...base, t: Math.max(base.t, c.bottom + 8) };
+    const c = coach.getBoundingClientRect(), a = this.appRect;
+    // The map frames itself clear of the coach, above or below it.
+    if (c.top + c.height / 2 > a.top + a.height / 2) return { ...base, b: Math.max(base.b, a.bottom - c.top + 8) };
+    return { ...base, t: Math.max(base.t, c.bottom - a.top + 8) };
   }
   private panelInsets() {
     const r = (id: string) => (document.getElementById(id) as HTMLElement).getBoundingClientRect();
@@ -431,10 +438,10 @@ export class UI {
         const el = (id: string) => document.getElementById(id) as HTMLElement;
         const sideOpen = this.tab !== 'none' && this.tab !== 'build';
         return { l: nav.right + 10, r: sideOpen ? el('side').offsetWidth + 16 : 12,
-          t: r('top').bottom + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
+          t: r('top').bottom - this.appRect.top + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
       }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
-      return { l: 0, r: 0, t: r('top').bottom + 8, b: nav.height + sheet };
+      return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet };
     }
     return { l: 12, r: this.tab !== 'none' && this.tab !== 'build' ? r('side').width + 24 : 12, t: r('top').bottom + 12, b: r('tools').height + 24 };
   }
@@ -596,7 +603,7 @@ export class UI {
   }
   private settingsModal() {
     const prefs = this.game.preferences;
-    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
     m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { this.game.preferences[input.dataset.pref as keyof typeof prefs] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
   }

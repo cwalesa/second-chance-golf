@@ -1,7 +1,7 @@
 {
   "name": "second-chance-golf",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,8 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "cap:sync": "npm run build && npx cap sync",
-    "cap:ios": "npm run cap:sync && npx cap open ios",
-    "cap:android": "npm run cap:sync && npx cap open android"
+    "cap:ios": "npm run cap:sync && npx cap open ios"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
@@ -21,7 +20,7 @@
   },
   "dependencies": {
     "@capacitor/core": "^6.1.0",
-    "@capacitor/android": "^6.1.0",
     "@capacitor/ios": "^6.1.0"
-  }
+  },
+  "description": "Second Chance Golf: build a golf course hole by hole. An iPhone game (Capacitor + iOS), playable in the browser while in development."
 }
