@@ -19,6 +19,7 @@ export function serialize(g: Game): string {
     v: VERSION,
     savedAt: Date.now(),
     campaign: g.campaign,
+    daily: g.daily,
     tutorial: g.tutorial,
     experience: g.experience,
     preferences: g.preferences,
@@ -110,6 +111,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
+    if (d.daily && typeof d.daily.date === 'string' && Array.isArray(d.daily.challenges)) g.daily = { ...g.daily, ...d.daily };
     if (d.campaign?.step === undefined) g.catchUpGoals();
     else {
       // find the saved goal in the current chain; saves from before ids were stored used the first chain's order

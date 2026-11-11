@@ -27,15 +27,21 @@ export interface Experience {
 export const freshExperience = (): Experience => ({ xp: 0, earned: [], site: { irrigation: false, terrace: false, garden: false }, archives: [], reserveUsed: false });
 export const careerLevel = (g: Game) => CAREER.reduce((level, step, i) => g.experience.xp >= step.xp ? i : level, 0);
 export const constructionFactor = (g: Game) => careerLevel(g) >= 4 ? .9 : careerLevel(g) >= 3 ? .95 : 1;
+/** Player level: quick at first, slower later. Level n needs 40 * (n - 1)^1.6 XP. */
+export const levelXp = (n: number) => Math.round(40 * Math.pow(Math.max(0, n - 1), 1.6));
+export const playerLevel = (xp: number) => { let n = 1; while (xp >= levelXp(n + 1)) n++; return n; };
 export function awardExperience(g: Game, amount: number, once?: string) {
   if (once && g.experience.earned.includes(once)) return;
   const old = careerLevel(g);
+  const oldLevel = playerLevel(g.experience.xp);
   if (once) g.experience.earned.push(once);
   g.experience.xp += amount; g.dirtySave = true;
+  const lv = playerLevel(g.experience.xp);
   if (careerLevel(g) > old) {
     g.applyRegion();
-    g.notify('good', `Career level up: ${CAREER[careerLevel(g)].title}. ${CAREER[careerLevel(g)].perk}`);
-    g.onFeedback('level');
+    g.cheer({ kind: 'level', title: `Level ${lv}: ${CAREER[careerLevel(g)].title}`, sub: CAREER[careerLevel(g)].perk });
+  } else if (lv > oldLevel) {
+    g.cheer({ kind: 'level', title: `Level ${lv}!`, sub: lv % 5 === 0 ? 'A milestone level. Your club is getting noticed.' : 'Keep building, playing and finishing challenges.' });
   }
 }
 export function greenProject(g: Game): EditPlan | null {

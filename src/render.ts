@@ -1948,6 +1948,43 @@ export class Renderer {
           ctx.arc(p.x + Math.cos(a) * u * sp * k, p.y - Math.sin(k * Math.PI) * u * 0.45 * sp * 2 + Math.sin(a) * u * 0.1 * k, Math.max(1, u * 0.035), 0, Math.PI * 2);
           ctx.fill();
         }
+      } else if (f.kind === 'coin' || f.kind === 'cheer') {
+        // a word that pops up, floats and fades: money in at the clubhouse, a cheer at the green
+        const life = f.kind === 'coin' ? 1.6 : 2.4;
+        const k = Math.min(1, age / life);
+        const pop = Math.min(1, age / 0.18);
+        const scale = (f.kind === 'coin' ? 0.9 : 1.15) * (0.6 + 0.4 * pop) * (1 + 0.15 * Math.sin(Math.min(1, age / 0.3) * Math.PI));
+        const y = p.y - u * (0.6 + 1.1 * k);
+        ctx.save();
+        ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+        ctx.translate(p.x, y);
+        ctx.scale(scale, scale);
+        const fs = Math.max(11, Math.min(22, u * 0.42));
+        ctx.font = `800 ${fs}px ui-rounded, 'SF Pro Rounded', system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const text = f.text ?? '';
+        const tw = ctx.measureText(text).width;
+        if (f.kind === 'coin') {
+          // a little gold coin beside the amount
+          const r = fs * 0.42;
+          ctx.fillStyle = '#e9a92a';
+          ctx.beginPath(); ctx.arc(-tw / 2 - r - 2, 0, r, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#ffd969';
+          ctx.beginPath(); ctx.arc(-tw / 2 - r - 2, -r * 0.12, r * 0.72, 0, Math.PI * 2); ctx.fill();
+        } else {
+          ctx.fillStyle = 'rgba(38,56,31,0.85)';
+          const w = tw + fs * 1.1, h = fs * 1.5;
+          ctx.beginPath();
+          ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
+          ctx.fill();
+        }
+        ctx.lineWidth = Math.max(2, fs * 0.22);
+        ctx.strokeStyle = f.kind === 'coin' ? 'rgba(60,40,0,0.75)' : 'rgba(0,0,0,0)';
+        if (f.kind === 'coin') ctx.strokeText(text, 0, 0);
+        ctx.fillStyle = f.kind === 'coin' ? '#ffe27a' : '#fff3c4';
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
       } else if (f.kind === 'leaf') {
         const k = Math.min(1, age / 1.6);
         for (let d = 0; d < 7; d++) {

@@ -3,6 +3,7 @@ import type { Feedback } from './feedback';
 import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
+import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -57,6 +58,7 @@ export interface LifetimeStats {
   revenue: number;
   events: number;
   aces: number;
+  birdies?: number;
   bestDayProfit: number;
   bestDaySat: number;
   years: number;
@@ -78,6 +80,7 @@ export type StaffId = keyof typeof STAFF;
 export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'; visits: number; happiness: number; joined: number; }
 export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 
+export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak'; title: string; sub: string; reward?: number; }
 export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; }
 export class Game {
   experience: Experience = freshExperience();
@@ -108,7 +111,7 @@ export class Game {
   logo: Logo = defaultLogo();
   fees: Record<BandId, number> = { early: 34, mid: 30, twilight: 20 };
   clubLevel = 0;
-  stats: LifetimeStats = { rounds: 0, revenue: 0, events: 0, aces: 0, bestDayProfit: 0, bestDaySat: 0, years: 1 };
+  stats: LifetimeStats = { rounds: 0, revenue: 0, events: 0, aces: 0, birdies: 0, bestDayProfit: 0, bestDaySat: 0, years: 1 };
   lastAway: { days: number; net: number } | null = null;
   upgrades: Owned = noUpgrades();
   cartFee = CFG.extras.cartFeeDefault;
@@ -161,9 +164,17 @@ export class Game {
         this.landings.push({ x: shot.air.x, y: shot.air.y, hole: h.id, bad: shot.kind !== 'ok' });
         if (this.landings.length > 400) this.landings.shift();
       },
-      onAce: () => {
+      onAce: (g) => {
         this.stats.aces++;
-        this.notify('good', 'A guest just made a hole in one!');
+        this.earn('bonus', 500, 'Hole in one: word gets around');
+        awardExperience(this, 50);
+        this.cheer({ kind: 'ace', title: 'Hole in one!', sub: `${g.name} aced hole ${g.holeId}. Word gets around.`, reward: 500 });
+      },
+      onHoleOut: (g, h, diff) => {
+        if (diff > -1 || g.test) return;
+        this.stats.birdies = (this.stats.birdies ?? 0) + 1;
+        awardExperience(this, diff <= -2 ? 8 : 3);
+        this.sim.pop('cheer', h.cup.x + 0.5, h.cup.y - 0.2, diff <= -2 ? 'Eagle! +8 XP' : 'Birdie! +3 XP');
       },
     });
     this.applyRegion();
@@ -409,6 +420,8 @@ export class Game {
     if (g) {
       this.today.arrivals++;
       this.earn('fees', fee, `${band.name} tee time, ${g.name}`);
+      const door = this.world.clubhouse;
+      if (door) this.sim.pop('coin', door.x + 3.5, door.y + 1, `+$${Math.round(fee)}`);
       if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee)) this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
     }
   }
@@ -562,6 +575,40 @@ export class Game {
     this.notify('good', `Goal complete: ${def.title} (+${fmtMoney(def.reward)})`);
   }
 
+  /** Big moments waiting for the interface to celebrate them, oldest first. */
+  cheers: Cheer[] = [];
+  cheer(c: Cheer) {
+    this.cheers.push(c);
+    if (this.cheers.length > 4) this.cheers.shift();
+    this.onFeedback(c.kind === 'level' ? 'level' : 'reward');
+  }
+  daily: DailyState = freshDaily();
+  /** Collect the streak reward. */
+  claimStreak(): number {
+    const n = this.daily.pending;
+    if (!n) return 0;
+    this.daily.pending = 0;
+    this.earn('bonus', n, `Day ${this.daily.streak} streak`);
+    awardExperience(this, 10 + 5 * Math.min(7, this.daily.streak));
+    this.onFeedback('reward');
+    this.dirtySave = true;
+    return n;
+  }
+  /** Collect a finished daily challenge. */
+  claimChallenge(i: number): number {
+    const c = this.daily.challenges[i];
+    if (!c || c.claimed || !challengeDone(this, c)) return 0;
+    c.claimed = true;
+    this.earn('bonus', c.reward, `Daily challenge: ${KINDS[c.kind].title(c.target)}`);
+    awardExperience(this, c.xp);
+    this.onFeedback('reward');
+    this.dirtySave = true;
+    if (this.daily.challenges.every((x) => x.claimed)) {
+      this.earn('bonus', 500, 'All daily challenges done');
+      this.cheer({ kind: 'daily', title: 'All three done!', sub: 'New challenges arrive tomorrow. Keep your streak going.', reward: 500 });
+    }
+    return c.reward;
+  }
   /** The goal just reached, waiting for the interface to celebrate it. */
   goalJustDone: { title: string; reward: number; next: string | null } | null = null;
   /** Advance the goal chain: one goal at a time, each paying its grant. */
@@ -572,6 +619,7 @@ export class Game {
     this.campaign.step = i + 1;
     this.campaign.goalId = CHAIN[i + 1]?.id ?? 'done';
     this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
+    awardExperience(this, Math.round(goal.reward / 10));
     const next = CHAIN[i + 1] ?? null;
     this.goalJustDone = { title: goal.title, reward: goal.reward, next: next ? next.title : null };
     this.onFeedback('reward');
