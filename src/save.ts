@@ -109,6 +109,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
+    if (d.campaign?.step === undefined) g.catchUpGoals();
     // Saves from before the walkthrough existed already know the controls.
     g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
     g.staff = { ...g.staff, ...(d.staff ?? {}) };

@@ -2,7 +2,7 @@ import { paintToolTile } from './classic-art';
 import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
-import { GOALS } from './campaign';
+import { currentGoal, goalProgressText } from './campaign';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
@@ -11,7 +11,6 @@ import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint, planStraighten 
 import { EVENTS, EVENT_IDS, EventId } from './events';
 import { Hole, MAX_BENDS, PAR_YARDS, holeBends, holeCondition, holeYards, idx } from './terrain';
 import { BANDS, CLUB_LEVELS, REGIONS } from './progression';
-import { HIDDEN_GOALS, MILESTONES } from './goals';
 import { logoDesigner, paintLogo } from './start';
 import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } from './economy';
 
@@ -211,6 +210,12 @@ export class UI {
       } else if (el.dataset.act) {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
+        else if (el.dataset.act === 'goalgo') {
+          const go = el.dataset.id!;
+          if (go === 'build') { this.tab = 'build'; this.editor.setTool('build'); }
+          else this.tab = (go === 'course' ? 'course' : go === 'club' ? 'club' : go === 'money' ? 'money' : 'events') as Tab;
+          if (!this.mobile && go === 'build') this.tab = 'none';
+        }
         else if (el.dataset.act === 'suggest') {
           if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
         }
@@ -785,41 +790,35 @@ export class UI {
     }
   }
 
-  private allGoals() {
-    return [...CFG.goals, ...MILESTONES.filter((m) => !HIDDEN_GOALS.includes(m.id))].map((d) => ({ id: d.id, title: d.title, detail: d.detail, reward: d.reward }));
-  }
   private renderGoalBar() {
     const g = this.game;
-    const next = GOALS.find(o => !g.campaign.claimed.includes(o.id));
-    const html = next ? `<div class="k">Next goal · ${fmtMoney(next.reward)}</div><div>${next.title}</div><div class="p">${Math.max(0, Math.round(next.value(g)))} / ${next.target} · Tap for goals</div>` : `<div class="k">Goals complete</div><div>${escapeHtml(g.name)}</div><div class="p">Keep refining your course.</div>`;
+    const goal = currentGoal(g);
+    const html = goal
+      ? `<div class="k">Goal</div><div class="gt">${goal.title}</div><div class="p">${goalProgressText(goal, g)}</div>`
+      : `<div class="k">Sandbox</div><div class="gt">Build freely</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
     }
+    // celebrate a reached goal once the tutorial is out of the way
+    const done = g.goalJustDone;
+    if (done && !document.body.classList.contains('coaching') && !this.modalOpen) {
+      g.goalJustDone = null;
+      this.celebrate(done.title, done.reward, done.next);
+    }
+  }
+  private celebrate(title: string, reward: number, next: string | null) {
+    document.getElementById('goalpop')?.remove();
+    const pop = document.createElement('div');
+    pop.id = 'goalpop';
+    pop.setAttribute('role', 'status');
+    pop.innerHTML = `<div class="gp-k">Goal complete</div><div class="gp-t">${escapeHtml(title)}</div><div class="gp-r">+${fmtMoney(reward)}</div>${next ? `<div class="gp-n">Next: ${escapeHtml(next)}</div>` : '<div class="gp-n">Every goal is done. The course is yours to build freely.</div>'}`;
+    pop.onclick = () => pop.remove();
+    document.getElementById('app')!.append(pop);
+    window.setTimeout(() => pop.classList.add('out'), 4200);
+    window.setTimeout(() => pop.remove(), 4700);
   }
 
-  private goalProgress(id: string): string {
-    const g = this.game;
-    const h2 = g.world.holes.find((h) => h.id === 2);
-    const h3 = g.world.holes.find((h) => h.id === 3);
-    if (id === 'green') return h2 ? `Hole 2 green condition ${Math.round(holeCondition(g.world, h2).green)} of 75 needed${h2.open ? '' : ' (closed for work)'}` : 'Hole 2 was removed';
-    if (id === 'reopen') {
-      if (!h3) return 'Hole 3 was removed';
-      if (h3.open) return 'Open';
-      const v = g.validate(3);
-      return v.ok ? 'Ready: press Open hole' : v.problems[0];
-    }
-    if (id === 'day') {
-      const t = g.today;
-      const avg = t.rounds ? t.satSum / t.rounds : 0;
-      return `Today: profit ${fmtMoney(operatingProfit(t))}, ${t.rounds}/${CFG.satisfaction.goalMinRounds} rounds, satisfaction ${t.rounds ? Math.round(avg) : '-'}/${CFG.satisfaction.goal}`;
-    }
-    const m = MILESTONES.find((x) => x.id === id);
-    if (!m) return '';
-    const [cur, target] = m.progress(g.goalCtx());
-    const fmt = (n: number) => (n >= 1000 ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : String(Math.round(n * 10) / 10));
-    return `${fmt(Math.min(cur, target))} of ${fmt(target)}`;
-  }
 
   private sideHtml(): string {
     switch (this.tab) {
@@ -1025,12 +1024,7 @@ export class UI {
     html += `</div></div>`;
     html += `<div class="sec"><h3>What raises your rating</h3><div class="dim">Open holes (${g.openHoles.length}), turf condition (${Math.round(g.avgCondition)}), guest satisfaction (${Math.round(g.reputation)}), improvements owned and the clubhouse level. Higher ratings lift demand and fees, and unlock bigger clubhouse upgrades and events.</div></div>`;
     html += `<div class="sec"><h3>${r.name}</h3><div class="dim">${r.perks.join(' · ')}</div><div class="note">${SEASON_NAMES2[nextSeason]} comes next: demand ${r.seasonDemand[nextSeason] >= 1.1 ? 'rises' : r.seasonDemand[nextSeason] <= 0.7 ? 'drops sharply' : 'is steady'}, turf wear ${r.seasonWear[nextSeason] > 1.1 ? 'is heavier' : 'is normal'}.</div></div>`;
-    const goals = this.allGoals();
-    const open = goals.filter((d) => !g.goalDone(d.id));
-    const done = goals.length - open.length;
-    html += `<div class="sec"><h3>Goals · ${done} of ${goals.length} done</h3>`;
-    for (const d of open.slice(0, 4)) html += `<div class="goal"><div class="check"></div><div><div class="t">${d.title}</div><div class="dim">${d.detail}</div><div style="margin-top:3px">${this.goalProgress(d.id)} · <span class="reward">Bonus ${fmtMoney(d.reward)}</span></div></div></div>`;
-    if (!open.length) html += '<div class="dim">Every goal is done. Legend.</div>';
+    html += `<div class="sec"><h3>Staff</h3>`;
     html += staffPanel(g);
     html += `</div><div class="sec"><h3>Career</h3><div class="row"><span class="k">Rounds played</span><span>${g.stats.rounds.toLocaleString('en-US')}</span></div><div class="row"><span class="k">Lifetime revenue</span><span>${fmtMoney(g.stats.revenue)}</span></div><div class="row"><span class="k">Best day</span><span>${fmtMoney(g.stats.bestDayProfit)}</span></div><div class="row"><span class="k">Events hosted</span><span>${g.stats.events}</span></div><div class="row"><span class="k">Holes in one</span><span>${g.stats.aces}</span></div></div>`;
     return html;

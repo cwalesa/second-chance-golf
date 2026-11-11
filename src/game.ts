@@ -2,7 +2,7 @@ import { Experience, freshExperience, awardExperience, constructionFactor } from
 import type { Feedback } from './feedback';
 import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
-import { CampaignState, freshCampaign, GOALS } from './campaign';
+import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -14,7 +14,7 @@ import { EditPlan, ToolId, applyPlan, planRemoveHole, setCostMultiplier, touched
 import { setPhysics } from './physics';
 import { TutorialState, freshTutorial } from './tutorial';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
-import { GoalCtx, HIDDEN_GOALS, MILESTONES } from './goals';
+import { GoalCtx, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
 
@@ -142,6 +142,8 @@ export class Game {
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
     if (opts.tutorial === false) this.tutorial.done = true;
+    // a course handed in ready-made starts its goals at the first one it has not reached, unpaid
+    if (world) this.catchUpGoals();
     this.rng = new Rng(seed);
     this.sim = new CourseSim(this.world, this.rng, {
       onRound: (r) => this.onRoundComplete(r),
@@ -560,13 +562,25 @@ export class Game {
     this.notify('good', `Goal complete: ${def.title} (+${fmtMoney(def.reward)})`);
   }
 
+  /** The goal just reached, waiting for the interface to celebrate it. */
+  goalJustDone: { title: string; reward: number; next: string | null } | null = null;
+  /** Advance the goal chain: one goal at a time, each paying its grant. */
   checkGoals() {
-    const ctx = this.goalCtx();
-    for (const m of MILESTONES) {
-      if (this.goalDone(m.id) || HIDDEN_GOALS.includes(m.id)) continue;
-      const [cur, target] = m.progress(ctx);
-      if (cur >= target) this.completeGoal(m.id);
-    }
+    const i = chainStep(this);
+    const goal = CHAIN[i];
+    if (!goal || goal.value(this) < goal.target) return;
+    this.campaign.step = i + 1;
+    this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
+    const next = CHAIN[i + 1] ?? null;
+    this.goalJustDone = { title: goal.title, reward: goal.reward, next: next ? next.title : null };
+    this.onFeedback('reward');
+    this.dirtySave = true;
+  }
+  /** Older saves had no chain: skip, without paying, the goals the course has already reached. */
+  catchUpGoals() {
+    let i = chainStep(this);
+    while (CHAIN[i] && CHAIN[i].value(this) >= CHAIN[i].target) i++;
+    this.campaign.step = i;
   }
 
   // ---- player actions ----

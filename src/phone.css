@@ -363,3 +363,53 @@ body.mobile.menu-open #nav .mset { width: auto !important; min-height: 40px !imp
 @media (orientation: landscape) and (max-height: 600px) {
   body.mobile #coach.ontop { right: auto !important; width: min(460px, calc(100vw - 24px)) !important; margin-right: 0; }
 }
+
+/* ---------- goals: one at a time ---------- */
+/* phone: a small pill under the money label; tap it for the Goals panel */
+body.mobile #goalbar { display: none !important; }
+body.mobile[data-tab="none"]:not(.coaching):not(.menu-open):not(.owner-playing) #goalbar {
+  display: flex !important; flex-direction: column; position: absolute; z-index: 5;
+  left: calc(8px + env(safe-area-inset-left)) !important; top: calc(52px + env(safe-area-inset-top)) !important; right: auto; max-width: min(300px, calc(100vw - 90px)) !important;
+  padding: 7px 14px 8px !important; border-radius: 16px !important; border: 2px solid var(--pp-edge) !important; background: #fff8e7e6 !important; color: var(--ink) !important;
+  box-shadow: 0 2px 0 var(--pp-deep), 0 4px 10px #1b2a1330 !important; font-family: var(--round); animation: ph-down .25s var(--ease); cursor: pointer;
+}
+body.mobile #goalbar .k { font-size: 9.5px !important; color: var(--sun-d) !important; letter-spacing: .08em; font-weight: 800; }
+body.mobile #goalbar .gt { font-size: 13.5px; font-weight: 800; line-height: 1.2; }
+body.mobile #goalbar .p { font-size: 11.5px; color: var(--ink-dim) !important; font-weight: 700; }
+
+/* the celebration when a goal is reached */
+@keyframes gp-in { 0% { transform: translate(-50%, -16px) scale(.9); opacity: 0; } 60% { transform: translate(-50%, 2px) scale(1.03); opacity: 1; } 100% { transform: translate(-50%, 0) scale(1); } }
+#goalpop {
+  position: fixed; z-index: 40; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(340px, calc(100vw - 32px));
+  padding: 14px 18px 16px; border-radius: 22px; text-align: center; cursor: pointer;
+  background: #fff8e7; color: #26381f; border: 3px solid #ffd25e; box-shadow: 0 4px 0 #d99a22, 0 14px 34px #10200f66;
+  font-family: ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; animation: gp-in .45s cubic-bezier(.2, .9, .25, 1.15);
+  transition: opacity .4s, transform .4s;
+}
+#goalpop.out { opacity: 0; transform: translate(-50%, -12px); }
+#goalpop .gp-k { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #d99a22; }
+#goalpop .gp-t { font-size: 19px; font-weight: 800; margin: 2px 0; }
+#goalpop .gp-r { display: inline-block; margin: 4px 0 8px; padding: 3px 12px; border-radius: 12px; background: #4d8a3a; color: #fff; font-weight: 800; font-size: 15px; }
+#goalpop .gp-n { font-size: 13px; color: #6e6a4f; font-weight: 700; }
+
+/* the Goals panel */
+.chain-now { background: #fff; border: 2px solid #f3e6c4; border-radius: 18px; padding: 14px 16px; box-shadow: 0 3px 0 #d8c391; color: #26381f; }
+.chain-now h3 { margin: 2px 0 4px; font-size: 20px; color: #26381f !important; }
+.chain-now p { margin: 0 0 10px; font-size: 13.5px; color: #6e6a4f !important; line-height: 1.4; }
+.chain-k { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #d99a22 !important; }
+.chain-bar { height: 12px; border-radius: 6px; background: #f3e6c4; overflow: hidden; }
+.chain-bar i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #7fbf63, #4d8a3a); transition: width .5s; }
+.chain-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; font-weight: 700; color: #26381f; }
+.chain-reward { color: #2f6424; }
+.chain-go { width: 100%; margin-top: 12px; min-height: 44px; }
+.chain-free { border-color: #ffd25e; }
+.chain-list { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.chain-list li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 12px; font-size: 13.5px; color: var(--text); }
+.chain-list li.now { color: #26381f; }
+.chain-list li.now { background: #fff6d2; font-weight: 800; }
+.chain-list li.later { opacity: .55; }
+.chain-dot { flex: none; width: 26px; height: 26px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; background: #f3e6c4; color: #6e6a4f; }
+.chain-list li.done .chain-dot { background: #4d8a3a; color: #fff; }
+.chain-list li.now .chain-dot { background: #ffd25e; color: #26381f; }
+.chain-t { flex: 1; }
+.chain-r { font-size: 12px; font-weight: 700; color: var(--dim); }
