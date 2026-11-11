@@ -22,7 +22,14 @@ async function boot() {
     away = game.applyAway((Date.now() - loaded.savedAt) / 1000);
   } else {
     const opts = await startScreen();
+    // A short loading card while the land is laid out, so the tap on Start answers at once.
+    const splash = document.createElement('div');
+    splash.id = 'splash';
+    splash.innerHTML = '<div class="sp-flag"><svg viewBox="0 0 24 24" fill="none" stroke="#2f6424" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21V3l11 4-11 4"/><ellipse cx="7" cy="21" rx="4" ry="1"/></svg></div><b>Laying out the land</b><small>Trees, water and meadows are on their way</small>';
+    document.body.append(splash);
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
     game = new Game(undefined, Math.floor(Math.random() * 1e9), opts);
+    window.setTimeout(() => { splash.classList.add('out'); window.setTimeout(() => splash.remove(), 400); }, 350);
   }
   game.applyRegion();
   game.openProperty();

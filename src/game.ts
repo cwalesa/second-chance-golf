@@ -640,7 +640,7 @@ export class Game {
     const h = this.hole(id);
     const v = validateHole(this.world, h);
     if (!v.ok) {
-      this.notify('bad', `Hole ${id} cannot open: ${v.problems[0]}`);
+      this.notify('bad', `Hole ${id} can't open yet: ${v.problems[0].split(/(?<=\.) /)[0]} The Course panel shows how to fix it.`);
       return v;
     }
     if (!h.open) {

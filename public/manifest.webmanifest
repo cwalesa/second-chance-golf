@@ -1,13 +1,13 @@
 {
   "name": "Second Chance Golf",
   "short_name": "Second Chance",
-  "description": "Restore a struggling golf course and grow it into a destination resort.",
+  "description": "Build your own golf course, hole by hole, and grow it into an 18-hole destination.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
   "orientation": "any",
-  "background_color": "#102238",
-  "theme_color": "#102238",
+  "background_color": "#2f6424",
+  "theme_color": "#2f6424",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
