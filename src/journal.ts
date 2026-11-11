@@ -1,26 +1,34 @@
 import type { Game } from './game';
 import { fmtMoney } from './game';
-import { CAREER, careerLevel, projectOffers, nextSuggestion, SITE_PROJECTS, SiteId } from './experience';
-import { GOALS } from './campaign';
-import { REGIONS } from './progression';
+import { CHAIN, chainStep, currentGoal, goalProgressText } from './campaign';
 import { escapeHtml } from './panels';
+
 export type JournalView = 'progress' | 'projects';
-const bar = (n: number) => `<div class="progress-rail"><i style="width:${Math.max(0, Math.min(100, n))}%"></i></div>`;
-const art = (g: Game) => `<svg class="journal-art" viewBox="0 0 120 60" aria-hidden="true"><path fill="#71885b" d="M0 35Q35 5 65 25T120 15V60H0Z"/><path fill="#8eac72" d="M0 55Q24 29 56 47T120 32V60H0Z"/><path d="M33 61Q31 43 53 41T83 21" stroke="#c2d59b" stroke-width="12" fill="none"/><path fill="#ead8a4" d="M76 25q-8-6-11 1t7 5q7 0 4-6"/><ellipse fill="#6d9f9b" cx="15" cy="53" rx="18" ry="9"/><path d="M83 24V9" stroke="#f5eed3" stroke-width=".8"/><path fill="${g.region === 'desert' ? '#df9e65' : '#d8795d'}" d="M83 9l9 3-9 3z"/></svg>`;
-export function journalPanel(g: Game, view: JournalView): string {
-  const loc = { name: REGIONS[g.region].name, objectives: GOALS }, level = careerLevel(g), current = CAREER[level], next = CAREER[level + 1];
-  const earned = g.campaign.claimed.length, suggestion = nextSuggestion(g);
-  const header = `<div class="journal-title"><div><span class="eyebrow">${escapeHtml(loc.name)}</span><h2>${escapeHtml(g.name)}</h2></div></div><div class="journal-tabs" role="tablist" aria-label="Course goals">${(['progress','projects'] as JournalView[]).map(v => `<button role="tab" aria-selected="${view === v}" data-act="journal" data-id="${v}" class="${view === v ? 'on' : ''}">${v === 'progress' ? 'Goals' : 'Projects'}</button>`).join('')}</div>`;
-  const career = `<div class="career-card"><span class="career-medal">${level + 1}</span><div><div class="row"><b>${current.title}</b><span>${g.experience.xp} XP</span></div>${bar(next ? (g.experience.xp - current.xp) / (next.xp - current.xp) * 100 : 100)}<small>${next ? `${next.xp - g.experience.xp} XP to ${next.title.toLowerCase()}` : 'Highest career level reached'}</small></div></div>`;
-  let body = '';
-  if (view === 'progress') {
-    body = `${career}<button class="next-project" data-act="suggest" data-id="${suggestion.action}"><span class="eyebrow">Suggested</span><b>${suggestion.title}</b><small>${suggestion.description}</small><span class="next-arrow">↗</span></button><div class="property-cover">${art(g)}<span class="eyebrow">${loc.name} · ${g.season.name}</span><h3>${escapeHtml(g.name)}</h3><span class="cover-tag">${earned} of ${loc.objectives.length} goals done</span></div><div class="property-stats"><div><b>${g.openHoles.length}</b><small>Open holes</small></div><div><b>${Math.round(g.reputation)}<em>%</em></b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="section-label"><span>Optional goals</span><span>${earned} of ${loc.objectives.length}</span></div>${loc.objectives.map(o => {
-      const claimed = g.campaign.claimed.includes(o.id), value = Math.max(0, Math.min(o.target, o.value(g))), ready = value >= o.target;
-      return `<div class="goal-ticket ${claimed ? 'collected' : ''}"><span class="goal-symbol">${claimed ? '✓' : ready ? '✦' : '○'}</span><div class="goal-ticket-body"><div class="row"><b>${o.title}</b><span class="reward">${fmtMoney(o.reward)}</span></div><p>${o.detail}</p>${bar(value / o.target * 100)}<div class="row goal-footer"><small>${claimed ? 'Collected' : Math.round(value) + ' / ' + o.target}</small>${!claimed ? `<button class="btn ${ready ? 'primary' : ''}" data-act="claim" data-id="${o.id}" ${ready ? '' : 'disabled'}>${ready ? 'Collect' : 'In progress'}</button>` : '<span class="pos">+75 career XP</span>'}</div></div></div>`;
-    }).join('')}`;
-  } else if (view === 'projects') {
-    const offers = projectOffers(g);
-    body = `<div class="section-intro"><h3>Projects</h3><p>Repair worn greens, reopen closed holes and improve the clubhouse.</p></div><div class="budget-line"><span>Cash available</span><b>${fmtMoney(g.cash)}</b></div>${offers.map((p, i) => `<article class="project-tile ${p.locked ? 'locked-project' : ''}"><div class="project-illustration project-${p.id}"><svg viewBox="0 0 100 60" aria-hidden="true"><path fill="#6e935c" d="M8 48Q30 13 61 24T92 42Q75 61 43 50T8 48"/><path fill="#bfd595" d="M27 43Q39 26 64 35T62 49Q41 53 27 43"/><path d="M55 43V15" stroke="#f3ecd1" stroke-width="2"/><path fill="#d58b63" d="M56 15l13 5-13 5z"/><circle fill="#dfcc96" cx="25" cy="39" r="5"/></svg><span>0${i + 1}</span></div><div class="project-copy"><div class="row"><h4>${p.title}</h4><span class="xp-chip">${p.xp ? '+' + p.xp + ' XP' : 'TURF CARE'}</span></div><p>${p.description}</p><div class="row"><strong>${fmtMoney(p.cost)}</strong><button class="btn primary" data-act="project" data-id="${p.id}" ${p.locked || g.cash < p.cost ? 'disabled' : ''}>${p.locked ? 'Locked' : 'Review project'}</button></div>${p.locked ? `<small class="lock-note">${p.locked}</small>` : g.cash < p.cost ? `<small class="lock-note">${fmtMoney(p.cost - g.cash)} more needed</small>` : ''}</div></article>`).join('') || '<div class="card"><b>Every planned improvement is complete.</b><p class="dim">Use Course to refine your holes, or work toward your goals.</p></div>'}${(Object.keys(SITE_PROJECTS) as SiteId[]).filter(id => g.experience.site[id]).map(id => `<div class="completed-project"><span>✓</span><div><b>${SITE_PROJECTS[id].name}</b><small>Built at this property</small></div></div>`).join('')}${g.cash < 150 && !g.experience.reserveUsed ? '<div class="card"><b>A little breathing room</b><p class="dim">A one-time $650 restoration reserve is available at this property. No interest or purchases.</p><button class="btn" data-act="reserve">Use operating reserve</button></div>' : ''}`;
+
+const GO_LABEL: Record<string, string> = { build: 'Start building', course: 'Open Course', club: 'Open Clubhouse', money: 'Open Finances', events: 'Open Events' };
+
+/** The Goals panel: the one goal to work on now, then the road from first hole to eighteen. */
+export function journalPanel(g: Game, _view: JournalView): string {
+  const step = chainStep(g);
+  const goal = currentGoal(g);
+  const done = step >= CHAIN.length;
+  let html = `<div class="chain">`;
+  if (goal) {
+    const pct = Math.max(0, Math.min(100, (goal.value(g) / goal.target) * 100));
+    html += `<div class="chain-now">
+      <span class="chain-k">Goal ${step + 1} of ${CHAIN.length}</span>
+      <h3>${goal.title}</h3>
+      <p>${goal.how}</p>
+      <div class="chain-bar"><i style="width:${pct}%"></i></div>
+      <div class="chain-row"><span>${goalProgressText(goal, g)}</span><span class="chain-reward">Reward ${fmtMoney(goal.reward)}</span></div>
+      ${goal.go ? `<button class="btn primary chain-go" data-act="goalgo" data-id="${goal.go}">${GO_LABEL[goal.go]}</button>` : ''}
+    </div>`;
+  } else {
+    html += `<div class="chain-now chain-free"><span class="chain-k">All ${CHAIN.length} goals done</span><h3>${escapeHtml(g.name)} is complete</h3><p>Eighteen holes and a grand clubhouse. From here it is a sandbox: build, reshape and decorate however you like.</p></div>`;
   }
-  return `<div class="journal">${header}${body}</div>`;
+  html += `<ol class="chain-list">${CHAIN.map((c, i) => {
+    const state = i < step ? 'done' : i === step ? 'now' : 'later';
+    return `<li class="${state}"><span class="chain-dot">${i < step ? '✓' : i + 1}</span><span class="chain-t">${c.title}</span><span class="chain-r">${i < step ? 'Done' : fmtMoney(c.reward)}</span></li>`;
+  }).join('')}<li class="${done ? 'done' : 'later'}"><span class="chain-dot">★</span><span class="chain-t">Sandbox: build freely</span><span class="chain-r"></span></li></ol>`;
+  return html + `</div>`;
 }
