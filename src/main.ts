@@ -38,7 +38,7 @@ async function boot() {
   renderer.resize();
   const editor = new Editor(canvas, game, renderer);
   const ui = new UI(game, editor);
-  new FeedbackPlayer(game);
+  const feedback = new FeedbackPlayer(game);
   const studio = new Studio(game, editor, renderer, ui);
   const tutorial = new Tutorial(game, editor, renderer, ui);
   let resetting = false;
@@ -130,7 +130,7 @@ async function boot() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial };
+  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, feedback };
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }

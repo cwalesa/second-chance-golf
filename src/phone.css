@@ -461,3 +461,29 @@ body.mobile #side .row .k { color: var(--ink-dim) !important; }
 @keyframes sp-bob { 50% { transform: translateY(-6px); } }
 body.mobile:not([data-tab="none"]) #goalpop, body.mobile:has(#modal:not([hidden])) #goalpop { display: none; }
 body.mobile:has(#modal:not([hidden])) #fab { display: none; }
+
+/* ---------- a browser window wider than a phone: show the game in an iPhone-sized frame ---------- */
+@media (min-width: 640px) and (pointer: fine) {
+  html, body { background: radial-gradient(120% 90% at 50% 10%, #5f8f4e, #1f3d1c 70%) !important; }
+  #app {
+    left: 50% !important; right: auto !important; width: 430px !important; transform: translateX(-50%);
+    overflow: hidden; box-shadow: 0 0 0 10px #10200f, 0 30px 80px #0008; border-radius: 0;
+  }
+}
+@media (min-width: 640px) and (min-height: 760px) and (pointer: fine) {
+  #app { top: 50% !important; bottom: auto !important; height: min(932px, calc(100vh - 48px)) !important; transform: translate(-50%, -50%); border-radius: 44px; }
+}
+
+/* iOS: no rubber-band scrolling of the page, no grey tap flash, no long-press callouts on the game */
+html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-text-size-adjust: 100%; }
+button { touch-action: manipulation; }
+
+/* start screen: always the phone version (the two-column layout was for laptops) */
+#start { padding: 16px !important; }
+#start .premium-start { display: block !important; max-width: 410px !important; border-radius: 18px; margin: 0 auto; }
+.start-art { min-height: 155px !important; }
+.edition { bottom: 15px !important; left: 24px !important; font-size: 8px !important; }
+.start-content { padding: 25px !important; }
+#start h1 { font-size: 40px !important; margin: 10px 0 14px !important; }
+#start .sub { font-size: 12px !important; margin-bottom: 14px !important; }
+#start { background: radial-gradient(120% 80% at 50% 0%, #6b9c57, #2f6424) !important; backdrop-filter: none !important; }

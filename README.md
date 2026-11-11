@@ -2,6 +2,15 @@
 
 Pick a starting region, place a clubhouse and build a course across a 240×160 tile map. Run with `npm ci && npm run dev`; `npm test`; `npm run build` (static site in `dist/`, published to GitHub Pages from `main`).
 
+## An iPhone game
+
+Second Chance Golf is built as an iOS app. There is one layout, the phone layout. In a wide browser window the game shows inside an iPhone-sized frame, so it can be played and tested in any browser during development.
+
+- **Play in the browser:** https://cwalesa.github.io/second-chance-golf/ (Safari on iPhone: Share, then Add to Home Screen, for a full-screen app).
+- **Build the iOS app (on a Mac with Xcode):** `npm ci`, then `npm run cap:ios`. This builds the game, copies it into the native project in `ios/` and opens Xcode. Pick a team under Signing & Capabilities, then run on a phone or archive for TestFlight / the App Store. CocoaPods is needed the first time (`sudo gem install cocoapods`, then `npx cap sync ios`).
+- The native project (`ios/App`) has the app icon (1024 px, no transparency), a green launch screen, portrait and landscape on iPhone, a dark status bar and `ITSAppUsesNonExemptEncryption = false`.
+- **Music:** a gentle generated tune (Web Audio, no audio files). It starts with the first tap, as iOS requires, pauses in the background, and can be turned off in Menu → Settings and save → Sound, feedback & daily reports. The iPhone silent switch mutes it.
+
 ## Starting regions
 
 Each new game begins on untouched land in one of five regions. All of the map is buildable from the start, there are no chapters, and you never have to move; milestones under **Goals** are optional and unlock nothing.

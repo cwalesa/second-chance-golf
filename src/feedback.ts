@@ -1,15 +1,37 @@
 import type { Game } from './game';
+import { Music } from './music';
 export type Feedback = 'reward' | 'level' | 'build' | 'swing' | 'cup';
 /** Synthesized UI/impact cues, unlocked by a gesture. No network or audio downloads. */
 export class FeedbackPlayer {
-  private context: AudioContext | null = null;
+  context: AudioContext | null = null;
+  music: Music | null = null;
   constructor(private game: Game) {
+    // iOS only allows audio to start inside a tap (touchend / click), so try on each of those.
     const unlock = () => {
-      if (!game.preferences.sound) return;
-      try { this.context ??= new AudioContext(); if (this.context.state === 'suspended') void this.context.resume(); } catch { /* Audio is optional. */ }
+      if (!game.preferences.sound && !game.preferences.music) return;
+      try {
+        this.context ??= new AudioContext();
+        if (this.context.state === 'suspended' && !document.hidden) void this.context.resume();
+        this.sync();
+      } catch { /* Audio is optional. */ }
     };
-    document.addEventListener('pointerdown', unlock);
+    for (const ev of ['pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, unlock, { passive: true });
+    // the app in the background is silent
+    document.addEventListener('visibilitychange', () => {
+      if (!this.context) return;
+      if (document.hidden) void this.context.suspend();
+      else void this.context.resume();
+    });
+    // follow the Music setting
+    window.setInterval(() => this.sync(), 500);
     game.onFeedback = type => this.play(type);
+  }
+  private sync() {
+    const c = this.context;
+    if (!c || c.state !== 'running') return;
+    this.music ??= new Music(c);
+    if (this.game.preferences.music && !this.music.playing) this.music.start();
+    else if (!this.game.preferences.music && this.music.playing) this.music.stop();
   }
   play(type: Feedback) {
     const game = this.game;

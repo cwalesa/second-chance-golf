@@ -78,12 +78,12 @@ export type StaffId = keyof typeof STAFF;
 export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'; visits: number; happiness: number; joined: number; }
 export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 
-export interface Preferences { sound: boolean; haptics: boolean; dailyReports: boolean; }
+export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; }
 export class Game {
   experience: Experience = freshExperience();
   /** Level 1 walkthrough progress. New games start at step 0. */
   tutorial: TutorialState = freshTutorial();
-  preferences: Preferences = { sound: true, haptics: true, dailyReports: true };
+  preferences: Preferences = { sound: true, music: true, haptics: true, dailyReports: true };
   pendingRecap: DaySummary | null = null;
   onFeedback: (type: Feedback) => void = () => {};
   campaign: CampaignState = freshCampaign();
