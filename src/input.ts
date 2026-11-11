@@ -17,7 +17,7 @@ export interface Preview {
   limited: boolean;
 }
 
-type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch' | 'hold';
+type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch' | 'hold' | 'handle';
 
 /** Touch gestures: a finger must stay within SLOP pixels to count as a tap or a hold. */
 const SLOP = 10;
@@ -57,6 +57,8 @@ export class Editor {
   onSelect: (what: 'golfer' | 'hole') => void = () => {};
 
   private mode: Mode = 'none';
+  /** A marker of the planned new hole being dragged: its tee, its green or one of its turning points. */
+  private grab: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt } | null = null;
   private pointers = new Map<number, Pt>();
   private start: Pt = { x: 0, y: 0 };
   private moved = false;
@@ -244,6 +246,56 @@ export class Editor {
     this.overlay.buildLine = { from: this.buildTee, to: this.buildCup };
     this.onChange();
   }
+  /** Re-plan with the markers where they are now; false (and nothing changed) if that layout is not allowed. */
+  private tryReplan(): boolean {
+    if (!this.buildTee || !this.buildCup) return false;
+    const plan = this.newHolePlan(this.buildTee, this.buildCup);
+    if (typeof plan === 'string') return false;
+    this.pending = plan;
+    this.rev++;
+    this.showPlan(plan, []);
+    this.overlay.buildLine = { from: this.buildTee, to: this.buildCup };
+    this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
+    this.onChange();
+    return true;
+  }
+  /** The tee, green or turning point of the planned new hole under the finger, if any. */
+  private handleAt(p: Pt): { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt } | null {
+    if (this.tool !== 'build' || !this.pending?.newHole || !this.buildTee || !this.buildCup) return null;
+    const reach = this.touch ? 34 : 22;
+    const pts: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt }[] = [
+      ...this.newBends.map((b, i) => ({ kind: 'bend' as const, i, tile: b })),
+      { kind: 'tee', i: 0, tile: this.buildTee },
+      { kind: 'cup', i: 0, tile: this.buildCup },
+    ];
+    let best: (typeof pts)[number] | null = null;
+    let bestD = reach;
+    for (const q of pts) {
+      const s = this.r.toScreen(q.tile.x + 0.5, q.tile.y + 0.5);
+      const d = Math.hypot(s.x - p.x, s.y - p.y);
+      if (d < bestD) { bestD = d; best = q; }
+    }
+    return best ? { ...best, tile: { ...best.tile } } : null;
+  }
+  /** Move the grabbed marker to a tile; if the hole would not be allowed there, it stays where it was. */
+  private dragHandleTo(t: Pt) {
+    const g = this.grab;
+    if (!g || (g.tile.x === t.x && g.tile.y === t.y) || !inBounds(this.game.world, t.x, t.y)) return;
+    const before = { tee: this.buildTee, cup: this.buildCup, bends: this.newBends.slice() };
+    if (g.kind === 'tee') this.buildTee = t;
+    else if (g.kind === 'cup') this.buildCup = t;
+    else this.newBends = this.newBends.map((b, i) => (i === g.i ? t : b));
+    if (this.tryReplan()) { g.tile = t; this.overlay.buildTee = this.buildTee; }
+    else { this.buildTee = before.tee; this.buildCup = before.cup; this.newBends = before.bends; }
+  }
+  /** Take one turning point out of the planned hole. */
+  removeNewBend(i: number) {
+    if (i < 0 || i >= this.newBends.length) return;
+    this.newBends = this.newBends.filter((_, k) => k !== i);
+    this.addingBend = false;
+    if (!this.tryReplan()) this.replanNew();
+    this.game.notify('info', 'Turning point removed.');
+  }
   setNewPar(par: number) {
     this.newPar = par;
     this.replanNew();
@@ -321,6 +373,7 @@ export class Editor {
       this.cancelStroke();
       this.clearHover();
       this.mode = 'pinch';
+      this.grab = null;
       const [a, b] = [...this.pointers.values()];
       this.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       return;
@@ -331,6 +384,13 @@ export class Editor {
     this.touch = e.pointerType !== 'mouse';
     if (this.game.owner.active) { this.mode = 'inspect'; return; }
     this.game.followGolfer = 0;
+    const handle = this.handleAt(p);
+    if (handle) {
+      this.mode = 'handle';
+      this.grab = handle;
+      if (this.game.preferences.haptics) navigator.vibrate?.(8);
+      return;
+    }
     const panByButton = e.button === 1 || e.button === 2 || this.space || this.tool === 'pan';
     if (panByButton) {
       this.mode = 'pan';
@@ -396,6 +456,11 @@ export class Editor {
       this.pinch = { dist: d, cx, cy };
       return;
     }
+    if (this.mode === 'handle') {
+      if (Math.hypot(p.x - this.start.x, p.y - this.start.y) > 6) this.moved = true;
+      if (this.moved && this.overCanvas(e)) this.dragHandleTo(this.tileAt(p));
+      return;
+    }
     if (!this.pointers.has(e.pointerId) && this.mode === 'none' && !this.overCanvas(e)) return;
     if (this.mode === 'none' && e.pointerType !== 'mouse') return; // no hover on touch screens
     const over = this.overCanvas(e);
@@ -442,6 +507,14 @@ export class Editor {
     this.lastPan = null;
     if (this.mode === 'pinch') {
       if (this.pointers.size === 0) this.mode = 'none';
+      return;
+    }
+    if (this.mode === 'handle') {
+      // a tap on a turning point (no drag) removes it
+      if (!this.moved && this.grab?.kind === 'bend') this.removeNewBend(this.grab.i);
+      this.grab = null;
+      this.mode = 'none';
+      this.onChange();
       return;
     }
     const over = this.overCanvas(e);
