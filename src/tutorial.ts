@@ -316,7 +316,7 @@ export class Tutorial {
     const manual = !step.check || this.reviewing;
     const moreText = step.more?.(this.ctx);
     const confirm = document.getElementById('confirm');
-    this.slim = this.ui.mobile && !!confirm && confirm.style.display !== 'none';
+    this.slim = this.ui.mobile && (!this.ui.landscape || (!!confirm && confirm.style.display !== 'none'));
     const showTools = !this.slim || this.toolsOpen;
     const html = `<div class="coach-row"><span class="coach-count">${flash ? '✓ ' : ''}${t.step + 1}/${STEPS.length}</span><p class="coach-short">${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${this.reviewing ? 'Next' : step.nextLabel ?? 'Next'}</button>` : step.skippable ? '<button class="btn coach-next" data-coach="next">Skip step</button>' : ''}${this.slim && !this.collapsed ? `<button class="coach-dots" data-coach="tools" aria-label="${showTools ? 'Hide' : 'Show'} tutorial options" aria-expanded="${showTools}">⋯</button>` : ''}</div>${this.collapsed || !showTools ? '' : `${this.more && moreText ? `<p class="coach-more">${moreText}</p>` : ''}<div class="coach-tools"><button data-coach="back" ${t.step === 0 ? 'disabled' : ''} aria-label="Previous step">‹<span> Back</span></button>${moreText ? `<button data-coach="more" aria-expanded="${this.more}">${this.more ? 'Less' : 'More'}</button>` : ''}<button data-coach="skip">Skip</button><button data-coach="fold" aria-label="Collapse instructions">▾</button></div>`}${this.collapsed ? '<button class="coach-unfold" data-coach="fold" aria-label="Expand instructions">▴</button>' : ''}`;
     if (force || entering || html !== this.html) {
@@ -335,6 +335,16 @@ export class Tutorial {
   /** Sit just above whatever occupies the bottom of the screen: nav, tool tray, sheet or confirm bar. */
   private dock() {
     if (!this.ui.mobile) { this.card.style.bottom = ''; this.card.style.left = ''; this.card.style.width = ''; this.card.classList.remove('beside'); return; }
+    // Phone portrait: the top of the screen is free, so the coach sits under the status chip and the bottom stays for building.
+    if (!this.ui.landscape) {
+      const hdr = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 56;
+      const top = `${Math.round(hdr + 8)}px`;
+      this.card.classList.add('ontop');
+      if (this.card.style.top !== top || this.card.style.bottom !== 'auto') { this.card.style.top = top; this.card.style.bottom = 'auto'; this.card.style.left = ''; this.card.style.width = ''; this.ui.onInsets(); }
+      return;
+    }
+    this.card.classList.remove('ontop');
+    this.card.style.top = '';
     const confirm = document.getElementById('confirm');
     const cr = confirm && confirm.style.display !== 'none' ? confirm.getBoundingClientRect() : null;
     const dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock')) || 0;
