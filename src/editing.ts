@@ -1,7 +1,7 @@
 import { CFG } from './config';
 import { center, COMFORT_CARRY, Hole, MAX_BENDS, MAX_CARRY, MIN_HOLE_TILES, findPath, holeBends, lengthAdvice, pathTiles, routesCross, setRoute, Pt, T, World, cloneHole, computeZones, holePathTiles, holePath, idx, inBounds, isOwned, newStats, parFor, polyDist } from './terrain';
 
-export type ToolId = 'green' | 'path' | 'bend' | 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land';
+export type ToolId = 'green' | 'path' | 'bend' | 'inspect' | 'pan' | 'fairway' | 'rough' | 'bunker' | 'water' | 'treeAdd' | 'treeDel' | 'repair' | 'tee' | 'cup' | 'build' | 'land' | 'decor';
 
 export interface TileState {
   t: number;
@@ -36,6 +36,7 @@ export const PAINT_TOOLS: ToolId[] = ['green', 'path', 'fairway', 'rough', 'bunk
 export const BRUSH_RADII = [0.5, 1.1, 2.1];
 
 export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
+  decor: { label: 'Decorate', hint: 'Tap the rough to place it. Tap a placed item again to remove it and get your money back.' },
   green: { label: 'Green', hint: 'Expand or reshape a putting surface. Costs $24 per tile. Cannot overwrite tees or paths.' },
   path: { label: 'Cart path', hint: 'Lay a cart path for $8 per tile. Paint it across water to build a bridge. Golfers walk faster on paths. Paint rough over a path to remove it.' },
   bend: { label: 'Dogleg', hint: 'Tap a routing point for this hole. Costs $40. Paint fairway along the new route, then reopen.' },

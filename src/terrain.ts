@@ -57,6 +57,8 @@ export interface World {
   gate: Pt;
   /** Seeds the generated land and its valley shading (see wilderness.ts). */
   landSeed: number;
+  /** Flowers, benches, fountains and other things the player placed (see items.ts). */
+  items?: { x: number; y: number; k: import('./items').ItemKind }[];
 }
 
 export const CLUB_W = 7;

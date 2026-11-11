@@ -202,13 +202,25 @@ describe('first-course designer', () => {
   });
 });
 
-describe('Level 1 walkthrough state', () => {
-  it('starts new games at step 0 and keeps progress through save and reload', () => {
-    const g = new Game(createTestCourse());
+describe('practice course walkthrough state', () => {
+  it('runs on the practice course and keeps progress through save and reload', () => {
+    const g = new Game(undefined, 3, { practice: true });
+    expect(g.practice).toBe(true);
+    expect(g.world.clubhouse).not.toBeNull(); // ready-built, so the lesson starts with holes
     expect(g.tutorial).toEqual({ step: 0, done: false });
     g.tutorial.step = 7;
     const back = deserialize(serialize(g))!.game;
+    expect(back.practice).toBe(true);
     expect(back.tutorial).toEqual({ step: 7, done: false });
+  });
+  it('a real course never runs the walkthrough, and pays no goals on the practice course', () => {
+    const g = new Game(createTestCourse());
+    g.tutorial.step = 3;
+    expect(deserialize(serialize(g))!.game.tutorial.done).toBe(true);
+    const p = new Game(undefined, 3, { practice: true });
+    const cash = p.cash;
+    p.checkGoals();
+    expect(p.cash).toBe(cash);
   });
   it('treats saves from before the walkthrough as already finished', () => {
     const d = JSON.parse(serialize(new Game(createTestCourse())));

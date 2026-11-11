@@ -539,3 +539,30 @@ body.mobile #fab[data-badge]:not([data-badge=""])::after, body.mobile #goalbar[d
 @keyframes coin-fly { 15% { transform: translate(0, -24px) scale(1.2); } to { transform: translate(var(--tx), var(--ty)) scale(.6); opacity: .2; } }
 #goalpop .gp-k { animation: kicker-in .5s .1s both var(--ease, ease-out); }
 @keyframes kicker-in { from { letter-spacing: .4em; opacity: 0; } }
+
+/* build tray: Course tools or Decorate */
+#tools .ph-mode { display: none; }
+body.mobile #tools .ph-mode { display: flex; align-self: flex-start; gap: 3px; padding: 3px; border-radius: 14px; background: var(--pp2); }
+body.mobile #tools .ph-mode button { border: 0; background: none; padding: 6px 16px; border-radius: 11px; font: 800 13px var(--round); color: var(--ink-dim); }
+body.mobile #tools .ph-mode button.on { background: #fff; color: var(--ink); box-shadow: 0 2px 0 var(--pp-edge); }
+body.mobile #tools[data-set="course"] .ph-decor, body.mobile #tools[data-set="decor"] .ph-tools:not(.ph-decor) { display: none; }
+body.mobile #tools .ph-decor .tool { height: 74px; gap: 1px; }
+body.mobile #tools .ph-decor .tool canvas { width: 48px; height: 36px; }
+body.mobile #tools .ph-decor .tool em { font-style: normal; font-size: 10px; font-weight: 800; color: var(--leaf-d); }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools .ph-mode { flex-direction: column; align-self: center; }
+  body.mobile #tools .ph-mode button { padding: 4px 10px; font-size: 11px; }
+}
+
+/* first-time help tips, under the status chip */
+#tip { position: absolute; z-index: 30; left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); top: calc(var(--hdr, 56px) + 8px);
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 10px 10px 12px; border-radius: 18px; background: #fff8e7; color: #26381f; border: 2px solid #d8c391;
+  box-shadow: 0 3px 0 #b49a5f, 0 8px 20px #10200f44; font-family: ui-rounded, 'SF Pro Rounded', system-ui, sans-serif; animation: ph-down .25s cubic-bezier(.2, .9, .25, 1.15); transition: opacity .3s, transform .3s; }
+#tip.out { opacity: 0; transform: translateY(-8px); }
+#tip .tip-i { font-size: 20px; line-height: 1.2; }
+#tip div { flex: 1; }
+#tip b { font-size: 14px; font-weight: 800; }
+#tip p { margin: 2px 0 0; font-size: 13px; line-height: 1.35; color: #4f5a40; }
+#tip button { flex: none; align-self: center; border: 0; border-radius: 16px; padding: 8px 12px; background: #4d8a3a; color: #fff; font: 800 13px ui-rounded, system-ui, sans-serif; box-shadow: 0 2px 0 #2f6424; }
+body.practice #goalbar { display: none !important; }
+.practiced { font-size: 13px; font-weight: 700; color: #2f6424; background: #e6efd9; border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; }
