@@ -3,6 +3,9 @@ import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { claimable, rollDay } from './daily';
+import { levelXp, playerLevel } from './experience';
+import type { Cheer } from './game';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
@@ -62,6 +65,7 @@ export class UI {
   get modalOpen() { return !this.$('modal').hidden; }
   get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
+  private dayCheck = 0;
   /** Phone only: the menu sheet the round button opens. */
   menuOpen = false;
   onInsets: () => void = () => {};
@@ -148,6 +152,7 @@ export class UI {
     this.$('top').innerHTML = `
       <button class="brand" id="brandBtn" aria-label="Club menu"><canvas width="68" height="68" id="topLogo"></canvas><span id="clubName"></span></button>
       <div class="sep"></div>
+      <div class="lvl" id="lvlBox" title="Your level"><b id="lvlN">1</b><i><em id="lvlBar"></em></i></div>
       <div class="stat"><span class="k">Cash</span><span class="v cash" id="cash"></span></div>
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
       <div class="stat hide-m" title="Fee for the tee-time band running now. Set all three in the Money tab."><span class="k" id="feek">Tee time</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
@@ -211,6 +216,8 @@ export class UI {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
         else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
+        else if (el.dataset.act === 'claimstreak') { const n = this.game.claimStreak(); if (n) this.coinBurst(el, n); }
+        else if (el.dataset.act === 'claimch') { const n = this.game.claimChallenge(Number(el.dataset.id)); if (n) { this.coinBurst(el, n); this.confetti(24); } }
         else if (el.dataset.act === 'suggest') {
           if (el.dataset.id === 'course') this.tab = 'course'; else this.journalView = el.dataset.id as JournalView;
         }
@@ -672,6 +679,23 @@ export class UI {
       }
     };
     set('cash', fmtMoney(g.cash));
+    {
+      const xp = g.experience.xp, lv = playerLevel(xp), lo = levelXp(lv), hi = levelXp(lv + 1);
+      set('lvlN', String(lv));
+      (this.$('lvlBar') as HTMLElement).style.width = `${Math.round(((xp - lo) / Math.max(1, hi - lo)) * 100)}%`;
+    }
+    if (performance.now() - this.dayCheck > 2000) {
+      this.dayCheck = performance.now();
+      if (!document.body.classList.contains('coaching') && rollDay(g)) {
+        g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
+      }
+    }
+    const badge = claimable(g);
+    if (this.cache.get('badge') !== String(badge)) {
+      this.cache.set('badge', String(badge));
+      this.$('fab').dataset.badge = badge ? String(badge) : '';
+      this.$('goalbar').dataset.badge = badge ? String(badge) : '';
+    }
     set('clock', g.clockText);
     (this.$('daybar') as HTMLElement).style.width = `${(g.clock / CFG.day.seconds) * 100}%`;
     set('fee', fmtMoney(g.fee));
@@ -803,12 +827,22 @@ export class UI {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
     }
-    // celebrate a reached goal once the tutorial is out of the way
+    // celebrate big moments once the tutorial and any dialog are out of the way, one at a time
+    if (document.body.classList.contains('coaching') || this.modalOpen || document.getElementById('goalpop')) return;
     const done = g.goalJustDone;
-    if (done && !document.body.classList.contains('coaching') && !this.modalOpen) {
+    if (done) {
       g.goalJustDone = null;
-      this.celebrate(done.title, done.reward, done.next);
+      this.celebrate({ kicker: 'Goal complete', title: done.title, reward: done.reward, sub: done.next ? `Next: ${done.next}` : 'Every goal is done. The course is yours to build freely.', showNext: !!done.next });
+      return;
     }
+    const c = g.cheers.shift();
+    if (c) this.celebrate(this.cheerCard(c));
+  }
+  private cheerCard(c: Cheer): { kicker: string; title: string; reward?: number; sub: string; collect?: boolean } {
+    if (c.kind === 'streak') return { kicker: 'Daily reward', title: c.title, reward: c.reward, sub: c.sub, collect: true };
+    if (c.kind === 'level') return { kicker: 'Level up', title: c.title, sub: c.sub };
+    if (c.kind === 'ace') return { kicker: 'Amazing', title: c.title, reward: c.reward, sub: c.sub };
+    return { kicker: 'Daily challenges', title: c.title, reward: c.reward, sub: c.sub };
   }
   /** "Show me" on a goal: open the right place, pick up the right tool, and point at the control to use. */
   showGoal(id: string) {
@@ -839,22 +873,66 @@ export class UI {
     el.addEventListener('click', clear, { once: true });
     window.setTimeout(clear, 6000);
   }
-  private celebrate(title: string, reward: number, next: string | null) {
+  private celebrate(card: { kicker: string; title: string; reward?: number; sub: string; showNext?: boolean; collect?: boolean }) {
     document.getElementById('goalpop')?.remove();
     const pop = document.createElement('div');
     pop.id = 'goalpop';
     pop.setAttribute('role', 'status');
-    pop.innerHTML = `<div class="gp-k">Goal complete</div><div class="gp-t">${escapeHtml(title)}</div><div class="gp-r">+${fmtMoney(reward)}</div>${next ? `<div class="gp-n">Next: ${escapeHtml(next)}</div>` : '<div class="gp-n">Every goal is done. The course is yours to build freely.</div>'}`;
-    const nextGoal = currentGoal(this.game);
-    if (next && nextGoal && (nextGoal.go || nextGoal.guide)) pop.insertAdjacentHTML('beforeend', '<button class="gp-go">Show me</button>');
+    const reward = card.reward ? `<div class="gp-r">+${fmtMoney(card.reward)}</div>` : '';
+    const next = currentGoal(this.game);
+    const btn = card.collect ? '<button class="gp-go" data-gp="collect">Collect</button>' : card.showNext && next && (next.go || next.guide) ? '<button class="gp-go" data-gp="show">Show me</button>' : '';
+    pop.innerHTML = `<div class="gp-k">${escapeHtml(card.kicker)}</div><div class="gp-t">${escapeHtml(card.title)}</div>${reward}<div class="gp-n">${escapeHtml(card.sub)}</div>${btn}`;
+    const close = () => { pop.classList.add('out'); window.setTimeout(() => pop.remove(), 400); };
     pop.onclick = (e) => {
-      pop.remove();
-      const g2 = currentGoal(this.game);
-      if ((e.target as HTMLElement).closest('.gp-go') && g2) this.showGoal(g2.id);
+      const act = (e.target as HTMLElement).closest<HTMLElement>('[data-gp]')?.dataset.gp;
+      if (act === 'collect') { const n = this.game.claimStreak(); if (n) this.coinBurst(e.target as HTMLElement, n); }
+      if (act === 'show') { const g2 = currentGoal(this.game); if (g2) this.showGoal(g2.id); }
+      close();
+      this.refresh(true);
     };
     document.getElementById('app')!.append(pop);
-    window.setTimeout(() => pop.classList.add('out'), 6200);
-    window.setTimeout(() => pop.remove(), 6700);
+    this.confetti(card.kicker === 'Level up' || card.kicker === 'Amazing' ? 60 : 36);
+    // a reward to collect waits for the tap; everything else steps aside on its own
+    if (!card.collect) window.setTimeout(close, 6200);
+  }
+  /** A burst of paper confetti from the top of the screen. */
+  confetti(n = 40) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const box = document.createElement('div');
+    box.className = 'confetti';
+    const colors = ['#ffd25e', '#4d8a3a', '#cf5b3c', '#4f7fb0', '#8a6bb0', '#fff8e7'];
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('i');
+      b.style.left = `${Math.random() * 100}%`;
+      b.style.background = colors[i % colors.length];
+      b.style.setProperty('--dx', `${(Math.random() - 0.5) * 160}px`);
+      b.style.setProperty('--rot', `${(Math.random() - 0.5) * 1080}deg`);
+      b.style.animationDelay = `${Math.random() * 0.25}s`;
+      b.style.animationDuration = `${1.6 + Math.random() * 1.2}s`;
+      box.append(b);
+    }
+    document.getElementById('app')!.append(box);
+    window.setTimeout(() => box.remove(), 3200);
+  }
+  /** Coins flying from a button up to the money in the corner. */
+  coinBurst(from: HTMLElement, amount: number) {
+    const app = document.getElementById('app')!.getBoundingClientRect();
+    const a = from.getBoundingClientRect();
+    const t = this.$('cash').getBoundingClientRect();
+    for (let i = 0; i < 9; i++) {
+      const c = document.createElement('i');
+      c.className = 'flycoin';
+      c.style.left = `${a.left - app.left + a.width / 2 + (Math.random() - 0.5) * 30}px`;
+      c.style.top = `${a.top - app.top + a.height / 2 + (Math.random() - 0.5) * 16}px`;
+      c.style.setProperty('--tx', `${t.left - a.left - a.width / 2 + 10}px`);
+      c.style.setProperty('--ty', `${t.top - a.top - a.height / 2 + 8}px`);
+      c.style.animationDelay = `${i * 0.05}s`;
+      document.getElementById('app')!.append(c);
+      window.setTimeout(() => c.remove(), 1400);
+    }
+    const cash = this.$('cash');
+    window.setTimeout(() => { cash.classList.remove('bump'); void cash.offsetWidth; cash.classList.add('bump'); }, 650);
+    this.toast(`+${fmtMoney(amount)}`, 'good');
   }
 
 

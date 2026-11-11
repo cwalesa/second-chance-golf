@@ -20,7 +20,9 @@ export interface Flight {
 }
 
 export interface Fx {
-  kind: 'splash' | 'sand' | 'divot' | 'cup' | 'leaf';
+  kind: 'splash' | 'sand' | 'divot' | 'cup' | 'leaf' | 'coin' | 'cheer';
+  /** words for coin and cheer pops: "+$34", "Birdie!" */
+  text?: string;
   x: number;
   y: number;
   t0: number;
@@ -130,6 +132,8 @@ export interface SimHooks {
   onRound(r: RoundResult): string | void;
   onComment(c: GuestComment): void;
   onAce?(g: Golfer): void;
+  /** every finished hole, with strokes against par (-1 birdie, -2 eagle) */
+  onHoleOut?(g: Golfer, h: Hole, diff: number): void;
   onHole?(g: Golfer, h: Hole): number;
   onShot?(h: Hole, shot: ExecutedShot): void;
 }
@@ -172,9 +176,14 @@ export class CourseSim {
     return clubSites(this.world);
   }
 
-  private addFx(kind: Fx['kind'], x: number, y: number) {
-    this.fx.push({ kind, x, y, t0: this.now });
+  private addFx(kind: Fx['kind'], x: number, y: number, text?: string) {
+    this.fx.push({ kind, x, y, t0: this.now, text });
     if (this.fx.length > 80) this.fx.shift();
+  }
+
+  /** A floating word over the course: money coming in, or a cheer for a good score. */
+  pop(kind: 'coin' | 'cheer', x: number, y: number, text: string) {
+    this.addFx(kind, x, y, text);
   }
 
   hole(id: number): Hole | undefined {
@@ -607,6 +616,7 @@ export class CourseSim {
     const h = this.hole(g.holeId)!;
     this.addFx('cup', h.cup.x + 0.5, h.cup.y + 0.5);
     if (g.hs.strokes === 1) this.hooks.onAce?.(g);
+    this.hooks.onHoleOut?.(g, h, g.hs.strokes - h.par);
     g.ballVisible = false;
     g.scoreFlash = { text: scoreName(g.hs.strokes - h.par, g.hs.strokes), t: 2.2 };
     g.timer = 1.2;
@@ -635,7 +645,7 @@ export class CourseSim {
 
   update(dt: number) {
     this.now += dt;
-    while (this.fx.length && this.now - this.fx[0].t0 > 2.5) this.fx.shift();
+    while (this.fx.length && this.now - this.fx[0].t0 > 2.8) this.fx.shift();
     this.manageTees();
     for (const g of this.golfers) {
       g.px = g.x;
