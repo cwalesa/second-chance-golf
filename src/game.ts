@@ -4,7 +4,7 @@ import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from 
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
-import { beautyNear } from './items';
+import { CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, beautyNear, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -118,6 +118,23 @@ export class Game {
   lastAway: { days: number; net: number } | null = null;
   upgrades: Owned = noUpgrades();
   cartFee = CFG.extras.cartFeeDefault;
+  /** Golf carts owned. Rentals scale with the fleet; a cart barn raises the most you can keep. */
+  fleet = 0;
+  get maxFleet(): number { return countOf(this.world, 'barn') ? FLEET_WITH_BARN : FLEET_BASE; }
+  buyCart(): boolean {
+    if (!this.upgrades.carts) return false;
+    if (this.fleet >= this.maxFleet) { this.notify('bad', this.maxFleet === FLEET_BASE ? 'Your carts are full. A cart barn lets you keep more.' : 'The barn is full.'); return false; }
+    if (this.cash < CART_PRICE) { this.notify('bad', `A cart costs ${fmtMoney(CART_PRICE)}. You need ${fmtMoney(CART_PRICE - this.cash)} more.`); return false; }
+    this.cash -= CART_PRICE;
+    this.today.construction += CART_PRICE;
+    this.logEntry('Bought a golf cart', -CART_PRICE);
+    this.fleet++;
+    this.onFeedback('build');
+    this.dirtySave = true;
+    return true;
+  }
+  /** Share of cart-rental demand the fleet can serve: six carts cover a small course. */
+  get fleetFactor(): number { return Math.min(1, 0.4 + 0.1 * this.fleet); }
   goals: GoalState[] = [...CFG.goals, ...MILESTONES].map((g) => ({ id: g.id, done: false }));
   today: DayLedger = emptyLedger();
   days: DaySummary[] = [];
@@ -225,7 +242,7 @@ export class Game {
   }
   private updateWear() {
     const r = REGIONS[this.region];
-    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1);
+    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1);
   }
 
   get designRating(): number {
@@ -331,7 +348,7 @@ export class Game {
   }
   get maintenanceRate(): number {
     const open = this.openHoles.length;
-    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0);
+    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours;
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
@@ -347,7 +364,7 @@ export class Game {
   }
 
   // ---- ledger ----
-  private logEntry(label: string, amount: number) {
+  logEntry(label: string, amount: number) {
     this.log.push({ day: this.day, hour: this.clockText, label, amount });
     if (this.log.length > 80) this.log.shift();
   }
@@ -435,7 +452,7 @@ export class Game {
       this.earn('fees', fee, `${band.name} tee time, ${g.name}`);
       const door = this.world.clubhouse;
       if (door) this.sim.pop('coin', door.x + 3.5, door.y + 1, `+$${Math.round(fee)}`);
-      if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee)) this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
+      if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee) * this.fleetFactor) this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
     }
   }
 
@@ -464,7 +481,7 @@ export class Game {
       this.activeEvent.rounds++;
       this.activeEvent.satSum += sc.total;
     }
-    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (this.experience.site.terrace ? 1.15 : 1));
+    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (1 + 0.18 * countOf(this.world, 'halfway')) * (this.experience.site.terrace ? 1.15 : 1));
     this.stats.rounds++;
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
@@ -635,7 +652,7 @@ export class Game {
     this.campaign.step = i + 1;
     this.campaign.goalId = CHAIN[i + 1]?.id ?? 'done';
     this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
-    awardExperience(this, Math.round(goal.reward / 10));
+    awardExperience(this, Math.round(goal.reward / 18));
     const next = CHAIN[i + 1] ?? null;
     this.goalJustDone = { title: goal.title, reward: goal.reward, next: next ? next.title : null };
     this.onFeedback('reward');
@@ -741,6 +758,7 @@ export class Game {
     this.today.construction += u.cost;
     this.logEntry(`Upgrade: ${u.name}`, -u.cost);
     this.upgrades[id] = true;
+    if (id === 'carts' && this.fleet < FLEET_BASE) this.fleet = FLEET_BASE;
     this.updateWear();
     this.notify('good', `${u.name} purchased.`);
     this.dirtySave = true;

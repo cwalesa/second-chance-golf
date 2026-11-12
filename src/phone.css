@@ -545,7 +545,7 @@ body.mobile #fab[data-badge]:not([data-badge=""])::after, body.mobile #goalbar[d
 body.mobile #tools .ph-mode { display: flex; align-self: flex-start; gap: 3px; padding: 3px; border-radius: 14px; background: var(--pp2); }
 body.mobile #tools .ph-mode button { border: 0; background: none; padding: 6px 16px; border-radius: 11px; font: 800 13px var(--round); color: var(--ink-dim); }
 body.mobile #tools .ph-mode button.on { background: #fff; color: var(--ink); box-shadow: 0 2px 0 var(--pp-edge); }
-body.mobile #tools[data-set="course"] .ph-decor, body.mobile #tools[data-set="decor"] .ph-tools:not(.ph-decor) { display: none; }
+body.mobile #tools[data-set="course"] .ph-decor, body.mobile #tools[data-set="decor"] .ph-tools:not(.ph-decor), body.mobile #tools[data-set="buildings"] .ph-tools:not(.ph-decor) { display: none; }
 body.mobile #tools .ph-decor .tool { height: 74px; gap: 1px; }
 body.mobile #tools .ph-decor .tool canvas { width: 48px; height: 36px; }
 body.mobile #tools .ph-decor .tool em { font-style: normal; font-size: 10px; font-weight: 800; color: var(--leaf-d); }

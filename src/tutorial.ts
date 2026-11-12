@@ -61,7 +61,6 @@ const near = (c: Ctx, p: Pt, r: number, kind: number) => {
     for (let x = Math.floor(p.x - r); x <= p.x + r; x++) if (x >= 0 && y >= 0 && x < w.w && y < w.h && w.terrain[y * w.w + x] === kind) n++;
   return n;
 };
-const itemsOf = (c: Ctx, k: string) => (c.g.world.items ?? []).filter((it) => it.k === k).length;
 /** Open the build tray with one tool picked, and frame a spot on the map. */
 const pick = (c: Ctx, tool: 'build' | 'bunker' | 'water' | 'decor', kind?: 'flowers' | 'bench', focus?: Pt[]) => {
   if (kind) c.e.decorKind = kind;
@@ -73,12 +72,11 @@ const first = (c: Ctx) => c.g.world.holes[0];
 
 /**
  * The practice course: a few minutes on land that does not count, with the clubhouse already built.
- * It walks through one hole, a bunker, a pond, flowers, a bench, a second hole with a bend, opening
- * the holes and watching golfers. Then the player starts their own course from scratch.
+ * It walks through one hole, a bunker, a building, opening the hole, watching golfers and setting a fee. Then the player starts their own course from scratch.
  */
 const STEPS: Step[] = [
   {
-    short: () => 'Welcome to your practice course! Learn the basics here, then build your own course from scratch.',
+    short: () => 'Welcome! A few quick steps: build a hole, add a hazard and a building, open it and set a price. Then your own course begins.',
     view: 'map',
     enter: (c) => { const k = c.g.world.clubhouse; if (k) c.e.focusPoint({ x: k.x + 6, y: k.y + 2 }, 0.62); },
     nextLabel: "Let's go",
@@ -110,33 +108,16 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: (c) => (c.e.proposal ? 'Tap Build.' : 'Now some water: hold and drag beside the fairway to dig a pond.'),
+    short: (c) => (c.e.bGhost ? 'Tap Build to put it up.' : 'Add a halfway house: tap the Buildings tab, then the rough beside the first hole.'),
     view: 'map',
-    enter: (c) => { const h = first(c); const mid = h ? { x: (h.tee.x + h.cup.x) / 2, y: (h.tee.y + h.cup.y) / 2 } : null; c.mark.mid = mid; c.mark.wet = mid ? near(c, mid, 9, 5) : 0; pick(c, 'water', undefined, h ? [h.tee, h.cup] : undefined); },
-    target: (c) => (c.e.proposal ? ['#cfOk'] : []),
-    check: (c) => !!c.mark.mid && near(c, c.mark.mid as Pt, 9, 5) >= (c.mark.wet as number) + 3 && !c.e.proposal,
-    skippable: true,
-  },
-  {
-    short: (c) => `Make it pretty: tap the rough near the tee to plant flowers (${Math.min(2, itemsOf(c, 'flowers') - (c.mark.fl as number))} of 2).`,
-    view: 'map',
-    enter: (c) => { c.mark.fl = itemsOf(c, 'flowers'); const h = first(c); pick(c, 'decor', 'flowers', h ? [{ x: h.tee.x - 3, y: h.tee.y - 3 }, { x: h.tee.x + 3, y: h.tee.y + 3 }] : undefined); },
-    check: (c) => itemsOf(c, 'flowers') >= (c.mark.fl as number) + 2,
-    skippable: true,
-  },
-  {
-    short: () => 'Add a structure: tap the rough beside the tee to place a bench.',
-    view: 'map',
-    enter: (c) => { c.mark.b = itemsOf(c, 'bench'); pick(c, 'decor', 'bench'); },
-    check: (c) => itemsOf(c, 'bench') > (c.mark.b as number),
-    skippable: true,
-  },
-  {
-    short: (c) => (c.e.tool !== 'build' ? 'Tap New hole in the tray.' : c.e.proposal ? (c.e.newBends.length ? 'Nice bend! Drag any marker to adjust it, then tap Build.' : 'Tap + Bend, then tap where the fairway should turn.') : c.e.overlay.buildTee ? 'Now tap where its green goes.' : 'Build a second hole. Tap where its tee goes.'),
-    view: 'map',
-    enter: (c) => { c.mark.n2 = c.g.world.holes.length; c.e.setNewPar(4); pick(c, 'build'); },
-    target: (c) => (c.e.tool !== 'build' ? ['#tools .ph-tools [data-tool="build"]'] : c.e.proposal ? (c.e.newBends.length ? ['#cfOk'] : ['#cfBend']) : []),
-    check: (c) => c.g.world.holes.length > (c.mark.n2 as number) && !c.e.proposal,
+    enter: (c) => {
+      c.mark.hw = (c.g.world.items ?? []).filter((it) => it.k === 'halfway').length;
+      c.ui.traySet = 'buildings';
+      c.e.decorKind = 'halfway';
+      pick(c, 'decor', undefined, first(c) ? [first(c).tee, first(c).cup] : undefined);
+    },
+    target: (c) => (c.e.bGhost ? ['#bgOk'] : c.e.tool !== 'decor' ? ['#tools [data-trayset="buildings"]'] : []),
+    check: (c) => (c.g.world.items ?? []).filter((it) => it.k === 'halfway').length > (c.mark.hw as number),
     skippable: true,
   },
   {
@@ -173,7 +154,16 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: () => "You've got the basics! Now start your own course from scratch. Goals and tips will help you along the way.",
+    short: (c) => (c.ui.tab === 'money' ? 'This is Finances. Set each tee time\'s fee near what guests think is fair.' : 'Open the menu, then Finances, to set your green fees.'),
+    view: 'map',
+    enter: (c) => { c.ui.tab = 'none'; c.ui.refresh(true); },
+    target: (c) => (c.ui.tab === 'money' ? ['[data-act="bandfee"]'] : c.ui.menuOpen ? ['#nav [data-nav="money"]'] : ['#fab']),
+    check: (c) => c.ui.tab === 'money',
+    nextLabel: 'Next',
+    skippable: true,
+  },
+  {
+    short: () => "That's the loop: build, open, price, improve. Now start your own course. Goals will show you what to do next.",
     view: 'map',
     nextLabel: 'Start my course',
   },

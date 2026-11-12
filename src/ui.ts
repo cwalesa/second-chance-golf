@@ -3,9 +3,9 @@ import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
-import { ITEMS, ITEM_KINDS, ItemKind } from './items';
+import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, isBuilding } from './items';
 import { flagMark, icon } from './icons';
-import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
+import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeGolfCart, makeHalfwayHouse, makeCartBarn, makeMaintShed, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
 import type { Cheer } from './game';
@@ -62,7 +62,7 @@ export class UI {
   get introOpen() { return this.$('intro').childElementCount > 0; }
   mobile = false;
   /** Which row the phone build tray shows: course tools or decorations. */
-  traySet: 'course' | 'decor' = 'course';
+  traySet: 'course' | 'decor' | 'buildings' = 'course';
   private dayCheck = 0;
   /** Phone only: the menu sheet the round button opens. */
   menuOpen = false;
@@ -115,8 +115,8 @@ export class UI {
     const cat = (id: ToolCat, label: string) => `<button class="cat" data-cat="${id}">${label}</button>`;
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
-      <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor">${ITEM_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor ph-bld">${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -134,7 +134,7 @@ export class UI {
     });
     this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
     {
-      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(), halfway: makeHalfwayHouse(), barn: makeCartBarn(), shed: makeMaintShed(), cart: makeGolfCart() };
       this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-decorthumb]').forEach((c) => {
         const sp = sprites[c.dataset.decorthumb!];
         const x = c.getContext('2d')!;
@@ -146,7 +146,8 @@ export class UI {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
       if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
-      if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor'; if (this.traySet === 'decor') this.editor.setTool('decor'); else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
+      if (b.dataset.buycart) { if (!this.game.upgrades.carts) this.game.buyUpgrade('carts'); else this.game.buyCart(); this.refresh(true); return; }
+      if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
       if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
@@ -228,6 +229,7 @@ export class UI {
       } else if (el.dataset.act) {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
+        else if (el.dataset.act === 'buycart') this.game.buyCart();
         else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
         else if (el.dataset.act === 'tipok') { this.panelTip = null; this.cache.delete('side'); }
         else if (el.dataset.act === 'claimstreak') { const n = this.game.claimStreak(); if (n) this.coinBurst(el, n); }
@@ -479,6 +481,24 @@ export class UI {
         (this.$('clubSuggest') as HTMLElement).onclick = () => this.editor.suggestClub();
         (this.$('clubOk') as HTMLElement).onclick = () => this.editor.confirmClub();
       }
+      return;
+    }
+    const bg = this.editor.bGhost;
+    document.body.classList.toggle('placing-building', !!bg);
+    if (bg) {
+      const d = ITEMS[bg.k];
+      const prob = this.editor.bProblem;
+      const sub = bg.sell ? `Sell back for $${d.cost.toLocaleString('en-US')}.` : prob ?? `${d.hint}${d.upkeep ? ` Upkeep $${d.upkeep} a day.` : ''}`;
+      const html = `<span class="cf-text"><b>${d.label} · $${d.cost.toLocaleString('en-US')}</b><span class="cf-sub ${prob ? 'bad' : ''}">${escapeHtml(sub)}</span><span class="cf-hint">Tap elsewhere to move it.</span></span><button class="btn" id="bgNo">${bg.sell ? 'Keep' : 'Cancel'}</button><button class="btn primary" id="bgOk" ${prob ? 'disabled' : ''}>${bg.sell ? 'Sell' : 'Build'}</button>`;
+      if (this.cache.get('confirm') !== html) {
+        this.cache.set('confirm', html);
+        el.innerHTML = html;
+        el.style.display = 'flex';
+        el.classList.remove('placing');
+        (this.$('bgNo') as HTMLElement).onclick = () => this.editor.cancelGhost();
+        (this.$('bgOk') as HTMLElement).onclick = () => this.editor.confirmGhost();
+      }
+      document.body.classList.add('has-proposal');
       return;
     }
     const p = this.editor.proposal;
@@ -761,9 +781,13 @@ export class UI {
 
     // tool buttons
     this.$('tools').querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tool === this.editor.tool));
-    if (this.editor.tool === 'decor') this.traySet = 'decor';
+    if (this.editor.tool === 'decor') this.traySet = isBuilding(this.editor.decorKind) ? 'buildings' : 'decor';
     else if (this.editor.tool !== 'inspect' && this.editor.tool !== 'pan') this.traySet = 'course';
     this.$('tools').dataset.set = this.traySet;
+    {
+      const ct = document.getElementById('cartTile');
+      if (ct) ct.textContent = !g.upgrades.carts ? `$${CFG.upgrades.carts.cost}` : g.fleet >= g.maxFleet ? `${g.fleet}/${g.maxFleet} full` : `$${CART_PRICE} · ${g.fleet}/${g.maxFleet}`;
+    }
     this.$('tools').querySelectorAll<HTMLElement>('[data-trayset]').forEach((b) => b.classList.toggle('on', b.dataset.trayset === this.traySet));
     this.$('tools').querySelectorAll<HTMLElement>('[data-decor]').forEach((b) => b.classList.toggle('on', this.editor.tool === 'decor' && b.dataset.decor === this.editor.decorKind));
     if (this.toolShown !== this.editor.tool) {
@@ -1164,6 +1188,7 @@ export class UI {
     const last = g.days[g.days.length - 1];
     if (last) html += `<div class="sec"><h3>Day ${last.day} summary</h3><div class="card"><div class="row"><span class="k">Revenue</span><span>${fmtMoney(last.fees + last.shop)}</span></div><div class="row"><span class="k">Maintenance</span><span>${fmtMoney(last.maintenance)}</span></div><div class="row"><span class="k">Construction</span><span>${fmtMoney(last.construction)}</span></div><div class="row"><span class="k">Rounds / satisfaction</span><span>${last.rounds} / ${last.rounds ? Math.round(last.avgSat) : '-'}</span></div><div class="row total"><span>Operating profit</span>${money(last.profit)}</div></div></div>`;
     html += `<div class="sec"><h3>Improvements</h3>`;
+    if (g.upgrades.carts) html += `<div class="card"><div class="row"><span class="t">Cart fleet</span><span><b>${g.fleet}</b> of ${g.maxFleet}</span></div><div class="dim">Rentals scale with the fleet; six carts cover a small course. ${g.maxFleet === 6 ? 'A cart barn lets you keep 16.' : ''}</div><div style="margin-top:6px"><button class="btn" data-act="buycart" ${g.fleet >= g.maxFleet || g.cash < CART_PRICE ? 'disabled' : ''}>Buy a cart ($${CART_PRICE})</button></div></div>`;
     if (g.upgrades.carts) html += `<div class="card"><div class="row"><span class="t">Cart rental price</span><span><button class="btn" data-act="cartfee" data-id="-1">−</button> <b>${fmtMoney(g.cartFee)}</b> <button class="btn" data-act="cartfee" data-id="1">+</button></span></div><div class="dim">About ${Math.round(cartRentalRate(g.cartFee) * 100)}% of golfers rent a cart at this price.</div></div>`;
     for (const id of UPGRADE_IDS) {
       const u = CFG.upgrades[id];

@@ -1,13 +1,14 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
-import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, Sprite } from './art/props';
+import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, makeHalfwayHouse, makeCartBarn, makeMaintShed, makeGolfCart, Sprite } from './art/props';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer } from './sim';
 import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { reliefAt, clubLot } from './wilderness';
+import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
@@ -53,6 +54,8 @@ export interface Overlay {
   hint: { tee?: Pt; cup?: Pt } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
   hold: { x: number; y: number; t0: number } | null;
+  /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
+  bGhost: { x: number; y: number; k: string; ok: boolean; sell: boolean } | null;
 }
 
 export class Renderer {
@@ -71,6 +74,7 @@ export class Renderer {
   private flowers = [0, 1, 2].map(makeFlowers);
   private reeds = [0, 1].map(makeReeds);
   private placed: Record<string, Sprite> | null = null;
+  private cloudCv: HTMLCanvasElement | null = null;
   private bench = makeBench();
   private washer = makeBallWasher();
   private decor: Decor[] = [];
@@ -1390,8 +1394,17 @@ export class Renderer {
     }
     if (!far) this.teeFurniture(game, items);
     for (const it of w.items ?? []) {
-      if (it.x < x0 - 1 || it.x > x1 + 1 || it.y < y0 - 1 || it.y > y1 + 1) continue;
-      items.push({ y: it.x + it.y + 1, draw: () => this.drawPlaced(it.k, it.x, it.y) });
+      if (it.x < x0 - 4 || it.x > x1 + 1 || it.y < y0 - 3 || it.y > y1 + 1) continue;
+      const d = ITEMS[it.k];
+      items.push({ y: it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y) });
+      // the fleet, parked in front of the barn
+      if (it.k === 'barn') {
+        const n = Math.min(game.fleet, 16);
+        for (let c = 0; c < n; c++) {
+          const cx = it.x + 0.5 + (c % 8) * 0.55, cy = it.y + (d.h ?? 2) + 0.7 + Math.floor(c / 8) * 0.8;
+          items.push({ y: cx + cy + 0.4, draw: () => { const p = this.toScreen(cx, cy); this.drawSprite(this.placed!.cart, p.x, p.y, (this.ts / 52) * 1.5); } });
+        }
+      }
     }
     for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
     items.sort((a, b) => a.y - b.y);
@@ -1477,13 +1490,16 @@ export class Renderer {
   }
 
   /** Something the player placed: flowers, a shrub, a bench, a lamp, a ball wash, a fountain or a statue. */
-  drawPlaced(k: string, x: number, y: number) {
-    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+  drawPlaced(k: string, x: number, y: number, alpha = 1) {
+    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(), halfway: makeHalfwayHouse(), barn: makeCartBarn(), shed: makeMaintShed(), cart: makeGolfCart() };
     const sp = this.placed[k];
     if (!sp) return;
-    const p = this.toScreen(x + 0.5, y + 0.5);
+    const d = ITEMS[k as ItemKind];
+    const fw = d?.w ?? 1, fh = d?.h ?? 1;
+    const p = this.toScreen(x + fw / 2, y + fh / 2);
     const big = k === 'fountain' || k === 'statue';
-    this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (big ? 1.25 : k === 'flowers' ? 1.3 : 1));
+    const bld = fw > 1;
+    this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (bld ? 1.9 : big ? 1.25 : k === 'flowers' ? 1.3 : 1), alpha);
   }
   private drawDecor(d: Decor) {
     const p = this.toScreen(d.x, d.y);
@@ -2265,6 +2281,29 @@ export class Renderer {
         ctx.fill();
       }
     }
+    // drifting cloud shadows: a few big soft patches that cross the course slowly
+    if (!this.cloudCv) {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 256;
+      const c = cv.getContext('2d')!;
+      for (let k = 0; k < 7; k++) {
+        const x = 60 + hash2(k, 1, 900) * 136, y = 70 + hash2(k, 2, 900) * 116, r = 38 + hash2(k, 3, 900) * 34;
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, 'rgba(20,40,60,0.20)');
+        g.addColorStop(1, 'rgba(20,40,60,0)');
+        c.fillStyle = g;
+        c.fillRect(0, 0, 256, 256);
+      }
+      this.cloudCv = cv;
+    }
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const S = Math.max(this.cw, this.ch) * 1.5;
+      const ox = ((time * 9) % S), oy = ((time * 4) % S);
+      ctx.globalAlpha = 0.9;
+      for (let ty = -1; ty <= Math.ceil(this.ch / S); ty++)
+        for (let tx = -1; tx <= Math.ceil(this.cw / S); tx++) ctx.drawImage(this.cloudCv, tx * S + ox, ty * S + oy, S, S);
+      ctx.globalAlpha = 1;
+    }
     const key = `${this.cw}x${this.ch}`;
     if (!this.vignette || this.vigSize !== key) {
       const g = ctx.createRadialGradient(this.cw / 2, this.ch / 2, Math.min(this.cw, this.ch) * 0.45, this.cw / 2, this.ch / 2, Math.max(this.cw, this.ch) * 0.75);
@@ -2326,6 +2365,19 @@ export class Renderer {
     for(const i of ov.hoverTiles)tile(i);
     for(const i of ov.staged)tile(i,true);
     if (ov.club) this.drawClubGhost(game, ov.club, time);
+    if (ov.bGhost) {
+      const gh = ov.bGhost, d = ITEMS[gh.k as ItemKind];
+      const fw = d.w ?? 1, fh = d.h ?? 1;
+      for (let yy = gh.y; yy < gh.y + fh; yy++) for (let xx = gh.x; xx < gh.x + fw; xx++) {
+        this.groundPolygon(xx, yy);
+        ctx.fillStyle = gh.sell ? 'rgba(200,149,42,0.4)' : gh.ok ? 'rgba(70,160,80,0.42)' : 'rgba(210,60,40,0.45)';
+        ctx.fill();
+        ctx.strokeStyle = gh.sell ? '#c8952a' : gh.ok ? '#f5edd8' : '#e08e70';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+      this.drawPlaced(gh.k, gh.x, gh.y, gh.ok ? 0.7 : 0.4);
+    }
     if (ov.hold) {
       // a ring that fills while the finger rests: when it closes, painting begins
       const k = Math.min(1, (performance.now() - ov.hold.t0) / 320);

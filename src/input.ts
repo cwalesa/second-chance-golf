@@ -1,7 +1,7 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { ItemKind, toggleItem } from './items';
+import { ITEMS, ItemKind, buildingProblem, isBuilding, itemAt, toggleItem } from './items';
 import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
 import { CLUB_H, CLUB_W, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
@@ -28,7 +28,7 @@ export const HOLD_MS = 320;
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null, bGhost: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
   /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
@@ -48,6 +48,27 @@ export class Editor {
   newBends: Pt[] = [];
   /** Called after a plan is built, so the interface can offer a quick Undo. */
   onBuilt: (label: string, cost: number) => void = () => {};
+  /** A building waiting for Build (or Sell, when tapping one already standing). */
+  bGhost: { x: number; y: number; k: ItemKind; sell: boolean } | null = null;
+  bProblem: string | null = null;
+  syncGhost() {
+    const g = this.bGhost;
+    if (g && !g.sell) this.bProblem = buildingProblem(this.game.world, g.x, g.y, g.k) ?? (this.game.cash < ITEMS[g.k].cost ? `You need $${(ITEMS[g.k].cost - this.game.cash).toLocaleString('en-US')} more.` : null);
+    else this.bProblem = null;
+    this.overlay.bGhost = g ? { x: g.x, y: g.y, k: g.k, ok: g.sell || !this.bProblem, sell: g.sell } : null;
+    this.onChange();
+  }
+  cancelGhost() { this.bGhost = null; this.syncGhost(); }
+  confirmGhost() {
+    const g = this.bGhost;
+    if (!g || this.bProblem) return;
+    const r = toggleItem(this.game, { x: g.x, y: g.y }, g.k);
+    if (!r.ok) { this.game.notify('bad', r.message ?? 'Not there.'); return; }
+    this.game.onFeedback('build');
+    this.game.notify('good', g.sell ? `${ITEMS[g.k].label} sold.` : `${ITEMS[g.k].label} built.`);
+    this.bGhost = null;
+    this.syncGhost();
+  }
   /** What the Decorate tool places. */
   decorKind: ItemKind = 'flowers';
   /** True while the next tap on the map adds a turning point to the new hole. */
@@ -168,6 +189,7 @@ export class Editor {
     this.r.focus((Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2 + 0.5, (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2 + 0.5, zoom, this.game.world);
   }
   setTool(t: ToolId) {
+    if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
     if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.addingBend = false; this.overlay.buildTee = null; this.overlay.buildLine = null; }
@@ -787,6 +809,16 @@ export class Editor {
   private commitPlace(t: Pt) {
     if (!inBounds(this.game.world, t.x, t.y)) return;
     if (this.tool === 'decor') {
+      const w0 = this.game.world;
+      const hit = itemAt(w0, t.x, t.y);
+      const existing = hit >= 0 ? w0.items![hit] : null;
+      if (isBuilding(this.decorKind) || (existing && isBuilding(existing.k))) {
+        // buildings are priced in thousands: preview first, then confirm or sell
+        if (existing && isBuilding(existing.k)) this.bGhost = { x: existing.x, y: existing.y, k: existing.k, sell: true };
+        else this.bGhost = { x: t.x - Math.floor((ITEMS[this.decorKind].w ?? 1) / 2), y: t.y - Math.floor((ITEMS[this.decorKind].h ?? 1) / 2), k: this.decorKind, sell: false };
+        this.syncGhost();
+        return;
+      }
       const r = toggleItem(this.game, t, this.decorKind);
       if (!r.ok) this.game.notify('bad', r.message ?? 'Not there.');
       else this.game.onFeedback('build');
