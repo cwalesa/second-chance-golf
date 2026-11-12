@@ -168,10 +168,21 @@ export function makeTurfTexture(kind: TurfKind, size = 256): HTMLCanvasElement {
 }
 
 /** Fine sand grain: even, warm and quiet. */
-export function makeSandTexture(size = 128): HTMLCanvasElement {
+export function makeSandTexture(size = 128, base: RGB = [244, 228, 186]): HTMLCanvasElement {
   const [cv, g] = makeCanvas(size);
-  // 128px = 4 tiles: 16 and 32 cells are a quarter and an eighth of a tile
-  paintNoise(g, size, stretch(fbm(size, [[16, 1], [32, 0.7]], 1300)), [255, 250, 226], [150, 112, 64], 0.12);
+  // fully opaque: every pixel is a sand colour, a little lighter or darker than the base
+  const noise = stretch(fbm(size, [[16, 1], [32, 0.7]], 1300));
+  const img = g.createImageData(size, size);
+  for (let i = 0; i < noise.length; i++) {
+    const v = (noise[i] - 0.5) * 2;
+    const k = v > 0 ? v * 0.1 : v * 0.16;
+    const o = i * 4;
+    img.data[o] = Math.max(0, Math.min(255, base[0] + (k > 0 ? (255 - base[0]) : base[0] - 120) * k));
+    img.data[o + 1] = Math.max(0, Math.min(255, base[1] + (k > 0 ? (255 - base[1]) : base[1] - 120) * k));
+    img.data[o + 2] = Math.max(0, Math.min(255, base[2] + (k > 0 ? (255 - base[2]) : base[2] - 120) * k));
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
   for (let k = 0; k < 900; k++) {
     const x = hash2(k, 31, 1300) * size;
     const y = hash2(k, 33, 1300) * size;

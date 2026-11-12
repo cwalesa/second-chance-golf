@@ -1078,7 +1078,7 @@ export class Renderer {
     const tee = dist('tee');
     if (tee) {
       flatStamp(tee, falloff(0.07), [14, 50, 26], 0.32);
-      fillStamp(tee, inside, surface('tee', 'tee', this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))));
+      fillStamp(tee, inside, layers(flat(css(COL.teeGood)), pat(this.turfPattern(t, 'tee')), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y')))));
       flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
     }
 
@@ -1093,10 +1093,9 @@ export class Renderer {
         bunker,
         inside,
         layers(
-          (c) => {
-            this.drawSmooth(c, 'sand', tx0, ty0, tx1, ty1, w);
-            pat(this.pattern(c, 'sand', () => makeSandTexture()))(c);
-          },
+          // solid sand colour first (no colour map), then an opaque grain: nothing here can come out blank
+          flat(css(COL.sand)),
+          pat(this.pattern(t, 'sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))),
         ),
       );
       flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
