@@ -491,19 +491,25 @@ export class Renderer {
         }
     }
     const [broad, tight] = Renderer.SIGMA[key];
+    // The blur is done here in plain code, not with the canvas `filter`: Safari on iPhone ignores that
+    // filter, which left every surface with hard, square, tile-shaped edges.
+    const srcAlpha = (() => {
+      const rgba = sc.getImageData(0, 0, sw, sh).data;
+      const al = new Float32Array(sw * sh);
+      for (let k = 0; k < al.length; k++) al[k] = rgba[k * 4 + 3];
+      return al;
+    })();
     const blurred = (sigma: number) => {
-      const blur = document.createElement('canvas');
-      blur.width = sw;
-      blur.height = sh;
-      const bc = blur.getContext('2d', { willReadFrequently: true })!;
-      bc.filter = `blur(${R * sigma}px)`;
-      bc.drawImage(cv, 0, 0);
-      bc.filter = 'none';
-      const rgba = bc.getImageData((copy.x0 - src.x0) * R, (copy.y0 - src.y0) * R, (copy.x1 - copy.x0) * R, (copy.y1 - copy.y0) * R).data;
-      // keep only the coverage channel: a quarter of the memory while several blurs are alive
-      const alpha = new Uint8Array(rgba.length >> 2);
-      for (let k = 0; k < alpha.length; k++) alpha[k] = rgba[k * 4 + 3];
-      blur.width = blur.height = 0;
+      const out = gaussBlur(srcAlpha, sw, sh, R * sigma);
+      const ox = (copy.x0 - src.x0) * R;
+      const oy = (copy.y0 - src.y0) * R;
+      const cw2 = (copy.x1 - copy.x0) * R;
+      const ch2 = (copy.y1 - copy.y0) * R;
+      const alpha = new Uint8Array(cw2 * ch2);
+      for (let j = 0; j < ch2; j++) {
+        const row = (oy + j) * sw + ox;
+        for (let i = 0; i < cw2; i++) alpha[j * cw2 + i] = Math.max(0, Math.min(255, Math.round(out[row + i])));
+      }
       return alpha;
     };
     const cw = (copy.x1 - copy.x0) * R;
@@ -751,8 +757,10 @@ export class Renderer {
 
   // Zoomed far out, individual surfaces are too small to read: one flat-colour tile map stands in for the
   // detailed ground, and trees and props are skipped. It is one pixel per tile, rebuilt when the world changes.
-  private static readonly OVERVIEW_ZOOM = 0.42;
+  private static readonly OVERVIEW_ZOOM = 0.3;
   private ovCv = document.createElement('canvas');
+  private ovBig = document.createElement('canvas');
+  private static readonly OV_SCALE = 6;
   private ovVersion = -1;
   private ovFor: World | null = null;
   private ovAt = 0;
@@ -769,7 +777,7 @@ export class Renderer {
       const canopy: RGB = [42, 92, 56];
       for (let i = 0; i < w.terrain.length; i++) {
         let col = pal[w.terrain[i]] ?? COL.roughGood;
-        if (w.tree[i]) col = mix(col, canopy, 0.78);
+        if (w.tree[i]) col = mix(col, canopy, 0.3);
         else if (w.terrain[i] === T.ROUGH) col = mix(col, COL.roughBad, 0.25 * (1 - Math.min(1, w.cond[i] / 70)));
         img.data[i * 4] = col[0];
         img.data[i * 4 + 1] = col[1];
@@ -777,10 +785,41 @@ export class Renderer {
         img.data[i * 4 + 3] = 255;
       }
       c.putImageData(img, 0, 0);
+      // A finer picture on top of the tile colours: soft surface edges and a rounded crown for every tree,
+      // so the far view reads as a painted map and not as blurred squares.
+      const S = Renderer.OV_SCALE;
+      if (this.ovBig.width !== w.w * S) { this.ovBig.width = w.w * S; this.ovBig.height = w.h * S; }
+      const b = this.ovBig.getContext('2d')!;
+      b.imageSmoothingEnabled = true;
+      b.imageSmoothingQuality = 'high';
+      b.drawImage(this.ovCv, 0, 0, w.w * S, w.h * S);
+      const crowns: RGB[] = [[58, 122, 62], [74, 140, 66], [46, 104, 62], [88, 150, 70]];
+      b.fillStyle = 'rgba(20,50,30,0.35)';
+      for (let i = 0; i < w.terrain.length; i++) {
+        if (!w.tree[i]) continue;
+        const x = i % w.w, y = (i - x) / w.w;
+        b.beginPath();
+        b.arc((x + 0.3 + hash2(x, y, 71) * 0.4 + 0.22) * S, (y + 0.3 + hash2(x, y, 72) * 0.4 + 0.22) * S, S * 0.5, 0, Math.PI * 2);
+        b.fill();
+      }
+      for (let i = 0; i < w.terrain.length; i++) {
+        if (!w.tree[i]) continue;
+        const x = i % w.w, y = (i - x) / w.w;
+        const cxp = (x + 0.3 + hash2(x, y, 71) * 0.4) * S, cyp = (y + 0.3 + hash2(x, y, 72) * 0.4) * S;
+        const col = crowns[Math.floor(hash2(x, y, 73) * crowns.length)];
+        b.fillStyle = css(col);
+        b.beginPath();
+        b.arc(cxp, cyp, S * (0.42 + hash2(x, y, 74) * 0.14), 0, Math.PI * 2);
+        b.fill();
+        b.fillStyle = css(mix(col, [200, 230, 130], 0.35));
+        b.beginPath();
+        b.arc(cxp - S * 0.12, cyp - S * 0.12, S * 0.2, 0, Math.PI * 2);
+        b.fill();
+      }
     }
     this.ctx.imageSmoothingEnabled = true;
     this.ctx.imageSmoothingQuality = 'medium';
-    this.ctx.drawImage(this.ovCv, 0, 0, w.w * TS, w.h * TS);
+    this.ctx.drawImage(this.ovBig, 0, 0, w.w * TS, w.h * TS);
   }
 
   /** Compose the chunks an edit touched. Chunks on pages that are not resident are simply marked unbuilt. */
@@ -2055,14 +2094,14 @@ export class Renderer {
     ctx.fillStyle = tint;
     ctx.fillRect(0, 0, this.cw, this.ch);
     if (season === 2 || season === 3) {
-      const n = season === 3 ? 70 : 28;
+      const n = season === 3 ? 44 : 28;
       for (let k = 0; k < n; k++) {
         const sp = season === 3 ? 38 + (k % 5) * 6 : 24 + (k % 4) * 8;
         const x = ((hash2(k, 1, 600) * (this.cw + 100) + Math.sin(time * 0.8 + k) * 30 + time * (season === 3 ? 6 : 18)) % (this.cw + 100)) - 50;
         const y = ((hash2(k, 2, 600) * this.ch + time * sp) % (this.ch + 20)) - 10;
-        ctx.fillStyle = season === 3 ? 'rgba(255,255,255,0.8)' : ['rgba(214,120,40,0.8)', 'rgba(196,150,50,0.8)', 'rgba(170,70,40,0.8)'][k % 3];
+        ctx.fillStyle = season === 3 ? 'rgba(255,255,255,0.5)' : ['rgba(214,120,40,0.8)', 'rgba(196,150,50,0.8)', 'rgba(170,70,40,0.8)'][k % 3];
         ctx.beginPath();
-        if (season === 3) ctx.arc(x, y, 1.6 + (k % 3) * 0.5, 0, Math.PI * 2);
+        if (season === 3) ctx.arc(x, y, 0.9 + (k % 3) * 0.35, 0, Math.PI * 2);
         else ctx.ellipse(x, y, 3.2, 1.8, time + k, 0, Math.PI * 2);
         ctx.fill();
       }
@@ -2280,3 +2319,44 @@ export class Renderer {
 const fmtMoneyShort = (n: number) => (n >= 10000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toLocaleString('en-US')}`);
 
 
+
+/** Gaussian blur of a single-channel image (three box passes each way). Outside the image counts as empty. */
+function gaussBlur(src: Float32Array, w: number, h: number, sigma: number): Float32Array {
+  // box widths whose three-fold convolution approximates a Gaussian of this sigma
+  const wi = Math.sqrt((12 * sigma * sigma) / 3 + 1);
+  let wl = Math.floor(wi);
+  if (wl % 2 === 0) wl--;
+  const m = Math.round((12 * sigma * sigma - 3 * wl * wl - 12 * wl - 9) / (-4 * wl - 4));
+  let a = Float32Array.from(src);
+  let b = new Float32Array(w * h);
+  for (let pass = 0; pass < 3; pass++) {
+    const r = ((pass < m ? wl : wl + 2) - 1) / 2;
+    const norm = 1 / (2 * r + 1);
+    // horizontal: a -> b
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      let acc = 0;
+      for (let x = 0; x <= r && x < w; x++) acc += a[o + x];
+      for (let x = 0; x < w; x++) {
+        b[o + x] = acc * norm;
+        const add = x + r + 1;
+        const sub = x - r;
+        if (add < w) acc += a[o + add];
+        if (sub >= 0) acc -= a[o + sub];
+      }
+    }
+    // vertical: b -> a
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = 0; y <= r && y < h; y++) acc += b[y * w + x];
+      for (let y = 0; y < h; y++) {
+        a[y * w + x] = acc * norm;
+        const add = y + r + 1;
+        const sub = y - r;
+        if (add < h) acc += b[add * w + x];
+        if (sub >= 0) acc -= b[sub * w + x];
+      }
+    }
+  }
+  return a;
+}
