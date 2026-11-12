@@ -102,6 +102,7 @@ export class UI {
       this.cache.delete('side');
     };
     editor.onChange = () => this.updateConfirm();
+    editor.onBuilt = (label, cost) => this.builtToast(label, cost);
   }
 
   // ---------- static pieces ----------
@@ -677,6 +678,24 @@ export class UI {
       void c.offsetWidth;
       c.classList.add('flash');
     }
+  }
+
+  /** After a build: what happened, and one tap to take it back. */
+  private builtToast(label: string, cost: number) {
+    const box = this.$('toasts');
+    box.querySelectorAll('.toast.undo').forEach((n) => n.remove());
+    const t = document.createElement('div');
+    t.className = 'toast good undo';
+    const m = document.createElement('span');
+    m.textContent = `Built ${label.replace(/^Build\s+/i, '')} · ${fmtMoney(cost)}`;
+    const b = document.createElement('button');
+    b.textContent = 'Undo';
+    b.setAttribute('aria-label', 'Undo this build');
+    b.onclick = () => { this.editor.undo(); t.remove(); this.refresh(true); };
+    t.append(m, b);
+    box.append(t);
+    while (box.children.length > 1) box.firstChild!.remove();
+    window.setTimeout(() => t.remove(), 7000);
   }
 
   markSaved() {

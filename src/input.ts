@@ -28,7 +28,7 @@ export const HOLD_MS = 320;
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
   /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
@@ -46,6 +46,8 @@ export class Editor {
   newPar = 4;
   /** Turning points on the new hole being planned. */
   newBends: Pt[] = [];
+  /** Called after a plan is built, so the interface can offer a quick Undo. */
+  onBuilt: (label: string, cost: number) => void = () => {};
   /** What the Decorate tool places. */
   decorKind: ItemKind = 'flowers';
   /** True while the next tap on the map adds a turning point to the new hole. */
@@ -70,6 +72,28 @@ export class Editor {
   private lastTile: Pt | null = null;
   private pinch = { dist: 0, cx: 0, cy: 0 };
   private lastPan: Pt | null = null;
+  private panVx = 0;
+  private panVy = 0;
+  private panT = 0;
+  private glide = 0;
+  private lastTap = { t: 0, x: 0, y: 0 };
+  /** Let the map keep drifting after a flick, slowing to a stop. */
+  private startGlide() {
+    cancelAnimationFrame(this.glide);
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(40, now - last);
+      last = now;
+      this.r.cam.x -= (this.panVx * dt) / this.r.cam.zoom;
+      this.r.cam.y -= (this.panVy * dt) / this.r.cam.zoom;
+      this.r.clampCam(this.game.world);
+      const f = Math.pow(0.0025, dt / 1000);
+      this.panVx *= f;
+      this.panVy *= f;
+      if (Math.hypot(this.panVx, this.panVy) > 0.02) this.glide = requestAnimationFrame(step);
+    };
+    this.glide = requestAnimationFrame(step);
+  }
   private holdTimer: number | null = null;
   private touch = false;
   private space = false;
@@ -190,7 +214,7 @@ export class Editor {
     if (!p) return;
     const res = this.game.commitEdit(p);
     this.lastMsg = res.message;
-    if (res.ok) this.discard();
+    if (res.ok) { this.discard(); this.onBuilt(p.label, p.cost); }
     else this.onChange();
   }
   /** Throw away everything not yet built. Nothing is charged. */
@@ -371,6 +395,9 @@ export class Editor {
     this.canvas.setPointerCapture(e.pointerId);
     const p = this.local(e);
     this.pointers.set(e.pointerId, p);
+    cancelAnimationFrame(this.glide);
+    this.panVx = this.panVy = 0;
+    this.panT = performance.now();
     if (this.pointers.size >= 2) {
       // A second finger means pinch or two-finger pan. Never an edit: roll back anything the first finger started.
       this.stopHold();
@@ -410,6 +437,7 @@ export class Editor {
         this.overlay.changed = new Set();
         this.overlay.blocked = new Set();
         this.onChange();
+        this.overlay.hold = { x: p.x, y: p.y, t0: performance.now() };
         this.holdTimer = window.setTimeout(() => {
           this.holdTimer = null;
           if (this.mode !== 'hold' || this.pointers.size !== 1) return;
@@ -426,6 +454,7 @@ export class Editor {
   }
 
   private startStroke(p: Pt) {
+    this.overlay.hold = null;
     if (this.pending) this.clearPending();
     this.mode = 'paint';
     this.strokeUndo.clear();
@@ -436,6 +465,7 @@ export class Editor {
     this.paintTo(this.hover);
   }
   private stopHold() {
+    this.overlay.hold = null;
     if (this.holdTimer !== null) window.clearTimeout(this.holdTimer);
     this.holdTimer = null;
   }
@@ -481,6 +511,10 @@ export class Editor {
     if (this.mode === 'pan' || (this.mode === 'inspect' && Math.hypot(p.x - this.start.x, p.y - this.start.y) > 6)) {
       if (this.mode === 'inspect') this.mode = 'pan';
       const prev = this.lastPan ?? this.start;
+      const nowT = performance.now(), dtv = Math.max(8, nowT - this.panT);
+      this.panVx = 0.6 * this.panVx + 0.4 * ((p.x - prev.x) / dtv);
+      this.panVy = 0.6 * this.panVy + 0.4 * ((p.y - prev.y) / dtv);
+      this.panT = nowT;
       this.r.cam.x -= (p.x - prev.x) / this.r.cam.zoom;
       this.r.cam.y -= (p.y - prev.y) / this.r.cam.zoom;
       this.r.clampCam(this.game.world);
@@ -521,7 +555,20 @@ export class Editor {
       this.onChange();
       return;
     }
+    if (this.mode === 'pan' && this.moved && e.pointerType !== 'mouse' && performance.now() - this.panT < 90 && Math.hypot(this.panVx, this.panVy) > 0.25) this.startGlide();
     const over = this.overCanvas(e);
+    if (this.mode === 'inspect' && !this.moved && !this.game.owner.active && e.pointerType !== 'mouse') {
+      // double-tap the map to step in; a second double-tap steps out again
+      const now = performance.now();
+      if (now - this.lastTap.t < 320 && Math.hypot(p.x - this.lastTap.x, p.y - this.lastTap.y) < 28) {
+        const zoomOut = this.r.cam.zoom > 1.3;
+        this.r.zoomAt(p.x, p.y, zoomOut ? 0.6 : 1.7, this.game.world);
+        this.lastTap.t = 0;
+        this.mode = 'none';
+        return;
+      }
+      this.lastTap = { t: now, x: p.x, y: p.y };
+    }
     if (this.mode === 'hold') {
       // A clean tap: stamp the brush once, or drop the tee/cup/dogleg/new-hole marker for review.
       this.stopHold();

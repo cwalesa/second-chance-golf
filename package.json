@@ -22,5 +22,5 @@
     "@capacitor/core": "^6.1.0",
     "@capacitor/ios": "^6.1.0"
   },
-  "description": "Second Chance Golf: build a golf course hole by hole. An iPhone game (Capacitor + iOS), playable in the browser while in development."
+  "description": "Little Links: build a golf course hole by hole. An iPhone game (Capacitor + iOS), playable in the browser while in development."
 }

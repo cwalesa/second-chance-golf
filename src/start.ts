@@ -78,7 +78,7 @@ export function startScreen(practiced = false): Promise<NewGameOptions> {
     }).join('');
     root.innerHTML = `<div class="guide">
       <header class="guide-head">${BANNER_ART}
-        <div class="wordmark">${flagMark('wm-flag')}<h1><span class="wm-a">Second Chance</span><span class="wm-b"><i></i>Golf<i></i></span></h1></div>
+        <div class="wordmark">${flagMark('wm-flag')}<h1><span class="wm-a">Little Links</span><span class="wm-b"><i></i>A course of your own<i></i></span></h1></div>
       </header>
       <main class="guide-body">
         <section class="guide-places" aria-labelledby="gp">
