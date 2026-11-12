@@ -2537,19 +2537,23 @@ export class Renderer {
       }
     }
 
-    // new-hole placement guide
+    // new-hole placement guide: the tee marker always; the line, G pin and live yardage only once there is a real second point
     if (ov.buildLine) {
-      const f = this.toScreen(ov.buildLine.from.x + 0.5, ov.buildLine.from.y + 0.5);
-      const t2 = this.toScreen(ov.buildLine.to.x + 0.5, ov.buildLine.to.y + 0.5);
-      ctx.setLineDash([10, 8]);
-      ctx.strokeStyle = '#ffe27a';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(f.x, f.y);
-      ctx.lineTo(t2.x, t2.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      for (const [p, label] of [[f, 'T'], [t2, 'G']] as const) {
+      const { from, to } = ov.buildLine;
+      const f = this.toScreen(from.x + 0.5, from.y + 0.5);
+      const t2 = this.toScreen(to.x + 0.5, to.y + 0.5);
+      const real = Math.hypot(to.x - from.x, to.y - from.y) >= 2;
+      if (real) {
+        ctx.setLineDash([10, 8]);
+        ctx.strokeStyle = '#ffe27a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(f.x, f.y);
+        ctx.lineTo(t2.x, t2.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      for (const [p, label] of (real ? [[f, 'T'], [t2, 'G']] : [[f, 'T']]) as [{ x: number; y: number }, string][]) {
         ctx.fillStyle = '#ffe27a';
         ctx.beginPath();
         ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
@@ -2559,6 +2563,24 @@ export class Renderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(label, p.x, p.y + 0.5);
+        ctx.textAlign = 'left';
+      }
+      if (real && !ov.ghost) {
+        const yds = Math.round(Math.hypot(to.x - from.x, to.y - from.y) * CFG.grid.yardsPerTile);
+        const text = `${yds} yd`;
+        ctx.font = '700 11px system-ui, sans-serif';
+        const tw = ctx.measureText(text).width + 12, mx = (f.x + t2.x) / 2, my = (f.y + t2.y) / 2;
+        ctx.fillStyle = 'rgba(58,45,12,.92)';
+        ctx.strokeStyle = '#ffe27a';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(mx - tw / 2, my - 10, tw, 20, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#ffe9a6';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, mx, my + 0.5);
         ctx.textAlign = 'left';
       }
     }

@@ -87,6 +87,7 @@ export class UI {
       // a tap outside the open phone menu closes it
       if (this.menuOpen && !(e.target as HTMLElement).closest('#nav, #fab, #modal')) { this.menuOpen = false; this.refresh(true); }
       if ((e.target as HTMLElement).closest('#side, #top, #tools')) this.busy = true;
+      if ((e.target as HTMLElement).id === 'view') this.clearToasts(true);
     });
     const release = () => (this.busy = false);
     document.addEventListener('pointerup', release);
@@ -523,6 +524,7 @@ export class UI {
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
+    if (p || placing) this.clearToasts(true);
     el.innerHTML = html;
     el.style.display = p || placing ? 'flex' : 'none';
     el.classList.toggle('placing', placing);
@@ -718,7 +720,11 @@ export class UI {
     t.append(m, b);
     box.append(t);
     while (box.children.length > 1) box.firstChild!.remove();
-    window.setTimeout(() => t.remove(), 7000);
+    window.setTimeout(() => t.remove(), 3500);
+  }
+  /** Remove the toasts on screen: the next thing the player does makes them stale. */
+  clearToasts(onlyUndo = false) {
+    this.$('toasts').querySelectorAll(onlyUndo ? '.toast.undo' : '.toast').forEach((n) => n.remove());
   }
 
   markSaved() {
@@ -784,6 +790,7 @@ export class UI {
 
     // tool buttons
     this.$('tools').querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tool === this.editor.tool));
+    this.revealSelectedTool();
     if (this.editor.tool === 'decor') this.traySet = isBuilding(this.editor.decorKind) ? 'buildings' : 'decor';
     else if (this.editor.tool !== 'inspect' && this.editor.tool !== 'pan') this.traySet = 'course';
     this.$('tools').dataset.set = this.traySet;
@@ -846,6 +853,22 @@ export class UI {
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }
+  }
+
+  private revealKey = '';
+  /** Scroll the tray so the picked tool sits fully in view, clear of the fade at the tray's edge. */
+  private revealSelectedTool() {
+    const on = [...this.$('tools').querySelectorAll<HTMLElement>('.ph-tools .tool.on, .ph-tools .tool[data-tool].on')].find((x) => x.getClientRects().length > 0);
+    if (!on) { this.revealKey = ''; return; }
+    const box = on.closest<HTMLElement>('.ph-tools');
+    if (!box || box.scrollWidth <= box.clientWidth + 1) return;
+    const key = `${this.editor.tool}:${this.editor.decorKind}:${this.traySet}:${box.clientWidth}`;
+    if (key === this.revealKey) return;
+    this.revealKey = key;
+    const b = box.getBoundingClientRect(), r = on.getBoundingClientRect();
+    const left = b.left + 6, right = b.right - Math.max(24, b.width * 0.14);
+    if (r.left < left) box.scrollLeft += r.left - left;
+    else if (r.right > right) box.scrollLeft += r.right - right;
   }
 
   private renderPill() {

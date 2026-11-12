@@ -4,6 +4,8 @@ import type { Renderer } from './render';
 import type { UI } from './ui';
 import { Pt } from './terrain';
 import { suggestFirstHole } from './wilderness';
+/** Whole dollars, as the rest of the interface shows them. */
+const fmtMoney = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
 /** Saved progress through Level 1's guided walkthrough. */
 export interface TutorialState {
@@ -28,6 +30,8 @@ interface Step {
   more?: (c: Ctx) => string;
   /** 'map' steps close management panels so the course is visible; 'sheet' steps keep the Holes sheet at half height. */
   view?: 'map' | 'sheet';
+  /** The management tab this step needs kept open; every other tab is closed on entry. */
+  tab?: 'money' | 'course';
   /** What to point at; the first selector that is on screen gets the pulsing ring. */
   target?: (c: Ctx) => string[];
   check?: (c: Ctx) => boolean;
@@ -108,7 +112,7 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: (c) => (c.e.bGhost ? 'Tap Build to put it up.' : 'Add a halfway house: tap the Buildings tab, then the rough beside the first hole.'),
+    short: (c) => (c.e.bGhost ? 'Tap Build to put it up.' : 'Tap the rough beside the first hole to place a halfway house.'),
     view: 'map',
     enter: (c) => {
       c.mark.hw = (c.g.world.items ?? []).filter((it) => it.k === 'halfway').length;
@@ -141,12 +145,12 @@ const STEPS: Step[] = [
   },
   {
     id: 'watch',
-    short: () => 'Here come three test golfers. Watch them play your first hole.',
+    short: () => 'Three test golfers are playing your hole. Their scores show how hard it is.',
     view: 'map',
     enter: (c) => {
       if (c.ui.tab === 'course') { c.ui.tab = 'none'; c.ui.refresh(true); c.ui.onInsets(); }
       if (c.g.designMode) c.g.toggleDesignMode();
-      c.g.setSpeed(3);
+      c.g.setSpeed(8);
       const h = first(c);
       if (h) { c.g.sendTestGolfers(h.id); c.e.focusHole(); }
     },
@@ -154,12 +158,23 @@ const STEPS: Step[] = [
     skippable: true,
   },
   {
-    short: (c) => (c.ui.tab === 'money' ? 'This is Finances. Set each tee time\'s fee near what guests think is fair.' : 'Open the menu, then Finances, to set your green fees.'),
+    id: 'finances',
+    short: (c) => (c.ui.menuOpen ? 'Tap Finances.' : 'Tap the menu button, then Finances.'),
     view: 'map',
+    tab: 'money',
     enter: (c) => { c.ui.tab = 'none'; c.ui.refresh(true); },
-    target: (c) => (c.ui.tab === 'money' ? ['[data-act="bandfee"]'] : c.ui.menuOpen ? ['#nav [data-nav="money"]'] : ['#fab']),
+    target: (c) => (c.ui.menuOpen ? ['#nav [data-nav="money"]'] : ['#fab']),
     check: (c) => c.ui.tab === 'money',
-    nextLabel: 'Next',
+    skippable: true,
+  },
+  {
+    id: 'fee',
+    short: (c) => `Tap + or − to change a fee. Guests think about ${fmtMoney(c.g.fair)} is fair.`,
+    view: 'map',
+    tab: 'money',
+    enter: (c) => { c.mark.fees = JSON.stringify(c.g.fees); },
+    target: () => ['[data-act="bandfee"][data-band="mid"][data-id="1"]', '[data-act="bandfee"]'],
+    check: (c) => JSON.stringify(c.g.fees) !== c.mark.fees,
     skippable: true,
   },
   {
@@ -262,7 +277,7 @@ export class Tutorial {
   /** Close panels the step doesn't use, and keep the Holes sheet usable when it is the lesson. */
   private arrange(step: Step) {
     const ui = this.ui;
-    if (ui.tab !== 'none' && ui.tab !== 'build' && ui.tab !== 'course') { ui.tab = 'none'; ui.refresh(true); ui.onInsets(); }
+    if (ui.tab !== 'none' && ui.tab !== 'build' && ui.tab !== 'course' && ui.tab !== step.tab) { ui.tab = 'none'; ui.refresh(true); ui.onInsets(); }
     if (step.view === 'map' && ui.mobile && ui.tab === 'course') { ui.tab = 'none'; ui.refresh(true); ui.onInsets(); }
     if (step.view === 'sheet' && ui.tab === 'course' && ui.portraitSheet && ui.sheet !== 'half') ui.setSheet('half');
   }

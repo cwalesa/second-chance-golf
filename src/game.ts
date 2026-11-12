@@ -701,7 +701,7 @@ export class Game {
     let n = 0;
     for (const type of ['beginner', 'regular', 'skilled'] as const) {
       if (this.sim.golfers.length >= 40) break;
-      if (this.sim.spawn(type, 0, { test: true, holes: [id] })) n++;
+      if (this.sim.spawn(type, 0, { test: true, holes: [id], atTee: true })) n++;
     }
     if (n) this.notify('good', `${n} test golfers sent to hole ${id}.`);
     return n;
@@ -727,8 +727,10 @@ export class Game {
       return v;
     }
     if (!h.open) {
+      // only a hole that has been open before can be "reopened": the first opening is not a return
+      if (h.everOpen || (h.stats?.rounds ?? 0) > 0) h.reopenedAt = this.total;
+      h.everOpen = true;
       h.open = true;
-      h.reopenedAt = this.total;
       this.world.version++;
       this.notify('good', `Hole ${id}, ${h.name}, is open.`);
       this.checkGoals();
@@ -741,6 +743,7 @@ export class Game {
     const h = this.hole(id);
     if (!h.open) return;
     h.open = false;
+    h.everOpen = true;
     this.sim.closeHole(id);
     this.world.version++;
     if (!quiet) this.notify('info', `Hole ${id} is closed. Golfers on it have been sent on to the next hole.`);

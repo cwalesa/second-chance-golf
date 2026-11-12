@@ -220,7 +220,7 @@ export class CourseSim {
     return { x: tee.x + bx * (2.4 + i * 0.9) + px * side, y: tee.y + by * (2.4 + i * 0.9) + py * side };
   }
 
-  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[] } = {}): Golfer | null {
+  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[]; /** start beside the tee instead of walking in from the gate */ atTee?: boolean } = {}): Golfer | null {
     const open = this.world.holes.filter((h) => h.open && (!opts.holes || opts.holes.includes(h.id)));
     if (!open.length) return null;
     // start on the least busy open hole, then play the rest in order
@@ -286,6 +286,16 @@ export class CourseSim {
       fairFee: opts.fair ?? null,
     };
     this.golfers.push(g);
+    if (opts.atTee) {
+      // test golfers start at their tee so there is something to watch at once
+      this.startNextHole(g);
+      const h = this.hole(g.holeId);
+      if (h) {
+        const slot = this.queueSlot(h, this.queueFor(h.id).length + this.golfers.filter((o) => o !== g && o.test && o.holeId === h.id && o.phase === 'toTee').length);
+        g.x = g.px = g.rx = slot.x;
+        g.y = g.py = g.ry = slot.y;
+      }
+    }
     return g;
   }
 

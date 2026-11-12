@@ -22,6 +22,8 @@ export interface Hole {
   par: number;
   fixedGreenAt: number; // total sim time a worn green was repaired, -1 if never
   reopenedAt: number;
+  /** True once the hole has been opened at least once, so a later opening is a genuine reopen. */
+  everOpen?: boolean;
   stats: HoleStats;
 }
 export interface HoleStats {
