@@ -595,3 +595,19 @@ body.mobile.menu-open #goalpop, body.mobile:is([data-tab="course"], [data-tab="g
   body.mobile #confirm .cf-pars { margin-top: 2px; }
   body.mobile #goalbar { max-width: 240px !important; }
 }
+
+/* ---------- iPhone comfort ---------- */
+/* 16px text in fields stops iOS zooming the page when one is tapped */
+input, select, textarea { font-size: 16px !important; }
+/* every control at least a thumb wide */
+body.mobile button { min-height: 44px; }
+body.mobile #top button, body.mobile .mini, body.mobile .cf-pars .mini { min-height: 34px; }
+/* keep content clear of the notch, home bar and rounded corners in both orientations */
+body.mobile #fab { right: max(14px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
+body.mobile #side, body.mobile #tools { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+body.mobile #side .body { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+/* the page itself never scrolls or selects text while playing */
+html, body { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+#modal input { -webkit-user-select: text; user-select: text; }
+/* menus and sheets: smooth momentum scrolling inside, no bounce leaking to the map */
+#sidebody, #nav, .modal .box, #modal .box { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
