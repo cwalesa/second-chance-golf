@@ -46,7 +46,8 @@ The interface has four states so the course stays visible:
 - **Viewing:** a compact header (cash, time, speed, menu; hole selector with undo/redo) and bottom navigation (portrait) or an edge rail (landscape). Zoom and find-hole are small buttons on the map edge.
 - **Editing (Design):** the tool tray with Terrain / Nature / Holes groups. Placing a tee, cup, dogleg or new hole shows a bar with what to tap and a **Cancel** button; a pending change shows its price with **Build** / **Cancel**.
 - **Managing a hole (Holes):** a bottom sheet in portrait with a handle, the hole's name, and collapsed / half / full positions (drag the handle, tap it, or use ▴). Content scrolls on its own and never moves the map. **Edit hole** groups Move tee, Move cup, Dogleg, Rename and Remove; choosing one closes the sheet so you can see where to place. In landscape the same content is a narrow side panel.
-- **Tutorial:** one short instruction at a time, docked just above the bottom controls, with **More**, **‹ Back**, **Skip** and collapse. The gold ring marks the target; the card never covers it. It shrinks to one line while a Build/placement bar is up and sits beside that bar in landscape.
+- **Tutorial:** runs on your own course. One short instruction at a time with **More** and **Skip step**; the gold ring marks the target and the card never covers it. Portrait: top. Landscape: bottom left, or top beside the status chip while the placement bar is up. Settings has **Replay the tutorial**.
+- **Landscape:** tools are a column on the right so the map keeps the full height; the placement bar sits bottom left, and a new hole's preview is panned fully into view.
 
 Touch: one finger drags the map; press-and-hold then drag paints; a tap paints one spot or drops a placement preview; two fingers pinch and never edit. Undo is always in the header.
 
@@ -388,3 +389,12 @@ Shortcuts: `P` pause, `[` `]` brush size, `Ctrl/Cmd+Z` undo, `Esc` back to Inspe
 | `ui.ts`, `style.css` | Top bar, toolbar, inspector tabs, toasts, reset dialog |
 
 Simulation runs on a fixed 1/30 s step independent of rendering; the speed buttons only change how many steps run per frame, so refresh rate never changes the economy.
+
+
+## First session and introductions (onboarding rework)
+
+The first-session tutorial (`src/tutorial.ts`) builds one real hole on the player's own course: clubhouse, par, tee, green, Build, a bunker (outlined area and a hold-then-drag hand; taps work too), open the hole, watch three test golfers, change one green fee, start. Cash is $25,000 everywhere and tutorial actions are charged at normal prices (Undo refunds). Progress is saved by step id; saves from the old practice-course version convert (`legacyTutorialStep`), and a real course parked by the old replay is restored on load.
+
+Everything else is introduced later by `src/intros.ts`: a list of `{ id, text, more, ring, show, when }` entries. One at a time, never while the tutorial, a placement, a stroke, a dialog or the menu is up, with a 4 minute cooldown on real play time (2 minutes before the first). Each is marked seen when it appears. Menu → **Tips** lists the ones already seen; Settings → **Show tips** turns them (and first-use tool tips) off.
+
+Progression: the Goals chain is the one road. Daily challenges and the streak start on the second real day, with a "While you were away" report (rounds, money, a guest remark about a named hole, one fix) as the reason to return.

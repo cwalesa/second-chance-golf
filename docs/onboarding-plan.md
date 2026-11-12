@@ -34,3 +34,43 @@
 6. **Intros engine** (`src/intros.ts`): data-driven, one at a time, cooldown on real play time, never during placement/painting/confirmation/modals/tutorial, dismiss in one tap and never again, listed in a Guide in the menu, switchable off in Settings.
 7. **Landscape**: the tool tray becomes a right-hand side rail; the build bar moves to the side away from the hole (or the camera pans the preview into view); the coach docks clear of the side panel header; the start screen uses its left column.
 8. **Old saves**: new tutorial progress is stored by step id. Old practice saves (and parked saves) load and are converted. Test added.
+
+## Final order of introductions and their triggers
+
+All wait for the tutorial to be finished, and for the player to be idle. First one waits 2 minutes after the tutorial (the Goals line, 6 seconds); every other one waits 4 minutes of play after the last.
+
+| # | id | trigger |
+|---|----|---------|
+| 1 | goals | right after the tutorial (replaces a celebration for the first goal) |
+| 2 | bends | New hole tool picked while only one hole exists; the +Bend button is ringed once the green is placed |
+| 3 | shaping | two holes built |
+| 4 | bands | first full day ended |
+| 5 | upkeep | a day ended at a loss |
+| 6 | turf | an open hole's green or turf is worn |
+| 7 | golfers | 5 rounds played, or a poorly rated round |
+| 8 | stars | a star earned, or half a star with 3 open holes |
+| 9 | b-shed | 4 open holes |
+| 10 | b-halfway | 6 open holes |
+| 11 | paths | a building has been placed |
+| 12 | b-barn | 8 open holes (or carts and 5 holes) |
+| 13 | fleet | a cart barn is built |
+| 14 | amenities | an improvement is affordable ($1,500, none owned, 2 open holes) |
+| 15 | staff | 5 open holes |
+| 16 | clubup | first clubhouse upgrade available |
+| 17 | members | first member joins |
+| 18 | events | first event bookable |
+| 19 | seasons | first season change (day 5) |
+| 20 | daily | the daily challenges arrive (second real day) |
+| - | recap | shown inside the first end-of-day recap, not as a card |
+
+List order is priority; the engine shows the first eligible one.
+
+## Still to flag
+
+- **No rain exists in the game**, so "first rainy day" has no trigger. Seasons are covered.
+- The XP/career system is kept (it still gives construction discounts) but is now invisible: no badge, no level-up pop-ups. The projects panel that spent career XP is not rendered by the current UI.
+- "Replay the tutorial" builds one more hole on the current course at normal prices (it needs a free hole slot and about $3,500).
+- Old tool tips and panel tips remain, now behind the same gate (45 second rest, off with the setting).
+- The CSS has many layered overrides; the new rules live in `src/guide.css`, loaded last. The older rules were left alone.
+- Safe-area insets use `env()` in the new landscape rules; Playwright reports zero insets, so notch spacing was reviewed in the CSS, not on a device.
+- Cooldown values (240 s, first 120 s, tips 45 s) are untuned guesses. Playtest and adjust `COOLDOWN`, `FIRST_WAIT`, `TIP_COOLDOWN` in `src/intros.ts`.
