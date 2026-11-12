@@ -3,6 +3,7 @@
 import type { Game } from '../game';
 import { hash2, Pt } from '../terrain';
 import { ISO_X, ISO_Y } from '../isometric';
+import { drawCart } from './facilities';
 
 export interface Painter {
   ctx: CanvasRenderingContext2D;
@@ -421,25 +422,8 @@ function car(p: Painter, x: number, y: number, seed: number) {
 }
 
 function golfCart(p: Painter, x: number, y: number, seed: number) {
-  const ctx = p.ctx;
-  const trim = ['#3f7a5a', '#c8493a', '#3d6aa8'][seed % 3];
-  castShadow(p, x, y, 1.1, 0.7, 1, 0.22);
-  for (const wx of [0.12, 0.92]) {
-    for (const wy of [0.1, 0.6]) {
-      const q = pt(p, x + wx, y + wy, 0.1);
-      ctx.fillStyle = '#23262a';
-      ctx.beginPath();
-      ctx.ellipse(q.x, q.y, p.ts * 0.07, p.ts * 0.11, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  box(p, x, y, 1.1, 0.7, 0.14, 0.42, '#ece4cc', 'rgba(50,50,40,0.45)');
-  box(p, x + 0.7, y + 0.04, 0.34, 0.62, 0.42, 0.55, trim);
-  box(p, x + 0.08, y + 0.08, 0.5, 0.54, 0.42, 0.52, '#d9d0b4');
-  // bag rack and clubs
-  box(p, x + 0.02, y + 0.1, 0.2, 0.5, 0.42, 0.9, '#3a3f46');
-  for (const wy of [0.12, 0.55]) line(p.ctx, pt(p, x + 0.9, y + wy, 0.5), pt(p, x + 0.9, y + wy, 1.15), '#6b6b60', p.ts * 0.03);
-  poly(ctx, [pt(p, x - 0.05, y - 0.04, 1.15), pt(p, x + 1.15, y - 0.04, 1.15), pt(p, x + 1.15, y + 0.76, 1.15), pt(p, x - 0.05, y + 0.76, 1.15)], '#f2ead0', 'rgba(110,104,80,0.6)');
+  // the same cart model the barn uses, parked nose-out toward the road
+  drawCart(p, x + 0.55, y + 0.4, Math.PI / 2, seed);
 }
 
 // ---------- clubhouse ----------
