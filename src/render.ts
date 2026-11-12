@@ -248,12 +248,12 @@ export class Renderer {
    */
   private buildColorMaps(w: World) {
     const mk = (key: string, color: (x: number, y: number, i: number) => RGB) => {
-      let cv = this.cmaps[key];
-      if (!cv || cv.width !== w.w) {
-        cv = this.cmaps[key] = document.createElement('canvas');
-        cv.width = w.w;
-        cv.height = w.h;
-      }
+      // always a fresh canvas: rewriting one that has already been drawn can leave iPhone Safari using a stale copy
+      const prev = this.cmaps[key];
+      if (prev) prev.width = prev.height = 0;
+      const cv = (this.cmaps[key] = document.createElement('canvas'));
+      cv.width = w.w;
+      cv.height = w.h;
       const cx = cv.getContext('2d')!;
       const img = cx.createImageData(w.w, w.h);
       for (let y = 0; y < w.h; y++)
@@ -789,7 +789,10 @@ export class Renderer {
       this.ovFor = w;
       this.ovVersion = w.version;
       this.ovAt = now;
-      if (this.ovCv.width !== w.w) { this.ovCv.width = w.w; this.ovCv.height = w.h; }
+      this.ovCv.width = this.ovCv.height = 0;
+      this.ovCv = document.createElement('canvas');
+      this.ovCv.width = w.w;
+      this.ovCv.height = w.h;
       const c = this.ovCv.getContext('2d')!;
       const img = c.createImageData(w.w, w.h);
       const pal: RGB[] = [COL.roughGood, COL.fairGood, COL.greenGood, COL.teeGood, COL.sand, COL.water, COL.path, [150, 138, 112], [150, 112, 72]];
@@ -859,7 +862,31 @@ export class Renderer {
   }
 
   // ---- chunk compositor ----
-  private maskCv = document.createElement('canvas');
+  /** The chunk being composed, as RGBA pixels (null outside composeChunk). */
+  private chunkBuf: Uint8ClampedArray | null = null;
+  /** Source-over blend of the mask image's covered pixels in a rect into the chunk buffer. */
+  private blendMask(CW: number, x: number, y: number, rw: number, rh: number) {
+    const b = this.chunkBuf;
+    if (!b) return;
+    const m = this.maskImg!.data;
+    for (let j = y; j < y + rh; j++) {
+      let o = (j * CW + x) * 4;
+      for (let i = 0; i < rw; i++, o += 4) {
+        const a = m[o + 3];
+        if (!a) continue;
+        if (a === 255) {
+          b[o] = m[o];
+          b[o + 1] = m[o + 1];
+          b[o + 2] = m[o + 2];
+          continue;
+        }
+        const k = a / 255;
+        b[o] += (m[o] - b[o]) * k;
+        b[o + 1] += (m[o + 1] - b[o + 1]) * k;
+        b[o + 2] += (m[o + 2] - b[o + 2]) * k;
+      }
+    }
+  }
   private maskImg: ImageData | null = null;
   private distBufs = new Map<string, Float32Array>();
 
@@ -1092,14 +1119,18 @@ export class Renderer {
     const Y = ty0 * TS;
     const CW = (tx1 - tx0) * TS;
     const CHH = (ty1 - ty0) * TS;
-    this.tctx2 = this.pageFor(Math.floor(tx0 / Renderer.PAGE), Math.floor(ty0 / Renderer.PAGE)).ctx;
-    const t = this.tctx2;
-    if (this.maskCv.width !== CW || this.maskCv.height !== CHH) {
-      this.maskCv.width = CW;
-      this.maskCv.height = CHH;
-    }
+    const page = this.pageFor(Math.floor(tx0 / Renderer.PAGE), Math.floor(ty0 / Renderer.PAGE)).ctx;
+    // The chunk is built on its own brand-new canvas, read back once, finished in JS and written once.
+    // iPhone Safari can draw a canvas that was reused and rewritten with putImageData from a stale copy,
+    // which painted chunks with another surface's colours (white tees, teal fairways, orange water), so
+    // no scratch canvas is ever reused here.
+    const cc = document.createElement('canvas');
+    cc.width = CW;
+    cc.height = CHH;
+    const t = cc.getContext('2d')!;
+    t.translate(-X, -Y);
+    this.tctx2 = t;
     if (!this.maskImg || this.maskImg.width !== CW || this.maskImg.height !== CHH) this.maskImg = new ImageData(CW, CHH);
-    const mc = this.maskCv.getContext('2d')!;
     const DW = CW + 2 * Renderer.MP;
     /** index offset for a lookup shifted by (sx, sy) terrain px */
     const off = (sx: number, sy: number) => sy * DW + sx;
@@ -1116,13 +1147,14 @@ export class Renderer {
     t.fillRect(X, Y, CW, CHH);
     for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.ROUGH) this.roughTufts(t, w, x, y);
     t.restore();
+    const buf = t.getImageData(0, 0, CW, CHH);
+    this.chunkBuf = buf.data;
 
     const flatStamp = (D: DistMap | null, shape: Shape, rgb: RGB, alpha: number) => {
       if (!D) return;
       const r = this.rasterise(D, CW, CHH, shape, rgb, alpha);
       if (!r) return;
-      mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
-      t.drawImage(this.maskCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
+      this.blendMask(CW, r.x, r.y, r.w, r.h);
     };
     // Textured surfaces are shaded pixel by pixel in JS and stamped exactly like the flat stamps above.
     // The old route (fill a layer canvas, then mask it with 'destination-in') came out as solid white
@@ -1132,8 +1164,7 @@ export class Renderer {
       const r = this.rasterise(D, CW, CHH, shape, [0, 0, 0], 1);
       if (!r) return;
       this.shadeRect(w, r, X, Y, CW, lays);
-      mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
-      t.drawImage(this.maskCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
+      this.blendMask(CW, r.x, r.y, r.w, r.h);
     };
     const tex = (key: string, make: () => HTMLCanvasElement, a = 1): Lay => ({ tex: this.texture(key, make), a });
     const turf = (kind: TurfKind, a = 1) => tex('turf-' + kind, () => makeTurfTexture(kind), a);
@@ -1204,13 +1235,6 @@ export class Renderer {
       flatStamp(water, falloff(0.11), [58, 74, 38], 0.45);
       flatStamp(water, band(-0.035, 0.005), [204, 198, 150], 0.7);
       shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
-      // lily pads only grow on tiles surrounded by water, so they can be painted straight onto the ground
-      t.save();
-      t.beginPath();
-      t.rect(X, Y, CW, CHH);
-      t.clip();
-      for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.WATER) this.waterDetail(t, w, x, y);
-      t.restore();
       flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.18), [156, 228, 216], 0.26);
       flatStamp(water, innerShade(7, 3, 0.22, 1.2), [10, 46, 72], 0.4);
     }
@@ -1232,6 +1256,13 @@ export class Renderer {
       flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
       flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }
+
+    // write the finished chunk back once, add the lily pads, then copy it onto its page
+    t.putImageData(buf, 0, 0);
+    this.chunkBuf = null;
+    if (water) for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.WATER) this.waterDetail(t, w, x, y);
+    page.drawImage(cc, X, Y);
+    cc.width = cc.height = 0;
   }
 
   /**
@@ -1335,9 +1366,7 @@ export class Renderer {
       }
     }
     if (bx1 <= bx0) return;
-    const mc = this.maskCv.getContext('2d')!;
-    mc.putImageData(img, 0, 0, bx0, by0, bx1 - bx0, by1 - by0);
-    this.tctx2.drawImage(this.maskCv, bx0, by0, bx1 - bx0, by1 - by0, X + bx0, Y + by0, bx1 - bx0, by1 - by0);
+    this.blendMask(CW, bx0, by0, bx1 - bx0, by1 - by0);
   }
 
   /** Occasional lily pads on open water, painted flat into the terrain. */
