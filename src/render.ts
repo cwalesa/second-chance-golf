@@ -1078,7 +1078,10 @@ export class Renderer {
     const tee = dist('tee');
     if (tee) {
       flatStamp(tee, falloff(0.07), [14, 50, 26], 0.32);
-      fillStamp(tee, inside, layers(flat(css(COL.teeGood)), pat(this.turfPattern(t, 'tee')), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y')))));
+      // plain colour first, through the same path as the soft shadow above (known to draw everywhere),
+      // then the grain and mowing stripes on top, so a failed texture can never leave a blank white box
+      flatStamp(tee, inside, COL.teeGood, 1);
+      fillStamp(tee, inside, layers(pat(this.turfPattern(t, 'tee'), 0.9), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y')))));
       flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
     }
 
