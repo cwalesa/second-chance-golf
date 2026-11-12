@@ -18,7 +18,7 @@ export function journalPanel(g: Game, _view: JournalView): string {
   if (d.date) {
     const next = streakReward(d.streak + 1);
     html += `<div class="today">
-      <div class="streak"><span class="flame" aria-hidden="true">🔥</span><div><b>Day ${d.streak} streak</b><small>${d.pending ? 'Your daily reward is ready.' : `Come back tomorrow for ${fmtMoney(next)}.`}${d.best > d.streak ? ` Best: ${d.best} days.` : ''}</small></div>${d.pending ? `<button class="btn primary" data-act="claimstreak">Collect ${fmtMoney(d.pending)}</button>` : ''}</div>
+      <div class="streak"><span class="flame" aria-hidden="true"></span><div><b>Day ${d.streak} streak</b><small>${d.pending ? 'Your daily reward is ready.' : `Come back tomorrow for ${fmtMoney(next)}.`}${d.best > d.streak ? ` Best: ${d.best} days.` : ''}</small></div>${d.pending ? `<button class="btn primary" data-act="claimstreak">Collect ${fmtMoney(d.pending)}</button>` : ''}</div>
       <div class="ch-head"><span>Today's challenges</span><small>New ones every day</small></div>
       ${d.challenges.map((c, i) => {
         const v = challengeProgress(g, c), ok = challengeDone(g, c);

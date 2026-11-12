@@ -4,6 +4,7 @@ import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, 
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { ITEMS, ITEM_KINDS, ItemKind } from './items';
+import { flagMark, icon } from './icons';
 import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
@@ -45,37 +46,9 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
 };
 const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
-const TAB_ICON: Record<string, string> = {
-  journey: '<path d="M4 18l5-12 6 12 5-12M4 18h.01M20 6h.01"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/>',
-  build: '<path d="M4 20l6-6M14 4l6 6-8 8-6-6z" />',
-  course: '<path d="M12 21V4M12 4l7 3-7 3" /><ellipse cx="12" cy="21" rx="6" ry="1.6" />',
-  guests: '<circle cx="12" cy="8" r="3.5" /><path d="M5 20c1-4 4-6 7-6s6 2 7 6" />',
-  money: '<circle cx="12" cy="12" r="8" /><path d="M12 7v10M9.5 9.5c0-1.4 5-1.4 5 0s-5 3-5 4.5 5 1.4 5 0" />',
-  events: '<rect x="4" y="6" width="16" height="14" rx="2" /><path d="M4 11h16M9 3v5M15 3v5" />',
-  club: '<path d="M4 20V9l8-5 8 5v11zM10 20v-6h4v6" />',
-};
 const stars = (n: number) => `${'★'.repeat(Math.floor(n))}${n % 1 ? '½' : ''}${'☆'.repeat(5 - Math.ceil(n))}`;
 
-const ICON: Record<string, string> = {
-  bend: '<path d="M4 20L10 8l10-4M10 8l4 1M10 8l-1 4"/>',
-  green: '<ellipse cx="12" cy="14" rx="9" ry="6" fill="#87be78"/><path d="M12 16V4l5 2-5 2"/>',
-  path: '<path d="M7 22c12-10-6-12 10-20M3 22C15 12-3 10 13 2" stroke="#d7c9ad"/>',
-  inspect: '<circle cx="10.5" cy="10.5" r="6" /><path d="M15 15l6 6" />',
-  pan: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />',
-  fairway: '<rect x="4" y="5" width="16" height="14" rx="5" fill="#6ab24a" stroke="none" /><path d="M8 7v10M12 7v10M16 7v10" stroke="#8fd06a" />',
-  rough: '<path d="M5 20c0-6 1-10 2-13M10 20c0-5 0-9 1-13M15 20c0-4 1-8 3-11M20 20c-1-3-1-6 0-8" stroke="#69a85a" />',
-  bunker: '<path d="M3 17c2-5 5-8 9-8s7 3 9 8z" fill="#e8d49c" stroke="#b89a5a" /><path d="M7 15h.01M12 13h.01M16 15h.01" stroke="#b89a5a" />',
-  water: '<path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0" stroke="#5aaee8" />',
-  treeAdd: '<circle cx="11" cy="9" r="6" fill="#3d8f55" stroke="none" /><path d="M11 14v7" stroke="#8a6a46" /><path d="M19 3v6M16 6h6" stroke="#f1ead6" />',
-  treeDel: '<circle cx="11" cy="9" r="6" fill="#3d8f55" stroke="none" /><path d="M11 14v7" stroke="#8a6a46" /><path d="M16 3l5 5M21 3l-5 5" stroke="#ee7a58" />',
-  repair: '<path d="M12 21V11" stroke="#7fd17a" /><path d="M12 13c-4 0-6-2-6-6 4 0 6 2 6 6zM12 11c0-4 2-6 6-6 0 4-2 6-6 6z" fill="#7fd17a" stroke="none" />',
-  tee: '<path d="M8 21l4-7 4 7" /><circle cx="12" cy="11" r="3" fill="#f5f5ef" /><path d="M4 4l4 3M4 4l1 4" />',
-  cup: '<ellipse cx="12" cy="20" rx="6" ry="2" fill="#2b3b2d" /><path d="M12 20V4" /><path d="M12 4l7 3-7 3" fill="#d2432f" stroke="none" />',
-  build: '<path d="M4 20l6-6M14 4l6 6-8 8-6-6z" />',
-  land: '<path d="M3 8l9-4 9 4v9l-9 4-9-4zM3 8l9 4 9-4M12 12v9" />',
-  undo: '<path d="M9 7L4 12l5 5" /><path d="M4 12h10a6 6 0 010 12" transform="translate(0 -5)" />',
-};
-const svg = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg>`;
+const svg = (name: string) => icon(name);
 
 const word = (s: number) => (s >= 80 ? 'Great' : s >= 65 ? 'Good' : s >= 50 ? 'Fair' : 'Poor');
 const col = (v: number) => (v >= 70 ? '#86cf7e' : v >= 45 ? '#e6b44c' : '#ee7a58');
@@ -142,7 +115,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/></svg></button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor">${ITEM_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor">${ITEM_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -191,7 +164,7 @@ export class UI {
     this.$('top').innerHTML = `
       <button class="brand" id="brandBtn" aria-label="Club menu"><canvas width="68" height="68" id="topLogo"></canvas><span id="clubName"></span></button>
       <div class="sep"></div>
-      <div class="lvl" id="lvlBox" title="Your level"><b id="lvlN">1</b><i><em id="lvlBar"></em></i></div>
+      <div class="lvl" id="lvlBox" title="Your level"><span class="k">Lvl</span><b id="lvlN">1</b><i><em id="lvlBar"></em></i></div>
       <div class="stat"><span class="k">Cash</span><span class="v cash" id="cash"></span></div>
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
       <div class="stat hide-m" title="Fee for the tee-time band running now. Set all three in the Money tab."><span class="k" id="feek">Tee time</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
@@ -326,10 +299,9 @@ export class UI {
 
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
-    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICON[t]}</svg><span>${TAB_LABEL[t]}</span></button>`).join('');
+    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${icon(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
     // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
-    const ic = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${ic('<path d="M9 6v12M15 6v12"/>')}<span>Pause</span></button><button data-mspeed="1">${ic('<path d="M8 5l11 7-11 7z"/>')}<span>Play</span></button><button data-mspeed="3">${ic('<path d="M4 6l8 6-8 6zM12 6l8 6-8 6z"/>')}<span>Fast</span></button></div>`);
+    this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
     this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
     const fab = document.createElement('button');
     fab.id = 'fab';
@@ -796,9 +768,7 @@ export class UI {
       const fab = this.$('fab');
       fab.dataset.state = fabState;
       fab.setAttribute('aria-label', fabState === 'done' ? 'Done building' : fabState === 'close' ? 'Close menu' : 'Menu');
-      fab.innerHTML = fabState === 'done' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Done</span>'
-        : fabState === 'close' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+      fab.innerHTML = fabState === 'done' ? `${icon('check')}<span>Done</span>` : fabState === 'close' ? icon('close') : icon('menu');
     }
     document.body.dataset.journalView = this.journalView;
     const titleHole = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
@@ -819,7 +789,7 @@ export class UI {
     this.helpTips();
     if (this.busy && !force) return;
     if (this.panelTip && this.panelTip !== this.tab) this.panelTip = null;
-    const ptip = this.panelTip && TAB_TIPS[this.panelTip] ? `<div class="ptip"><span aria-hidden="true">💡</span><p>${TAB_TIPS[this.panelTip]}</p><button data-act="tipok">Got it</button></div>` : '';
+    const ptip = this.panelTip && TAB_TIPS[this.panelTip] ? `<div class="ptip"><span aria-hidden="true"></span><p>${TAB_TIPS[this.panelTip]}</p><button data-act="tipok">Got it</button></div>` : '';
     const html = ptip + this.sideHtml();
     if (force || this.cache.get('side') !== html) {
       const body = this.$('sidebody');
@@ -873,8 +843,8 @@ export class UI {
     const g = this.game;
     const goal = currentGoal(g);
     const html = goal
-      ? `<div class="k">Goal</div><div class="gt">${goal.title}</div><div class="p">${goalProgressText(goal, g)}</div>`
-      : `<div class="k">Sandbox</div><div class="gt">Build freely</div>`;
+      ? `<div class="k">${flagMark()}<span>Next job</span></div><div class="gt">${goal.title}</div><div class="p"><i class="box"></i>${goalProgressText(goal, g)}</div>`
+      : `<div class="k">${flagMark()}<span>All done</span></div><div class="gt">Build freely</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
@@ -925,7 +895,7 @@ export class UI {
     const tip = document.createElement('div');
     tip.id = 'tip';
     tip.setAttribute('role', 'status');
-    tip.innerHTML = `<span class="tip-i" aria-hidden="true">💡</span><div><b>${escapeHtml(title)}</b><p>${escapeHtml(text)}</p></div><button aria-label="Got it">Got it</button>`;
+    tip.innerHTML = `<span class="tip-i" aria-hidden="true"></span><div><b>${escapeHtml(title)}</b><p>${escapeHtml(text)}</p></div><button aria-label="Got it">Got it</button>`;
     const close = () => { tip.classList.add('out'); window.setTimeout(() => tip.remove(), 300); };
     tip.querySelector('button')!.addEventListener('click', close);
     document.getElementById('app')!.append(tip);

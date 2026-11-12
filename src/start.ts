@@ -1,9 +1,10 @@
 
 import { LOGO_COLORS, LOGO_ICONS, LOGO_SHAPES, Logo, defaultLogo, drawLogo, initialsOf } from './logo';
 import type { NewGameOptions } from './game';
-import { REGIONS, REGION_IDS, RGB, RegionId } from './progression';
+import { REGIONS, REGION_IDS, RegionId } from './progression';
+import { BANNER_ART, REGION_ART, levelFlags } from './start-art';
+import { flagMark, icon } from './icons';
 
-const css = (c: RGB) => `rgb(${c.map((v) => Math.round(v)).join(',')})`;
 /** Easiest first, so the choice reads as a ladder. */
 const ORDER = [...REGION_IDS].sort((a, b) => REGIONS[a].level - REGIONS[b].level);
 
@@ -39,7 +40,25 @@ export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => strin
   };
 }
 
-/** Pick a starting location, name the club and begin. The map stays visible once play begins. */
+/** What a place costs you and pays you, as the few figures that differ from an ordinary course. */
+function practical(id: RegionId): string {
+  const r = REGIONS[id];
+  const items: [string, number][] = [
+    ['Building', r.buildMult - 1],
+    ['Green fees', r.fairMult - 1],
+    ['Upkeep', r.upkeep - 1],
+    ['Wind', r.wind - 1],
+    ['Spending', r.spend - 1],
+  ];
+  return items
+    .filter(([, v]) => Math.abs(v) >= 0.03)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 2)
+    .map(([k, v]) => `<span class="${v > 0 === (k === 'Green fees' || k === 'Spending') ? 'up' : 'down'}">${k} ${v > 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%</span>`)
+    .join('');
+}
+
+/** Pick a place from the course guide, found your club and begin. The map stays visible once play begins. */
 export function startScreen(practiced = false): Promise<NewGameOptions> {
   return new Promise(resolve => {
     const root = document.getElementById('start')!;
@@ -47,24 +66,47 @@ export function startScreen(practiced = false): Promise<NewGameOptions> {
     let name = 'Willow Creek';
     let region: RegionId = 'parkland';
     const logo = defaultLogo();
-    root.innerHTML = `<div class="start-card premium-start">
-      <div class="start-art" aria-hidden="true"><svg viewBox="0 0 800 340" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#b5ccc1"/><stop offset="1" stop-color="#e9dfb8"/></linearGradient><linearGradient id="grass" x2="0" y2="1"><stop stop-color="#8ba568"/><stop offset="1" stop-color="#29543d"/></linearGradient></defs><path fill="url(#sky)" d="M0 0h800v340H0z"/><circle fill="#fff1c5" cx="630" cy="70" r="36"/><path fill="#668473" d="M0 180Q140 70 260 160T520 145T800 120V340H0z"/><path fill="url(#grass)" d="M0 220Q180 120 400 210T800 165V340H0z"/><path fill="#bed092" d="M200 340Q270 260 390 260T510 205Q570 178 625 210Q660 240 555 255T415 308L400 340z"/><path fill="#d6dba6" d="M470 225Q500 205 548 212Q580 230 545 239T470 225"/><path fill="#e9d8ad" d="M433 234q-32-14-47 4t25 21q40-4 22-25M575 221q20-10 30 3t-19 15q-23-3-11-18"/><path fill="#6b9b9c" d="M0 295Q110 250 175 285T235 340H0z"/><g fill="#204734"><path d="M98 144l-40 114h80zM150 165l-35 100h70zM690 140l-40 110h80zM745 165l-31 95h62z"/><path d="M80 240h12v70H80zM687 230h12v55h-12z"/></g><path stroke="#f5e9ce" stroke-width="3" d="M520 220v-60"/><path fill="#c75f43" d="M521 160l32 10-32 13z"/><ellipse fill="#12382b" cx="520" cy="222" rx="6" ry="2"/></svg><span class="edition">SECOND CHANCE GOLF</span></div>
-      <div class="start-content"><h1>Second Chance<br><em>Golf</em></h1><p class="sub">Pick a place, build a course across the whole map, and watch golfers play it.<br>You start with $25,000.</p>
-      <div class="lbl-row"><span class="eyebrow">Where will you build?</span></div>
-      <div class="regions" role="radiogroup" aria-label="Starting location">${ORDER.map((id) => {
-        const r = REGIONS[id], p = r.palette;
-        return `<button type="button" class="region ${id === region ? 'on' : ''}" role="radio" aria-checked="${id === region}" data-region="${id}"><span class="swatch" aria-hidden="true"><i style="background:${css(p.roughGood)}"></i><i style="background:${css(p.fairGood)}"></i><i style="background:${css(p.sand)}"></i><i style="background:${css(p.water)}"></i></span><span class="rname"><b>${r.name}</b><em class="lvl l${r.level}">${r.difficulty}</em></span><span class="rblurb">${r.blurb}</span></button>`;
-      }).join('')}</div>
-      <p class="region-note">You can build anywhere on the map. This only sets the land and how hard it is to make money.</p>
-      ${practiced ? '<p class="practiced">Practice done. Now pick where to build your own course.</p>' : '<label class="tut-toggle"><input type="checkbox" id="tutOn" checked /> <span>Learn on a practice course first (5 minutes)</span></label>'}
-      <label class="eyebrow" for="newClubName">Club name</label><input id="newClubName" maxlength="28" value="Willow Creek" aria-label="Club name" />
-      <details class="identity"><summary>Club crest</summary><div id="logoBox" class="logo-box"></div></details>
-      <button class="btn primary start-play" id="startBtn">Start new course</button><p class="start-foot">Saves automatically on this device.</p></div></div>`;
+    const rows = ORDER.map((id) => {
+      const r = REGIONS[id];
+      return `<button type="button" class="place ${id === region ? 'on' : ''}" role="radio" aria-checked="${id === region}" data-region="${id}">
+        <span class="place-art">${REGION_ART[id]}</span>
+        <span class="place-text"><span class="place-head"><b>${r.name}</b><span class="place-level"><span class="flags" aria-hidden="true">${levelFlags(r.level)}</span><em>${r.difficulty}</em></span></span>
+        <span class="place-stats">${practical(id)}</span>
+        <span class="place-blurb">${r.blurb}</span></span>
+        <span class="place-mark" aria-hidden="true">${icon('check')}</span>
+      </button>`;
+    }).join('');
+    root.innerHTML = `<div class="guide">
+      <header class="guide-head">${BANNER_ART}
+        <div class="wordmark">${flagMark('wm-flag')}<h1><span class="wm-a">Second Chance</span><span class="wm-b"><i></i>Golf<i></i></span></h1></div>
+      </header>
+      <main class="guide-body">
+        <section class="guide-places" aria-labelledby="gp">
+          <div class="rule-head"><h2 id="gp">Choose your ground</h2><span>Build anywhere on the map</span></div>
+          <div class="places" role="radiogroup" aria-label="Starting location">${rows}</div>
+        </section>
+        <section class="guide-club" aria-labelledby="gc">
+          <div class="rule-head"><h2 id="gc">Found your club</h2><span>$25,000 to start</span></div>
+          <div class="club-line">
+            <button type="button" class="crest-btn" id="crestBtn" aria-label="Design the club crest" aria-expanded="false"><canvas id="crestCv" width="112" height="112"></canvas><span>Crest</span></button>
+            <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>
+          </div>
+          <div id="logoBox" class="logo-box" hidden></div>
+          ${practiced ? '<p class="practiced">Practice done. Pick where to build your own course.</p>' : '<label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Start with a short practice course</span></label>'}
+        </section>
+      </main>
+      <footer class="guide-foot"><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
+    </div>`;
+    const crest = root.querySelector('#crestCv') as HTMLCanvasElement;
+    const repaint = () => paintLogo(crest, { ...logo, initials: initialsOf(name) });
     const lg = root.querySelector('#logoBox') as HTMLElement;
-    logoDesigner(lg, logo, () => name, () => {});
+    logoDesigner(lg, logo, () => name, repaint);
+    repaint();
+    const crestBtn = root.querySelector('#crestBtn') as HTMLElement;
+    crestBtn.onclick = () => { lg.hidden = !lg.hidden; crestBtn.setAttribute('aria-expanded', String(!lg.hidden)); if (!lg.hidden) lg.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
     const input = root.querySelector('#newClubName') as HTMLInputElement;
-    input.oninput = () => { name = input.value; logo.initials = initialsOf(name); };
-    const cards = Array.from(root.querySelectorAll<HTMLElement>('.region'));
+    input.oninput = () => { name = input.value; logo.initials = initialsOf(name); repaint(); };
+    const cards = Array.from(root.querySelectorAll<HTMLElement>('.place'));
     cards.forEach((c) => (c.onclick = () => {
       region = c.dataset.region as RegionId;
       cards.forEach((o) => { const on = o === c; o.classList.toggle('on', on); o.setAttribute('aria-checked', String(on)); });
