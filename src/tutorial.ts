@@ -227,7 +227,7 @@ export const STEPS: Step[] = [
     enter: (c) => {
       zoneOf(c);
       pickTool(c, 'bunker');
-      c.e.setBrush(2);
+      c.e.setBrush(1);
     },
     frame: (c) => {
       const z = zoneOf(c), h = tutHole(c);
@@ -344,6 +344,7 @@ export class Tutorial {
     const at = g.tutorial.at ? stepIndex(g.tutorial.at as StepId) : -1;
     if (at >= 0) g.tutorial.step = at;
     this.card.id = 'coach';
+    this.card.dataset.owner = 'tutorial';
     this.card.setAttribute('role', 'dialog');
     this.card.setAttribute('aria-live', 'polite');
     document.getElementById('app')!.append(this.card);
@@ -429,10 +430,11 @@ export class Tutorial {
   /** Called a few times a second from the main loop. */
   update(force = false): void {
     if (!this.active) {
-      if (!this.card.hidden) { this.card.hidden = true; this.clearRing(); document.body.classList.remove('coaching'); }
+      if (!this.card.hidden && this.card.dataset.owner !== 'intro') { this.card.hidden = true; this.clearRing(); document.body.classList.remove('coaching'); }
       return;
     }
     document.body.classList.add('coaching');
+    this.card.dataset.owner = 'tutorial';
     this.card.hidden = this.ui.modalOpen;
     const t = this.g.tutorial;
     const step = STEPS[t.step];

@@ -8,7 +8,8 @@ import { flagMark, icon } from './icons';
 import { drawFacilityThumb } from './art/facilities';
 import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
-import { levelXp, playerLevel } from './experience';
+import { AwayReport, awayHeadline } from './awayreport';
+import { INTROS, Intros, ShowMe, introById, introsSeen, tipAllowed } from './intros';
 import type { Cheer } from './game';
 import { StaffId } from './game';
 import { CFG } from './config';
@@ -24,10 +25,9 @@ import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } fr
 type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
-const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'journey'];
+const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'events', 'club', 'journey'];
 /** Plain help for each tool, the first time it is picked. */
 const TOOL_TIPS: Partial<Record<string, string>> = {
-  build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust. Nothing is built until you tap Build.',
   fairway: 'Hold a finger on the map, then drag to paint fairway. Golfers aim for it. Every hole needs fairway from tee to green.',
   green: 'Hold and drag to grow or reshape a green. Bigger greens are easier to hit.',
   bunker: 'Hold and drag to dig sand. Bunkers beside greens and fairways make holes more interesting, but keep a clear way to the green.',
@@ -169,7 +169,6 @@ export class UI {
     this.$('top').innerHTML = `
       <button class="brand" id="brandBtn" aria-label="Club menu"><canvas width="68" height="68" id="topLogo"></canvas><span id="clubName"></span></button>
       <div class="sep"></div>
-      <div class="lvl" id="lvlBox" title="Your level"><span class="k">Lvl</span><b id="lvlN">1</b><i><em id="lvlBar"></em></i></div>
       <div class="stat"><span class="k">Cash</span><span class="v cash" id="cash"></span></div>
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
       <div class="stat hide-m" title="Fee for the tee-time band running now. Set all three in the Money tab."><span class="k" id="feek">Tee time</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
@@ -242,7 +241,6 @@ export class UI {
         }
         else if (el.dataset.act === 'project') this.projectModal(el.dataset.id!);
         else if (el.dataset.act === 'reserve') useOperatingReserve(this.game);
-        else if (el.dataset.act === 'claim') this.game.claimObjective(el.dataset.id!);
         else if (el.dataset.act === 'hire') this.game.hire(el.dataset.id as StaffId);
         else if (el.dataset.act === 'dismiss') this.game.dismiss(el.dataset.id as StaffId);
         else if (el.dataset.act === 'repairgreen') this.repairGreenModal();
@@ -304,7 +302,7 @@ export class UI {
   }
 
   private buildNav() {
-    const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
+    const tabs = ['build', 'course', 'guests', 'money', 'events', 'club', 'journey'];
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${icon(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
     // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
     this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
@@ -455,7 +453,7 @@ export class UI {
     const cf = document.getElementById('confirm');
     if (cf && cf.style.display !== 'none' && cf.getBoundingClientRect().height > 0) base.b = Math.max(base.b, a.bottom - cf.getBoundingClientRect().top + 8);
     const coach = document.getElementById('coach');
-    if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
+    if (!coach || coach.hidden || !(document.body.classList.contains('coaching') || document.body.classList.contains('introing'))) return base;
     const c = coach.getBoundingClientRect();
     if (c.height === 0) return base;
     if (c.top + c.height / 2 > a.top + a.height / 2) return { ...base, b: Math.max(base.b, a.bottom - c.top + 8) };
@@ -529,8 +527,9 @@ export class UI {
     const route = nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
     const dragHint = nh && !adding ? `<span class="cf-hint">Drag T, G or a bend to move it${this.editor.newBends.length ? '. Tap a bend to remove it' : ''}.</span>` : '';
     const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
+    const guideLink = placing && this.editor.overlay.hint && this.game.tutorial.done ? '<button class="cf-link" id="cfHide">Hide suggestions</button>' : '';
     const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${dragHint}${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
-      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
+      : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}${guideLink}</span><button class="btn" id="cfStop" aria-label="Cancel"></button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     if (p || placing) this.clearToasts(true);
@@ -544,6 +543,8 @@ export class UI {
     if (bendBtn) bendBtn.onclick = () => this.editor.startAddBend();
     const straight = el.querySelector<HTMLElement>('#cfStraight');
     if (straight) straight.onclick = () => this.editor.clearNewBends();
+    const hide = el.querySelector<HTMLElement>('#cfHide');
+    if (hide) hide.onclick = () => { this.game.preferences.holeGuideOff = true; this.editor.overlay.hint = null; this.game.dirtySave = true; this.cache.delete('confirm'); this.updateConfirm(); };
     if (placing) (this.$('cfStop') as HTMLElement).onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
     if (p) {
       (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
@@ -592,11 +593,13 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
+      <button class="btn" id="mdTips">Tips</button>
       <button class="btn" id="mdSettings">Settings</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
+    (m.querySelector('#mdTips') as HTMLElement).onclick = () => this.tipsModal();
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
     (m.querySelector('#mdName') as HTMLElement).onclick = () => this.nameModal();
@@ -661,10 +664,42 @@ export class UI {
   }
   private settingsModal() {
     const prefs = this.game.preferences;
-    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><div class="menu-list"><button class="btn" id="setReplay">Replay the tutorial</button></div><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.'],['tips','Show tips','A short introduction the first time a feature matters.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${(id === 'tips' ? !prefs.introsOff : prefs[id]) ? 'checked' : ''}/></label>`).join('')}</div><div class="menu-list"><button class="btn" id="setReplay">Replay the tutorial</button></div><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
     (m.querySelector('#setReplay') as HTMLElement).onclick = () => this.replayModal();
-    m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
+    m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { if (input.dataset.pref === 'tips') this.game.preferences.introsOff = !input.checked; else (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
+  }
+  intros: Intros | null = null;
+  awayShown = false;
+  private get playSec() { return this.game.preferences.playSec ?? 0; }
+  /** The reason to come back: what the course did while the player was away, a guest's remark about a hole, and one fix. */
+  showAway(r: AwayReport) {
+    const g = this.game;
+    this.awayShown = true;
+    rollDay(g);
+    const ch = g.daily.challenges.length > 0 && g.daily.challenges.some((c) => !c.claimed);
+    const m = this.modal(`<div class="away"><span class="eyebrow">While you were away</span><h2>${escapeHtml(g.name)}</h2><p class="away-head">${escapeHtml(awayHeadline(r))}</p><blockquote class="away-quote"><p>“${escapeHtml(r.comment.text)}”</p><cite>${escapeHtml(r.comment.who)}${r.comment.hole ? `, hole ${r.comment.hole}` : ''}</cite></blockquote><div class="actions away-actions"><button class="btn primary" id="awFix">${escapeHtml(r.fix.label)}</button>${ch ? '<button class="btn" id="awDaily">Today’s challenges</button>' : ''}<button class="btn" id="awOk">Continue</button></div></div>`);
+    (m.querySelector('#awOk') as HTMLElement).onclick = () => this.closeModal();
+    (m.querySelector('#awFix') as HTMLElement).onclick = () => {
+      this.closeModal();
+      if (r.fix.holeId) this.editor.selectHole(r.fix.holeId);
+      if (r.fix.go === 'course') { this.tab = 'course'; this.sheet = 'half'; }
+      else if (r.fix.go === 'money') this.tab = 'money';
+      else { this.tab = 'build'; this.editor.setTool(r.fix.holeId ? 'bunker' : 'build'); }
+      if (r.fix.holeId) this.editor.focusHole();
+      this.cache.delete('side'); this.refresh(true); this.onInsets();
+    };
+    const d = m.querySelector('#awDaily') as HTMLElement | null;
+    if (d) d.onclick = () => { this.closeModal(); this.tab = 'journey'; this.sheet = 'half'; this.cache.delete('side'); this.refresh(true); this.onInsets(); };
+  }
+
+  /** Every introduction seen so far, to read again. */
+  tipsModal() {
+    const g = this.game;
+    const seen = introsSeen(g).map((id) => introById(id)).filter((i): i is NonNullable<typeof i> => !!i);
+    const left = INTROS.length - seen.length;
+    const m = this.modal(`<h2>Tips</h2>${seen.length ? `<div class="tips-list">${seen.map((i) => `<div class="tip-item"><b>${escapeHtml(i.title)}</b><p>${escapeHtml(i.text)}</p>${i.more ? `<p class="dim">${escapeHtml(i.more)}</p>` : ''}</div>`).join('')}</div>` : '<p class="dim">Tips appear as new things become useful. The ones you have seen are kept here.</p>'}<p class="dim">${g.preferences.introsOff ? 'Tips are switched off in Settings.' : left > 0 ? `${left} more will appear as your course grows.` : 'You have seen them all.'}</p><div class="actions"><button class="btn primary" id="tipsOk">Done</button></div>`);
+    (m.querySelector('#tipsOk') as HTMLElement).onclick = () => this.closeModal();
   }
   /** Replaying the tutorial builds one more hole on the current course, at normal prices. */
   private replayModal() {
@@ -678,7 +713,11 @@ export class UI {
     const g = this.game, d = g.pendingRecap; if (!d) return;
     const history = g.days.slice(-7), max = Math.max(1, ...history.map(d => Math.abs(d.profit)));
     const suggestion = nextSuggestion(g);
-    const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
+    // the first recap carries its own introduction: where to find these figures again
+    const first = !introsSeen(g).includes('recap') && !g.preferences.introsOff && g.tutorial.done;
+    if (first) { introsSeen(g).push('recap'); g.preferences.introAt = this.playSec; g.dirtySave = true; }
+    const recapNote = first ? '<p class="recap-note dim">Finances keeps today’s figures and your recent transactions, so you can look at them any time.</p>' : '';
+    const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div>${recapNote}<div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
     const finish = () => { g.pendingRecap = null; g.dirtySave = true; this.closeModal(); };
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
@@ -767,14 +806,9 @@ export class UI {
       }
     };
     set('cash', fmtMoney(g.cash));
-    {
-      const xp = g.experience.xp, lv = playerLevel(xp), lo = levelXp(lv), hi = levelXp(lv + 1);
-      set('lvlN', String(lv));
-      (this.$('lvlBar') as HTMLElement).style.width = `${Math.round(((xp - lo) / Math.max(1, hi - lo)) * 100)}%`;
-    }
     if (performance.now() - this.dayCheck > 2000) {
       this.dayCheck = performance.now();
-      if (!document.body.classList.contains('coaching') && rollDay(g)) {
+      if (!document.body.classList.contains('coaching') && rollDay(g) && !this.awayShown && g.daily.challenges.length) {
         g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
       }
     }
@@ -835,6 +869,9 @@ export class UI {
     bbar.querySelectorAll('[data-brush]').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.brush) === this.editor.brush));
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
+    // Events appear in the menu once there is a course to host them on
+    const evOn = g.openHoles.length >= 2 || g.bookings.length > 0 || g.stats.events > 0 || this.tab === 'events';
+    (this.$('nav').querySelector('[data-nav="events"]') as HTMLElement).hidden = !evOn;
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
     document.body.classList.toggle('menu-open', this.menuOpen);
@@ -945,6 +982,11 @@ export class UI {
     // celebrate big moments once the tutorial and any dialog are out of the way, one at a time
     if (document.body.classList.contains('coaching') || this.modalOpen || document.getElementById('goalpop')) return;
     const done = g.goalJustDone;
+    if (done && done.title === CHAIN[0].title && !introsSeen(g).includes('goals') && !g.preferences.introsOff) {
+      // the very first goal is answered by the Goals introduction, not a celebration on top of the tutorial's ending
+      g.goalJustDone = null;
+      return;
+    }
     if (done) {
       g.goalJustDone = null;
       this.celebrate({ kicker: 'Goal complete', title: done.title, reward: done.reward, sub: done.next ? `Next: ${done.next}` : 'Every goal is done. The course is yours to build freely.', showNext: !!done.next });
@@ -955,7 +997,6 @@ export class UI {
   }
   private cheerCard(c: Cheer): { kicker: string; title: string; reward?: number; sub: string; collect?: boolean } {
     if (c.kind === 'streak') return { kicker: 'Daily reward', title: c.title, reward: c.reward, sub: c.sub, collect: true };
-    if (c.kind === 'level') return { kicker: 'Level up', title: c.title, sub: c.sub };
     if (c.kind === 'ace') return { kicker: 'Amazing', title: c.title, reward: c.reward, sub: c.sub };
     return { kicker: 'Daily challenges', title: c.title, reward: c.reward, sub: c.sub };
   }
@@ -965,23 +1006,25 @@ export class UI {
   private panelTip: string | null = null;
   private helpTips() {
     const g = this.game;
-    if (document.body.classList.contains('coaching') || this.modalOpen) return;
+    if (document.body.classList.contains('coaching') || document.body.classList.contains('introing') || this.modalOpen) return;
     const tool = this.editor.tool;
     let key = '', title = '', text = '';
     if (this.tab === 'build' && tool !== 'inspect' && tool !== 'pan') {
       if (tool === 'decor') { const k = this.editor.decorKind; key = `decor:${k}`; title = ITEMS[k].label; text = `${ITEMS[k].hint} Costs $${ITEMS[k].cost}. Pretty things near tees and greens make golfers happier.`; }
-      else { key = `tool:${tool}`; title = TOOL_INFO[tool].label; text = TOOL_TIPS[tool] ?? TOOL_INFO[tool].hint; }
+      else if (TOOL_TIPS[tool]) { key = `tool:${tool}`; title = TOOL_INFO[tool].label; text = TOOL_TIPS[tool]!; }
     } else if (this.tab !== 'none' && this.tab !== 'build' && TAB_TIPS[this.tab]) {
       // panel help sits inside the panel (see sideHtml), never over it
       const pk = `tab:${this.tab}`;
       const seen = (g.preferences.tipsSeen ??= []);
-      if (!seen.includes(pk)) { seen.push(pk); g.dirtySave = true; this.panelTip = this.tab; this.cache.delete('side'); }
+      if (!seen.includes(pk) && tipAllowed(g, this.playSec)) { seen.push(pk); g.preferences.tipAt = this.playSec; g.dirtySave = true; this.panelTip = this.tab; this.cache.delete('side'); }
     }
     if (!key) { if (this.tipKey && this.tab !== 'build') { document.getElementById('tip')?.remove(); this.tipKey = ''; } return; }
     if (!key || key === this.tipKey) return;
-    this.tipKey = key;
     const seen = (g.preferences.tipsSeen ??= []);
-    if (seen.includes(key)) return;
+    if (seen.includes(key)) { this.tipKey = key; return; }
+    if (!tipAllowed(g, this.playSec) || this.editor.placing) return;
+    this.tipKey = key;
+    g.preferences.tipAt = this.playSec;
     seen.push(key);
     g.dirtySave = true;
     document.getElementById('tip')?.remove();
@@ -993,6 +1036,22 @@ export class UI {
     tip.querySelector('button')!.addEventListener('click', close);
     document.getElementById('app')!.append(tip);
     window.setTimeout(close, 9000);
+  }
+  /** "Show me" on an introduction: open the right place and ring the control to use. */
+  showMe(s: ShowMe) {
+    this.menuOpen = false;
+    if (s.tool) {
+      this.tab = 'build';
+      if (s.tray === 'buildings') this.editor.decorKind = 'halfway';
+      this.editor.setTool(s.tool);
+    } else if (s.tab) {
+      this.tab = s.tab;
+      if (this.portraitSheet) this.sheet = 'half';
+    }
+    this.cache.delete('side');
+    this.refresh(true);
+    this.onInsets();
+    if (s.ring) { const r = s.ring; window.setTimeout(() => this.pointTo(r), 380); }
   }
   /** "Show me" on a goal: open the right place, pick up the right tool, and point at the control to use. */
   showGoal(id: string) {

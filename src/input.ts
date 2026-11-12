@@ -507,6 +507,10 @@ export class Editor {
     if (this.holdTimer !== null) window.clearTimeout(this.holdTimer);
     this.holdTimer = null;
   }
+  /** True while the player is in the middle of placing, painting or confirming something. */
+  get placing(): boolean {
+    return !!this.pending || this.batch.size > 0 || !!this.bGhost || this.buildStarted || this.addingBend || this.mode === 'paint' || this.mode === 'hold' || this.mode === 'handle' || this.mode === 'place' || this.mode === 'pinch' || this.placingClub;
+  }
   /** True while a finger is resting, waiting to see whether it will tap, hold or drag. */
   get holding() {
     return this.mode === 'hold';

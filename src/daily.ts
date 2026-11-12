@@ -63,7 +63,9 @@ export function rollDay(g: Game, today = localDate()) {
   const d = g.daily;
   if (d.date === today) return false;
   if (!g.world.clubhouse || g.openHoles.length === 0) return false; // the streak starts once there is a running club to come back to
-  const gap = d.date ? daysBetween(d.date, today) : 1;
+  // The very first day only starts the clock: the streak and challenges are introduced when the player comes back on a later day.
+  if (!d.date) { d.date = today; d.streak = 1; d.best = 1; d.pending = 0; d.challenges = []; g.dirtySave = true; return false; }
+  const gap = daysBetween(d.date, today);
   if (gap < 0) { d.date = today; return false; } // the clock went backwards; do not reward it
   d.streak = gap === 1 ? d.streak + 1 : 1;
   d.best = Math.max(d.best, d.streak);

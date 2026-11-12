@@ -2,7 +2,6 @@ import type { Game } from './game';
 import { CFG } from './config';
 import { EditPlan, TileEdit, planPaint } from './editing';
 import { T, holePath, polyDist, holeCondition, center, isOwned } from './terrain';
-import { GOALS } from './campaign';
 
 export const CAREER = [
   { xp: 0, title: 'Course caretaker', perk: 'Restore the basics and welcome your first regulars.' },
@@ -33,16 +32,9 @@ export const playerLevel = (xp: number) => { let n = 1; while (xp >= levelXp(n +
 export function awardExperience(g: Game, amount: number, once?: string) {
   if (once && g.experience.earned.includes(once)) return;
   const old = careerLevel(g);
-  const oldLevel = playerLevel(g.experience.xp);
   if (once) g.experience.earned.push(once);
   g.experience.xp += amount; g.dirtySave = true;
-  const lv = playerLevel(g.experience.xp);
-  if (careerLevel(g) > old) {
-    g.applyRegion();
-    g.cheer({ kind: 'level', title: `Level ${lv}: ${CAREER[careerLevel(g)].title}`, sub: CAREER[careerLevel(g)].perk });
-  } else if (lv > oldLevel) {
-    g.cheer({ kind: 'level', title: `Level ${lv}!`, sub: lv % 5 === 0 ? 'A milestone level. Your club is getting noticed.' : 'Keep building, playing and finishing challenges.' });
-  }
+  if (careerLevel(g) > old) g.applyRegion(); // a career step can change building costs
 }
 export function greenProject(g: Game): EditPlan | null {
   const h = [...g.world.holes].filter(h => holeCondition(g.world, h).green < 75).sort((a, b) => Number(b.open) - Number(a.open) || holeCondition(g.world, a).green - holeCondition(g.world, b).green)[0];
@@ -104,8 +96,6 @@ export function commissionProject(g: Game, id: string): boolean {
   return true;
 }
 export function nextSuggestion(g: Game): { title: string; description: string; action: string } {
-  const ready = GOALS.find(o => !g.campaign.claimed.includes(o.id) && o.value(g) >= o.target);
-  if (ready) return { title: 'A goal is ready to collect', description: ready.title, action: 'progress' };
   if (greenProject(g)) return { title: 'Start with the greens', description: 'A reliable putting surface gives golfers a reason to come back.', action: 'projects' };
   if (g.world.holes.some(h => !h.open)) return { title: 'Bring another hole back into play', description: 'More open holes mean more tee times and a better day out.', action: 'projects' };
   if (!g.experience.site.garden) return { title: 'Give your clubhouse a proper welcome', description: 'Add a garden to lift guest satisfaction and make the entrance your own.', action: 'projects' };

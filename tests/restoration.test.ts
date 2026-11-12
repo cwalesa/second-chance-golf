@@ -9,17 +9,6 @@ import { run } from './helpers';
 import { createTestCourse } from './fixtures/classic-course';
 
 describe('course goals', () => {
-  it('only pays a completed objective once, and books the grant in the ledger', () => {
-    const g = new Game(createTestCourse());
-    expect(g.claimObjective('rounds12')).toBe(false);
-    g.campaign.rounds = 12;
-    const cash = g.cash, bonus = g.today.bonus;
-    expect(g.claimObjective('rounds12')).toBe(true);
-    expect(g.cash).toBe(cash + 400);
-    expect(g.today.bonus).toBe(bonus + 400);
-    expect(g.claimObjective('rounds12')).toBe(false);
-    expect(g.campaign.medals).toBe(1);
-  });
   it('rounds and daily operating profit advance goals', () => {
     const g = new Game(createTestCourse()); run(g, CFG.day.seconds + 5);
     expect(g.campaign.rounds).toBeGreaterThan(0);

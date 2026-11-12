@@ -2,7 +2,7 @@ import { Experience, freshExperience, awardExperience, constructionFactor } from
 import type { Feedback } from './feedback';
 import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
-import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
+import { CampaignState, freshCampaign, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
 import { CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, beautyNear, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
@@ -16,7 +16,6 @@ import { EditPlan, ToolId, applyPlan, planRemoveHole, setCostMultiplier, touched
 import { setPhysics } from './physics';
 import { TutorialState, freshTutorial } from './tutorial';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
-import { GoalCtx, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
 
@@ -82,7 +81,11 @@ export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'
 export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 
 export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak'; title: string; sub: string; reward?: number; }
-export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; /** help tips already shown, by key */ tipsSeen?: string[]; }
+export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; /** help tips already shown, by key */ tipsSeen?: string[];
+  /** introductions already shown (intros.ts), so each appears once */ introsSeen?: string[];
+  /** true turns introductions and first-use tips off */ introsOff?: boolean;
+  /** seconds of real play, and when (in those seconds) the last introduction and the last first-use tip appeared */ playSec?: number; introAt?: number; tipAt?: number;
+  /** the suggested spots for holes two and three were hidden */ holeGuideOff?: boolean; }
 export class Game {
   experience: Experience = freshExperience();
   /** First-session tutorial progress, on the player's real course. New games start at step 0. */
@@ -113,7 +116,7 @@ export class Game {
   fees: Record<BandId, number> = { early: 34, mid: 30, twilight: 20 };
   clubLevel = 0;
   stats: LifetimeStats = { rounds: 0, revenue: 0, events: 0, aces: 0, birdies: 0, bestDayProfit: 0, bestDaySat: 0, years: 1 };
-  lastAway: { days: number; net: number } | null = null;
+  lastAway: { days: number; net: number; rounds: number } | null = null;
   upgrades: Owned = noUpgrades();
   cartFee = CFG.extras.cartFeeDefault;
   /** Golf carts owned. Rentals scale with the fleet; a cart barn raises the most you can keep. */
@@ -133,7 +136,7 @@ export class Game {
   }
   /** Share of cart-rental demand the fleet can serve: six carts cover a small course. */
   get fleetFactor(): number { return Math.min(1, 0.4 + 0.1 * this.fleet); }
-  goals: GoalState[] = [...CFG.goals, ...MILESTONES].map((g) => ({ id: g.id, done: false }));
+  goals: GoalState[] = [...CFG.goals].map((g) => ({ id: g.id, done: false }));
   today: DayLedger = emptyLedger();
   days: DaySummary[] = [];
   log: LogEntry[] = [];
@@ -259,17 +262,6 @@ export class Game {
     else this.setSpeed(this.designSpeed || 1);
     if (!quiet) this.notify('info', on ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
   }
-  claimObjective(id: string) {
-    const o = GOALS.find(o => o.id === id);
-    if (!o || this.campaign.claimed.includes(id) || o.value(this) < o.target) return false;
-    this.campaign.claimed.push(id); this.campaign.medals++;
-    this.earn('bonus', o.reward, `Goal: ${o.title}`);
-    awardExperience(this, 75, `${this.campaign.stage}:objective:${id}`);
-    this.onFeedback('reward');
-    this.notify('good', `${o.title}: ${fmtMoney(o.reward)} grant.`);
-    return true;
-  }
-
   // ---- derived ----
   get openHoles(): Hole[] {
     return this.world.holes.filter((h) => h.open);
@@ -319,9 +311,6 @@ export class Game {
   bandArrivals(id: BandId): number {
     const b = BANDS.find((x) => x.id === id)!;
     return this.dailyBase * b.share * priceFactor(this.fair * b.fair, this.fees[id]);
-  }
-  goalCtx(): GoalCtx {
-    return { stars: this.stars, clubLevel: this.clubLevel, holeCount: this.world.holes.length, openHoleCount: this.openHoles.length, parcelsOwned: this.parcelsOwned, upgradeCount: Object.values(this.upgrades).filter(Boolean).length, cash: this.cash, stats: this.stats };
   }
   get reputation(): number {
     return reputationOf(this.recent.map((r) => r.total));
@@ -592,7 +581,7 @@ export class Game {
 
   completeGoal(id: string) {
     const g = this.goals.find((x) => x.id === id);
-    const def = CFG.goals.find((x) => x.id === id) ?? MILESTONES.find((x) => x.id === id);
+    const def = CFG.goals.find((x) => x.id === id);
     if (!g || g.done || !def) return;
     g.done = true;
     this.earn('bonus', def.reward, `Goal bonus: ${def.title}`);
@@ -920,11 +909,11 @@ export class Game {
   }
 
   /** Catch up on time spent away: a modest, simplified version of the days that passed. */
-  applyAway(seconds: number): { days: number; net: number } | null {
+  applyAway(seconds: number): { days: number; net: number; rounds: number } | null {
     if (seconds < CFG.offline.minAwaySeconds) return null;
     const days = Math.min(CFG.offline.maxDays, Math.floor(seconds / CFG.offline.realSecondsPerDay));
     if (days < 1) return null;
-    let net = 0;
+    let net = 0, rounds = 0;
     for (let d = 0; d < days; d++) {
       const arrivals = this.arrivalRate * CFG.offline.efficiency;
       const fees = BANDS.reduce((s, b) => s + this.bandArrivals(b.id) * CFG.offline.efficiency * this.fees[b.id], 0);
@@ -933,6 +922,7 @@ export class Game {
       const profit = Math.round(fees + shop - maint);
       this.cash += profit;
       net += profit;
+      rounds += Math.round(arrivals);
       this.stats.rounds += Math.round(arrivals);
       this.campaign.rounds += Math.round(arrivals);
       this.campaign.profit += profit;
@@ -951,7 +941,7 @@ export class Game {
     this.lastHour = 0;
     this.today = emptyLedger();
     this.logEntry(`While you were away (${days} day${days === 1 ? '' : 's'})`, net);
-    this.lastAway = { days, net };
+    this.lastAway = { days, net, rounds };
     if (lost.length) this.notify('info', `${lost.length} booked event${lost.length === 1 ? ' was' : 's were'} cancelled while you were away. Nothing was charged.`);
     this.dirtySave = true;
     return this.lastAway;

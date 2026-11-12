@@ -13,6 +13,8 @@ import { UI } from './ui';
 import { PRACTICED_KEY, clearSave, hasParked, loadGame, restoreParked, saveGame, serialize, importSave } from './save';
 import { startScreen } from './start';
 import { suggestClubhouse } from './wilderness';
+import { buildAwayReport } from './awayreport';
+import { Intros } from './intros';
 
 async function boot() {
   const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -49,6 +51,8 @@ async function boot() {
   const feedback = new FeedbackPlayer(game);
   const studio = new Studio(game, editor, renderer, ui);
   const tutorial = new Tutorial(game, editor, renderer, ui);
+  const intros = new Intros(game, editor, ui);
+  ui.intros = intros;
   let resetting = false;
   const persist = () => {
     if (resetting) return;
@@ -107,7 +111,9 @@ async function boot() {
   }
 
   if (loaded?.recovered) ui.toast('Your previous save was recovered from the automatic backup.', 'info');
-  if (away) {
+  if (away && game.tutorial.done && game.openHoles.length) {
+    ui.showAway(buildAwayReport(game, away));
+  } else if (away) {
     ui.toast(`While you were away (${away.days} day${away.days === 1 ? '' : 's'}) your course earned ${away.net >= 0 ? '+' : ''}$${Math.round(away.net).toLocaleString('en-US')}.`, away.net >= 0 ? 'good' : 'bad');
   } else if (loaded) game.notify('info', `Welcome back. Day ${game.day}, ${game.clockText}.`);
 
@@ -119,6 +125,7 @@ async function boot() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     studio.update(dt);
+    intros.addPlay(dt);
     const speed = game.owner.active || game.pendingRecap || ui.modalOpen || ui.menuOpen || ui.introOpen || document.hidden || !game.world.clubhouse ? 0 : game.settings.speed;
     acc += dt * speed;
     let steps = 0;
@@ -136,11 +143,12 @@ async function boot() {
       uiClock = 0;
       ui.refresh();
       tutorial.update();
+      intros.update();
     }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, feedback };
+  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, intros, feedback };
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
