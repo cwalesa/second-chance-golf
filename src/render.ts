@@ -331,8 +331,14 @@ export class Renderer {
     c.clip();
     c.imageSmoothingEnabled = true;
     c.imageSmoothingQuality = 'high';
-    // draw the whole map (clipped) so sampling near a chunk border sees the real neighbours: no seams
-    c.drawImage(this.cmaps[key], 0, 0, w.w * TS, w.h * TS);
+    // draw a few tiles beyond the chunk so smoothing near its border sees the real neighbours (no seams).
+    // Only that window is drawn: scaling the whole map into a small canvas silently fails on iPhone Safari,
+    // which left fairways as blank white shapes.
+    const sx0 = Math.max(0, tx0 - 3);
+    const sy0 = Math.max(0, ty0 - 3);
+    const sx1 = Math.min(w.w, tx1 + 3);
+    const sy1 = Math.min(w.h, ty1 + 3);
+    c.drawImage(this.cmaps[key], sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 * TS, sy0 * TS, (sx1 - sx0) * TS, (sy1 - sy0) * TS);
     c.restore();
   }
   // Seamless material overlays are generated once (see art/textures.ts) and stamped into the terrain cache.
@@ -1068,6 +1074,8 @@ export class Renderer {
     // ---- fairway family (fairway, plus the ground under greens and tees)
     const grass = dist('grass');
     flatStamp(grass, falloff(0.1), [14, 50, 26], 0.3);
+    // plain fairway colour first, so the mown area can never come out blank even if a layer fails to draw
+    flatStamp(grass, inside, COL.fairGood, 1);
     fillStamp(grass, inside, surface('grass', 'fairway', this.pattern(t, 'stripe-fw', () => makeStripeTexture(64, 0.075, 'x'))));
     // a fine pale cut line just inside the edge of the mown area
     flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
@@ -1077,6 +1085,7 @@ export class Renderer {
     if (green) {
       const collar = mix(COL.fairGood, COL.greenGood, 0.45);
       fillStamp(green, band(-0.24, 0), layers(flat(css(collar)), pat(this.turfPattern(t, 'green'))));
+      flatStamp(green, inside, COL.greenGood, 1);
       fillStamp(green, inside, surface('green', 'green', this.pattern(t, 'stripe-green', () => makeStripeTexture(32, 0.05, 'y'))));
       flatStamp(green, band(-0.02, 0.025), [22, 82, 38], 0.3);
     }
@@ -1377,8 +1386,9 @@ export class Renderer {
     type Item = { y: number; draw: () => void };
     const items: Item[] = club
       ? [
-          { y: club.y + 13, draw: () => this.drawBuilding(game, time) },
-          { y: club.y + 17, draw: () => this.drawStructures(game, time) },
+          // depth keys are x + y like everything else, so golfers and trees behind the clubhouse stay behind it
+          { y: club.x + club.y + 8, draw: () => this.drawBuilding(game, time) },
+          { y: club.x + club.y + 14, draw: () => this.drawStructures(game, time) },
         ]
       : [];
     if (!far) for (let y = y0; y <= y1; y++)
