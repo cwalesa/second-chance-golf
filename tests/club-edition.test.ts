@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { CFG } from '../src/config';
 import { Game } from '../src/game';
 import { careerLevel, awardExperience, commissionProject, projectOffers, constructionFactor, useOperatingReserve } from '../src/experience';
 import { deserialize, serialize, saveGame, loadGame, clearSave, importSave } from '../src/save';
@@ -95,11 +96,11 @@ describe('swing timing and closing reports', () => {
     expect(clean.rng.state).toBe(rng); expect(clean.cash).toBe(cash);
   });
   it('records a separate closing ledger and can disable reports', () => {
-    const g = new Game(createTestCourse()); run(g, 301);
+    const g = new Game(createTestCourse()); run(g, CFG.day.seconds + 1);
     expect(g.pendingRecap?.day).toBe(1); expect(g.day).toBe(2);
     const revenue = g.pendingRecap!.fees;
     g.today.fees += 999; expect(g.pendingRecap!.fees).toBe(revenue);
-    const other = new Game(createTestCourse()); other.preferences.dailyReports = false; run(other, 301);
+    const other = new Game(createTestCourse()); other.preferences.dailyReports = false; run(other, CFG.day.seconds + 1);
     expect(other.pendingRecap).toBeNull();
   });
 });
@@ -139,7 +140,7 @@ describe('save compatibility and recovery', () => {
     expect(deserialize(serialize(g))!.game.settings.speed).toBe(1);
   });
   it('preserves preferences, career progress, and the pending closing report', () => {
-    const g = new Game(createTestCourse()); g.preferences.sound = false; run(g, 301);
+    const g = new Game(createTestCourse()); g.preferences.sound = false; run(g, CFG.day.seconds + 1);
     const loaded = deserialize(serialize(g))!.game;
     expect(loaded.preferences.sound).toBe(false); expect(loaded.experience).toEqual(g.experience);
     expect(loaded.pendingRecap).toEqual(g.pendingRecap);

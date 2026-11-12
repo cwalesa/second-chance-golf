@@ -21,7 +21,7 @@ describe('course goals', () => {
     expect(g.campaign.medals).toBe(1);
   });
   it('rounds and daily operating profit advance goals', () => {
-    const g = new Game(createTestCourse()); run(g, 305);
+    const g = new Game(createTestCourse()); run(g, CFG.day.seconds + 5);
     expect(g.campaign.rounds).toBeGreaterThan(0);
     expect(g.campaign.profit).toBe(g.days[0].profit);
   });
@@ -66,7 +66,7 @@ describe('design with consequences', () => {
 
 describe('staff, practice, and persistent progress', () => {
   it('resumes live golfers, tee queues, and an active event on a short reload', () => {
-    const g = new Game(createTestCourse()); g.bookEvent('scramble'); run(g, 315);
+    const g = new Game(createTestCourse()); g.bookEvent('scramble'); run(g, CFG.day.seconds + 15);
     const loaded = deserialize(serialize(g))!.game;
     expect(loaded.activeEvent).toEqual(g.activeEvent);
     expect(loaded.sim.golfers.length).toBe(g.sim.golfers.length);
@@ -120,7 +120,7 @@ describe('staff, practice, and persistent progress', () => {
     const g = new Game(createTestCourse());
     g.members.push({ name: 'Happy', type: 'skilled', visits: 1, happiness: 95, joined: 1 }, { name: 'Unhappy', type: 'regular', visits: 1, happiness: 10, joined: 1 });
     g.closeHole(1); g.closeHole(2);
-    run(g, 301);
+    run(g, CFG.day.seconds + 1);
     expect(g.members.some(m => m.name === 'Unhappy')).toBe(false);
     expect(g.log.some(l => l.label === 'Daily dues: Happy')).toBe(true);
     expect(g.cash).toBeCloseTo(CFG.economy.startCash + g.today.fees + g.today.shop + g.today.bonus - g.today.maintenance - g.today.construction + g.days.reduce((sum, d) => sum + d.net, 0), 6);

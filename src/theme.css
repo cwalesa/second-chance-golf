@@ -416,3 +416,12 @@ body.mobile #tools .tray-done { flex: none; }
 /* the Undo chip after a build: the one tappable notice */
 body.mobile #toasts .toast.undo { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 14px !important; }
 body.mobile #toasts .toast.undo button { min-height: var(--tap); padding: 0 16px; border: 1px solid var(--ink); border-radius: var(--r); background: var(--ink); color: var(--paper); font: 700 14px var(--text); }
+
+/* tray: the three sets (Course / Decorate / Buildings) */
+body.mobile #tools[data-set="decor"] .ph-bld, body.mobile #tools[data-set="buildings"] .ph-fun { display: none !important; }
+body.mobile #tools[data-set="buildings"] .ph-bld, body.mobile #tools[data-set="decor"] .ph-fun { display: flex !important; }
+body.mobile #tools .ph-bld .tool { width: 84px; }
+body.mobile #tools .ph-bld .tool em { white-space: nowrap; }
+body.mobile.placing-building #fab { display: none; }
+body.mobile #tools .ph-bld .tool { width: 100px; }
+body.mobile #tools .ph-bld .tool span { font-size: 10.5px !important; }

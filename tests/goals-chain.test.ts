@@ -31,10 +31,10 @@ describe('goal chain', () => {
     g.checkGoals();
     expect(g.cash).toBe(cash + CHAIN[0].reward);
     // the next goal (10 rounds) is not met yet, and goals never skip ahead
-    g.stats.rounds = 9;
+    g.stats.rounds = 24;
     g.checkGoals();
     expect(chainStep(g)).toBe(1);
-    g.stats.rounds = 10;
+    g.stats.rounds = 25;
     g.checkGoals();
     g.checkGoals();
     expect(chainStep(g)).toBe(2); // 10 rounds reached; 3 open holes is next

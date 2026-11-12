@@ -8,7 +8,7 @@ export const CFG = {
   sim: { dt: 1 / 30, maxStepsPerFrame: 400, speeds: [0, 1, 3, 8] as const },
 
   day: {
-    seconds: 300, // simulated seconds per day at 1x
+    seconds: 420, // simulated seconds per day at 1x (a full day takes about seven minutes)
     startHour: 7,
     hours: 12,
     lastArrivalFrac: 0.88,

@@ -47,6 +47,7 @@ export function serialize(g: Game): string {
     },
     cash: g.cash,
     cartFee: g.cartFee,
+    fleet: g.fleet,
     bookings: g.bookings,
     eventFees: g.eventFees,
     lastEvent: g.lastEvent,
@@ -160,6 +161,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.clubLevel = d.clubLevel ?? 0;
     g.stats = { ...g.stats, ...(d.stats ?? {}) };
     g.upgrades = { ...noUpgrades(), ...d.upgrades };
+    g.fleet = Number.isInteger(d.fleet) ? Math.max(0, Math.min(16, d.fleet)) : g.upgrades.carts ? 6 : 0;
     // keep goal list in step with the current definitions
     const saved = new Map<string, boolean>((d.goals ?? []).map((x: { id: string; done: boolean }) => [x.id, x.done]));
     g.goals = g.goals.map((x) => ({ id: x.id, done: saved.get(x.id) ?? false }));
