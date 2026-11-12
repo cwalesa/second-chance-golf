@@ -5,7 +5,8 @@ import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, isBuilding } from './items';
 import { flagMark, icon } from './icons';
-import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeGolfCart, makeHalfwayHouse, makeCartBarn, makeMaintShed, makeLamp, makeShrub, makeStatue } from './art/props';
+import { drawFacilityThumb } from './art/facilities';
+import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
 import type { Cheer } from './game';
@@ -134,9 +135,11 @@ export class UI {
     });
     this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
     {
-      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(), halfway: makeHalfwayHouse(), barn: makeCartBarn(), shed: makeMaintShed(), cart: makeGolfCart() };
+      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
       this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-decorthumb]').forEach((c) => {
-        const sp = sprites[c.dataset.decorthumb!];
+        const kk = c.dataset.decorthumb!;
+        if (kk === 'barn' || kk === 'shed' || kk === 'halfway' || kk === 'cart') { drawFacilityThumb(c, kk); return; }
+        const sp = sprites[kk];
         const x = c.getContext('2d')!;
         const k = Math.min((c.width - 8) / sp.cv.width, (c.height - 6) / sp.cv.height);
         x.drawImage(sp.cv, (c.width - sp.cv.width * k) / 2, c.height - 3 - sp.cv.height * k, sp.cv.width * k, sp.cv.height * k);

@@ -1,7 +1,8 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
-import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, makeHalfwayHouse, makeCartBarn, makeMaintShed, makeGolfCart, Sprite } from './art/props';
+import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, Sprite } from './art/props';
+import { drawCart, drawFacility } from './art/facilities';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
@@ -1396,13 +1397,20 @@ export class Renderer {
     for (const it of w.items ?? []) {
       if (it.x < x0 - 4 || it.x > x1 + 1 || it.y < y0 - 3 || it.y > y1 + 1) continue;
       const d = ITEMS[it.k];
-      items.push({ y: it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y) });
-      // the fleet, parked in front of the barn
+      items.push({ y: it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, game.fleet) : 0) });
+      // the fleet: three carts in the bays (drawn with the barn), up to eight more nose-in along striped rows in front
       if (it.k === 'barn') {
-        const n = Math.min(game.fleet, 16);
-        for (let c = 0; c < n; c++) {
-          const cx = it.x + 0.5 + (c % 8) * 0.55, cy = it.y + (d.h ?? 2) + 0.7 + Math.floor(c / 8) * 0.8;
-          items.push({ y: cx + cy + 0.4, draw: () => { const p = this.toScreen(cx, cy); this.drawSprite(this.placed!.cart, p.x, p.y, (this.ts / 52) * 1.5); } });
+        const out = Math.max(0, Math.min(game.fleet, 11) - 3);
+        for (let c = 0; c < out; c++) {
+          const row = Math.floor(c / 4), col = c % 4;
+          const cx = it.x + 0.55 + col * 0.95, cy = it.y + (d.h ?? 2) + 0.95 + row * 1.6;
+          items.push({ y: cx + cy, draw: () => {
+            const P = this.facilityPainter();
+            const a = P.toScreen(cx - 0.4, cy - 0.7), b = P.toScreen(cx - 0.4, cy + 0.72);
+            this.ctx.strokeStyle = 'rgba(250,246,232,0.7)'; this.ctx.lineWidth = Math.max(0.8, this.ts * 0.03);
+            this.ctx.beginPath(); this.ctx.moveTo(a.x, a.y); this.ctx.lineTo(b.x, b.y); this.ctx.stroke();
+            drawCart(P, cx, cy, -Math.PI / 2, (c + 1) % 4);
+          } });
         }
       }
     }
@@ -1490,16 +1498,20 @@ export class Renderer {
   }
 
   /** Something the player placed: flowers, a shrub, a bench, a lamp, a ball wash, a fountain or a statue. */
-  drawPlaced(k: string, x: number, y: number, alpha = 1) {
-    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(), halfway: makeHalfwayHouse(), barn: makeCartBarn(), shed: makeMaintShed(), cart: makeGolfCart() };
+  drawPlaced(k: string, x: number, y: number, alpha = 1, inside = 0) {
+    if (k === 'barn' || k === 'shed' || k === 'halfway') {
+      drawFacility(this.facilityPainter(), k, x, y, alpha, inside);
+      return;
+    }
+    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
     const sp = this.placed[k];
     if (!sp) return;
-    const d = ITEMS[k as ItemKind];
-    const fw = d?.w ?? 1, fh = d?.h ?? 1;
-    const p = this.toScreen(x + fw / 2, y + fh / 2);
+    const p = this.toScreen(x + 0.5, y + 0.5);
     const big = k === 'fountain' || k === 'statue';
-    const bld = fw > 1;
-    this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (bld ? 1.9 : big ? 1.25 : k === 'flowers' ? 1.3 : 1), alpha);
+    this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (big ? 1.25 : k === 'flowers' ? 1.3 : 1), alpha);
+  }
+  private facilityPainter(): Painter {
+    return { ctx: this.ctx, ts: this.ts, toScreen: (x: number, y: number) => this.toScreen(x, y) };
   }
   private drawDecor(d: Decor) {
     const p = this.toScreen(d.x, d.y);
