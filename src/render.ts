@@ -2093,16 +2093,16 @@ export class Renderer {
     const tint = ['rgba(150,230,140,0.035)', 'rgba(255,225,120,0.05)', 'rgba(235,125,40,0.11)', region === 'mountain' ? 'rgba(190,215,245,0.2)' : 'rgba(170,200,240,0.12)'][season];
     ctx.fillStyle = tint;
     ctx.fillRect(0, 0, this.cw, this.ch);
-    if (season === 2 || season === 3) {
-      const n = season === 3 ? 44 : 28;
+    // falling leaves in autumn; no snow in winter (just the cool tint)
+    if (season === 2) {
+      const n = 28;
       for (let k = 0; k < n; k++) {
-        const sp = season === 3 ? 38 + (k % 5) * 6 : 24 + (k % 4) * 8;
-        const x = ((hash2(k, 1, 600) * (this.cw + 100) + Math.sin(time * 0.8 + k) * 30 + time * (season === 3 ? 6 : 18)) % (this.cw + 100)) - 50;
+        const sp = 24 + (k % 4) * 8;
+        const x = ((hash2(k, 1, 600) * (this.cw + 100) + Math.sin(time * 0.8 + k) * 30 + time * 18) % (this.cw + 100)) - 50;
         const y = ((hash2(k, 2, 600) * this.ch + time * sp) % (this.ch + 20)) - 10;
-        ctx.fillStyle = season === 3 ? 'rgba(255,255,255,0.5)' : ['rgba(214,120,40,0.8)', 'rgba(196,150,50,0.8)', 'rgba(170,70,40,0.8)'][k % 3];
+        ctx.fillStyle = ['rgba(214,120,40,0.8)', 'rgba(196,150,50,0.8)', 'rgba(170,70,40,0.8)'][k % 3];
         ctx.beginPath();
-        if (season === 3) ctx.arc(x, y, 0.9 + (k % 3) * 0.35, 0, Math.PI * 2);
-        else ctx.ellipse(x, y, 3.2, 1.8, time + k, 0, Math.PI * 2);
+        ctx.ellipse(x, y, 3.2, 1.8, time + k, 0, Math.PI * 2);
         ctx.fill();
       }
     }
