@@ -15,6 +15,9 @@ import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
 
 interface Decor { x: number; y: number; kind: 'shrub' | 'rock' | 'flowers' | 'reeds'; v: number; i: number }
+type Tex = { w: number; h: number; d: Uint8ClampedArray };
+type Lay = { rgb: RGB } | { cmap: string } | { tex: Tex | null; a: number };
+
 /** Signed distance to a surface contour (tiles, positive inside) over one chunk plus margin; x0..y1 bound where it matters. */
 interface DistMap { d: Float32Array; DW: number; x0: number; y0: number; x1: number; y1: number }
 /** Coverage 0..1 at index `k` of a distance map. */
@@ -82,6 +85,8 @@ export class Renderer {
   private builtFor: World | null = null;
   private regionKey = '';
   private cmaps: Record<string, HTMLCanvasElement> = {};
+  private cmapData: Record<string, Uint8ClampedArray> = {};
+  private texCache = new Map<string, Tex | null>();
 
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -262,6 +267,7 @@ export class Renderer {
           img.data[o + 3] = 255;
         }
       cx.putImageData(img, 0, 0);
+      this.cmapData[key] = img.data;
     };
     // very low-frequency, low-amplitude variation so large lawns are not perfectly flat
     const jit = (x: number, y: number) => (vnoise(x / 9, y / 9, 40) - 0.5) * 7;
@@ -853,7 +859,6 @@ export class Renderer {
   }
 
   // ---- chunk compositor ----
-  private layerCv = document.createElement('canvas');
   private maskCv = document.createElement('canvas');
   private maskImg: ImageData | null = null;
   private distBufs = new Map<string, Float32Array>();
@@ -972,6 +977,111 @@ export class Renderer {
     return { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 };
   }
 
+  /** A generated texture's pixels, read once. A texture that fails to build is simply skipped. */
+  private texture(key: string, make: () => HTMLCanvasElement): Tex | null {
+    if (this.texCache.has(key)) return this.texCache.get(key)!;
+    let tx: Tex | null = null;
+    try {
+      const cv = make();
+      const c = cv.getContext('2d');
+      if (c && cv.width && cv.height) tx = { w: cv.width, h: cv.height, d: c.getImageData(0, 0, cv.width, cv.height).data };
+    } catch {
+      tx = null;
+    }
+    this.texCache.set(key, tx);
+    return tx;
+  }
+
+  /**
+   * Colour the covered pixels of the mask image (alpha already set by rasterise) by stacking layers:
+   * a flat colour, a smoothly interpolated colour map, or a world-aligned repeating texture.
+   */
+  private shadeRect(w: World, r: Rect, X: number, Y: number, CW: number, lays: Lay[]) {
+    const px = this.maskImg!.data;
+    const MW = w.w;
+    const MH = w.h;
+    // flatten the layer stack once: the last flat colour or colour map is the base, textures blend on top
+    let base: RGB = [0, 0, 0];
+    let cm: Uint8ClampedArray | null = null;
+    const texs: { t: Tex; a: number }[] = [];
+    for (const L of lays) {
+      if ('rgb' in L) {
+        base = L.rgb;
+        cm = null;
+        texs.length = 0;
+      } else if ('cmap' in L) {
+        if (this.cmapData[L.cmap]) {
+          cm = this.cmapData[L.cmap];
+          texs.length = 0;
+        }
+      } else if (L.tex) texs.push({ t: L.tex, a: L.a / 255 });
+    }
+    // colour-map columns: left index and weight per pixel column
+    const cx0 = new Int32Array(r.w);
+    const cx1 = new Int32Array(r.w);
+    const cfx = new Float32Array(r.w);
+    if (cm)
+      for (let i = 0; i < r.w; i++) {
+        let u = (X + r.x + i + 0.5) / TS - 0.5;
+        u = u < 0 ? 0 : u > MW - 1 ? MW - 1 : u;
+        const a = Math.floor(u);
+        cx0[i] = a * 4;
+        cx1[i] = (a + 1 < MW ? a + 1 : a) * 4;
+        cfx[i] = u - a;
+      }
+    const [bR, bG, bB] = base;
+    for (let j = r.y; j < r.y + r.h; j++) {
+      const wy = Y + j;
+      let row0 = 0;
+      let row1 = 0;
+      let fy = 0;
+      if (cm) {
+        let v = (wy + 0.5) / TS - 0.5;
+        v = v < 0 ? 0 : v > MH - 1 ? MH - 1 : v;
+        const b = Math.floor(v);
+        row0 = b * MW * 4;
+        row1 = (b + 1 < MH ? b + 1 : b) * MW * 4;
+        fy = v - b;
+      }
+      let o = (j * CW + r.x) * 4;
+      for (let i = 0; i < r.w; i++, o += 4) {
+        if (px[o + 3] === 0) continue;
+        let R = bR;
+        let G = bG;
+        let B = bB;
+        if (cm) {
+          const fx = cfx[i];
+          const a = row0 + cx0[i];
+          const b = row0 + cx1[i];
+          const c = row1 + cx0[i];
+          const e = row1 + cx1[i];
+          const t0 = cm[a] + (cm[b] - cm[a]) * fx;
+          const t1 = cm[c] + (cm[e] - cm[c]) * fx;
+          R = t0 + (t1 - t0) * fy;
+          const g0 = cm[a + 1] + (cm[b + 1] - cm[a + 1]) * fx;
+          const g1 = cm[c + 1] + (cm[e + 1] - cm[c + 1]) * fx;
+          G = g0 + (g1 - g0) * fy;
+          const h0 = cm[a + 2] + (cm[b + 2] - cm[a + 2]) * fx;
+          const h1 = cm[c + 2] + (cm[e + 2] - cm[c + 2]) * fx;
+          B = h0 + (h1 - h0) * fy;
+        }
+        const wx = X + r.x + i;
+        for (let k = 0; k < texs.length; k++) {
+          const T2 = texs[k].t;
+          const d = T2.d;
+          const q = ((wy % T2.h) * T2.w + (wx % T2.w)) * 4;
+          const a = d[q + 3] * texs[k].a;
+          R += (d[q] - R) * a;
+          G += (d[q + 1] - G) * a;
+          B += (d[q + 2] - B) * a;
+        }
+        px[o] = R;
+        px[o + 1] = G;
+        px[o + 2] = B;
+      }
+    }
+  }
+
   private composeChunk(w: World, cx: number, cy: number) {
     const C = Renderer.CH;
     const tx0 = cx * C;
@@ -984,12 +1094,11 @@ export class Renderer {
     const CHH = (ty1 - ty0) * TS;
     this.tctx2 = this.pageFor(Math.floor(tx0 / Renderer.PAGE), Math.floor(ty0 / Renderer.PAGE)).ctx;
     const t = this.tctx2;
-    if (this.layerCv.width !== CW || this.layerCv.height !== CHH) {
-      this.layerCv.width = this.maskCv.width = CW;
-      this.layerCv.height = this.maskCv.height = CHH;
+    if (this.maskCv.width !== CW || this.maskCv.height !== CHH) {
+      this.maskCv.width = CW;
+      this.maskCv.height = CHH;
     }
     if (!this.maskImg || this.maskImg.width !== CW || this.maskImg.height !== CHH) this.maskImg = new ImageData(CW, CHH);
-    const lc = this.layerCv.getContext('2d')!;
     const mc = this.maskCv.getContext('2d')!;
     const DW = CW + 2 * Renderer.MP;
     /** index offset for a lookup shifted by (sx, sy) terrain px */
@@ -1015,40 +1124,19 @@ export class Renderer {
       mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
       t.drawImage(this.maskCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
     };
-    const fillStamp = (D: DistMap | null, shape: Shape, fill: (c: CanvasRenderingContext2D) => void) => {
+    // Textured surfaces are shaded pixel by pixel in JS and stamped exactly like the flat stamps above.
+    // The old route (fill a layer canvas, then mask it with 'destination-in') came out as solid white
+    // shapes on iPhone Safari, so it is not used for the ground any more.
+    const shadeStamp = (D: DistMap | null, shape: Shape, lays: Lay[]) => {
       if (!D) return;
-      const r = this.rasterise(D, CW, CHH, shape, [255, 255, 255], 1);
+      const r = this.rasterise(D, CW, CHH, shape, [0, 0, 0], 1);
       if (!r) return;
+      this.shadeRect(w, r, X, Y, CW, lays);
       mc.putImageData(this.maskImg!, 0, 0, r.x, r.y, r.w, r.h);
-      lc.setTransform(1, 0, 0, 1, 0, 0);
-      lc.globalCompositeOperation = 'source-over';
-      lc.globalAlpha = 1;
-      lc.clearRect(r.x, r.y, r.w, r.h);
-      lc.save();
-      lc.beginPath();
-      lc.rect(r.x, r.y, r.w, r.h);
-      lc.clip();
-      lc.setTransform(1, 0, 0, 1, -X, -Y);
-      fill(lc);
-      lc.restore();
-      lc.globalCompositeOperation = 'destination-in';
-      lc.drawImage(this.maskCv, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
-      lc.globalCompositeOperation = 'source-over';
-      t.drawImage(this.layerCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
+      t.drawImage(this.maskCv, r.x, r.y, r.w, r.h, X + r.x, Y + r.y, r.w, r.h);
     };
-    const flat = (col: string) => (c: CanvasRenderingContext2D) => {
-      c.fillStyle = col;
-      c.fillRect(X, Y, CW, CHH);
-    };
-    const pat = (p: CanvasPattern, alpha = 1) => (c: CanvasRenderingContext2D) => {
-      c.globalAlpha = alpha;
-      c.fillStyle = p;
-      c.fillRect(X, Y, CW, CHH);
-      c.globalAlpha = 1;
-    };
-    const layers = (...fns: Array<(c: CanvasRenderingContext2D) => void>) => (c: CanvasRenderingContext2D) => fns.forEach((f) => f(c));
-    const surface = (cmap: string, kind: TurfKind, stripes?: CanvasPattern) =>
-      layers((c) => this.drawSmooth(c, cmap, tx0, ty0, tx1, ty1, w), pat(this.turfPattern(t, kind)), ...(stripes ? [pat(stripes)] : []));
+    const tex = (key: string, make: () => HTMLCanvasElement, a = 1): Lay => ({ tex: this.texture(key, make), a });
+    const turf = (kind: TurfKind, a = 1) => tex('turf-' + kind, () => makeTurfTexture(kind), a);
 
     const dist = (key: string) => this.chunkDist(key, X, Y, CW, CHH);
 
@@ -1074,9 +1162,7 @@ export class Renderer {
     // ---- fairway family (fairway, plus the ground under greens and tees)
     const grass = dist('grass');
     flatStamp(grass, falloff(0.1), [14, 50, 26], 0.3);
-    // plain fairway colour first, so the mown area can never come out blank even if a layer fails to draw
-    flatStamp(grass, inside, COL.fairGood, 1);
-    fillStamp(grass, inside, surface('grass', 'fairway', this.pattern(t, 'stripe-fw', () => makeStripeTexture(64, 0.075, 'x'))));
+    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway'), tex('stripe-fw', () => makeStripeTexture(64, 0.075, 'x'))]);
     // a fine pale cut line just inside the edge of the mown area
     flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
 
@@ -1084,9 +1170,8 @@ export class Renderer {
     const green = dist('green');
     if (green) {
       const collar = mix(COL.fairGood, COL.greenGood, 0.45);
-      fillStamp(green, band(-0.24, 0), layers(flat(css(collar)), pat(this.turfPattern(t, 'green'))));
-      flatStamp(green, inside, COL.greenGood, 1);
-      fillStamp(green, inside, surface('green', 'green', this.pattern(t, 'stripe-green', () => makeStripeTexture(32, 0.05, 'y'))));
+      shadeStamp(green, band(-0.24, 0), [{ rgb: collar }, turf('green')]);
+      shadeStamp(green, inside, [{ rgb: COL.greenGood }, { cmap: 'green' }, turf('green'), tex('stripe-green', () => makeStripeTexture(32, 0.05, 'y'))]);
       flatStamp(green, band(-0.02, 0.025), [22, 82, 38], 0.3);
     }
 
@@ -1096,8 +1181,7 @@ export class Renderer {
       flatStamp(tee, falloff(0.07), [14, 50, 26], 0.32);
       // plain colour first, through the same path as the soft shadow above (known to draw everywhere),
       // then the grain and mowing stripes on top, so a failed texture can never leave a blank white box
-      flatStamp(tee, inside, COL.teeGood, 1);
-      fillStamp(tee, inside, layers(pat(this.turfPattern(t, 'tee'), 0.9), pat(this.pattern(t, 'stripe-tee', () => makeStripeTexture(16, 0.05, 'y')))));
+      shadeStamp(tee, inside, [{ rgb: COL.teeGood }, turf('tee', 0.9), tex('stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))]);
       flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
     }
 
@@ -1108,15 +1192,7 @@ export class Renderer {
     const bunker = dist('bunker');
     if (bunker) {
       flatStamp(bunker, falloff(0.07), [28, 66, 30], 0.42);
-      fillStamp(
-        bunker,
-        inside,
-        layers(
-          // solid sand colour first (no colour map), then an opaque grain: nothing here can come out blank
-          flat(css(COL.sand)),
-          pat(this.pattern(t, 'sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))),
-        ),
-      );
+      shadeStamp(bunker, inside, [{ rgb: COL.sand }, tex('sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))]);
       flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
       flatStamp(bunker, innerShade(-6, -2, 0.18, 1), [255, 251, 234], 0.45);
       flatStamp(bunker, band(-0.005, 0.03), [122, 88, 46], 0.55);
@@ -1127,19 +1203,14 @@ export class Renderer {
     if (water) {
       flatStamp(water, falloff(0.11), [58, 74, 38], 0.45);
       flatStamp(water, band(-0.035, 0.005), [204, 198, 150], 0.7);
-      fillStamp(
-        water,
-        inside,
-        layers(
-          (c) => {
-            this.drawSmooth(c, 'water', tx0, ty0, tx1, ty1, w);
-            pat(this.pattern(c, 'water', () => makeWaterTexture()))(c);
-          },
-          (c) => {
-            for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.WATER) this.waterDetail(c, w, x, y);
-          },
-        ),
-      );
+      shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
+      // lily pads only grow on tiles surrounded by water, so they can be painted straight onto the ground
+      t.save();
+      t.beginPath();
+      t.rect(X, Y, CW, CHH);
+      t.clip();
+      for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.WATER) this.waterDetail(t, w, x, y);
+      t.restore();
       flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.18), [156, 228, 216], 0.26);
       flatStamp(water, innerShade(7, 3, 0.22, 1.2), [10, 46, 72], 0.4);
     }
@@ -1148,7 +1219,7 @@ export class Renderer {
     const path = dist('path');
     if (path) {
       flatStamp(path, falloff(0.06), [24, 40, 22], 0.32);
-      fillStamp(path, inside, pat(this.pattern(t, 'paving', () => makePavingTexture(COL.path))));
+      shadeStamp(path, inside, [{ rgb: COL.path }, tex('paving', () => makePavingTexture(COL.path))]);
       flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
       flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
     }
@@ -1157,7 +1228,7 @@ export class Renderer {
     const bridge = dist('bridge');
     if (bridge) {
       flatStamp(bridge, falloff(0.1), [10, 30, 44], 0.45);
-      fillStamp(bridge, inside, pat(this.pattern(t, 'deck', () => makeDeckTexture())));
+      shadeStamp(bridge, inside, [{ rgb: [150, 112, 72] }, tex('deck', () => makeDeckTexture())]);
       flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
       flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }

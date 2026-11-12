@@ -284,6 +284,8 @@ function draw(P: Painter, prep: Prepared, ox: number, oy: number, alpha = 1) {
 // object is painted once into an offscreen canvas at the current zoom (in 9% steps, at full device
 // resolution) and stamped from there. The projection is affine, so a stamp is exact up to that step.
 const sprites = new Map<string, { cv: HTMLCanvasElement; ox: number; oy: number; ts: number; sc: number }>();
+let spritePx = 0;
+const SPRITE_BUDGET = 4_000_000;
 function cached(P: Painter, key: string, x: number, y: number, ext: [number, number, number, number], tall: number, alpha: number, paint: (Q: Painter) => void) {
   const ctx = P.ctx;
   const sc = Math.max(1, Math.min(4, ctx.getTransform().a || 1));
@@ -302,7 +304,16 @@ function cached(P: Painter, key: string, x: number, y: number, ext: [number, num
     c2.setTransform(sc, 0, 0, sc, 0, 0);
     paint({ ctx: c2, ts: tsq, toScreen: (a: number, b: number) => ({ x: (a - b) * ISO_X * tsq - minX, y: (a + b) * ISO_Y * tsq - minY }) });
     sp = { cv, ox: minX, oy: minY, ts: tsq, sc };
-    if (sprites.size > 90) sprites.delete(sprites.keys().next().value!);
+    // iPhone Safari has a hard cap on total canvas memory, and going past it breaks other canvases (the
+    // ground turned white). Keep the stamps under a pixel budget and free evicted ones at once.
+    spritePx += cv.width * cv.height;
+    while (sprites.size && (spritePx > SPRITE_BUDGET || sprites.size > 60)) {
+      const oldKey = sprites.keys().next().value!;
+      const old = sprites.get(oldKey)!;
+      spritePx -= old.cv.width * old.cv.height;
+      old.cv.width = old.cv.height = 0;
+      sprites.delete(oldKey);
+    }
     sprites.set(full, sp);
   } else {
     // keep recently used stamps at the back of the queue
