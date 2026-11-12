@@ -1,10 +1,12 @@
-# Second Chance Golf (0.9.0)
+# Little Links (0.9.0)
+
+(Formerly Second Chance Golf. Storage keys, the app id and the deployment path keep their original names so existing saves keep working.)
 
 Pick a starting region, place a clubhouse and build a course across a 240×160 tile map. Run with `npm ci && npm run dev`; `npm test`; `npm run build` (static site in `dist/`, published to GitHub Pages from `main`).
 
 ## An iPhone game
 
-Second Chance Golf is built as an iOS app. There is one layout, the phone layout. In a wide browser window the game shows inside an iPhone-sized frame, so it can be played and tested in any browser during development.
+Little Links is built as an iOS app. There is one layout, the phone layout. In a wide browser window the game shows inside an iPhone-sized frame, so it can be played and tested in any browser during development.
 
 - **Play in the browser:** https://cwalesa.github.io/second-chance-golf/ (Safari on iPhone: Share, then Add to Home Screen, for a full-screen app).
 - **Build the iOS app (on a Mac with Xcode):** `npm ci`, then `npm run cap:ios`. This builds the game, copies it into the native project in `ios/` and opens Xcode. Pick a team under Signing & Capabilities, then run on a phone or archive for TestFlight / the App Store. CocoaPods is needed the first time (`sudo gem install cocoapods`, then `npx cap sync ios`).

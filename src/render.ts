@@ -51,6 +51,8 @@ export interface Overlay {
   club: { x: number; y: number; problem: string | null } | null;
   /** Where the tutorial suggests putting a tee and a green. */
   hint: { tee?: Pt; cup?: Pt } | null;
+  /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
+  hold: { x: number; y: number; t0: number } | null;
 }
 
 export class Renderer {
@@ -1605,77 +1607,232 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** How each golfer looks: skin, hair, top, bottoms and headwear come from their id, so a player is recognisable and keeps their outfit. */
+  private static readonly SKIN = ['#f2cba8', '#dfae83', '#b07d56', '#7d5236'];
+  private static readonly HAIR = ['#2b2118', '#5a3a22', '#b5772f', '#8f8f8f', '#d8b45a'];
+  private static readonly PANTS = ['#c9b48a', '#34425c', '#6b6f73', '#8a6d4a'];
+  private golferLook(g: Golfer) {
+    const h = (k: number) => hash2(g.id, k, 777);
+    return {
+      skin: Renderer.SKIN[Math.floor(h(1) * 4)],
+      hair: Renderer.HAIR[Math.floor(h(2) * 5)],
+      pants: Renderer.PANTS[Math.floor(h(3) * 4)],
+      top: Math.floor(h(4) * 3), // 0 polo, 1 striped polo, 2 vest
+      bottoms: h(5) < 0.28 ? 1 : h(5) > 0.9 ? 2 : 0, // trousers, shorts, skirt
+      head: Math.floor(h(6) * 4), // cap, visor, bucket hat, bare
+      long: h(7) < 0.3,
+    };
+  }
   private drawGolfer(g: Golfer, selected: boolean, time: number) {
     const ctx = this.ctx;
     const u = Math.max(this.ts, 16);
+    const k = u * 1.32; // figure scale: a little larger than a tile so people read at phone zoom
     const p = this.toScreen(g.rx, g.ry);
     const gt = CFG.golfers.types[g.type];
+    const look = this.golferLook(g);
     const walking = g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave';
+    const f = g.flight;
+    const putting = !!f && f.putt;
     const sw = walking ? Math.sin(g.walkT) : 0;
-    // same sun as the trees: a soft shadow stretched toward the lower right, plus a tight contact shadow
-    ctx.fillStyle = 'rgba(8,26,16,0.2)';
+    const stride = walking ? Math.cos(g.walkT) : 0;
+    // soft shadow toward the lower right, same sun as the trees, plus a tight contact shadow
+    ctx.fillStyle = 'rgba(8,26,16,0.22)';
     ctx.beginPath();
-    ctx.ellipse(p.x + u * 0.2, p.y + u * 0.03, u * 0.3, u * 0.075, 0.18, 0, Math.PI * 2);
+    ctx.ellipse(p.x + k * 0.17, p.y + k * 0.03, k * 0.3, k * 0.08, 0.18, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(4,16,10,0.3)';
+    ctx.fillStyle = 'rgba(4,16,10,0.32)';
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y, u * 0.17, u * 0.055, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y, k * 0.16, k * 0.055, 0, 0, Math.PI * 2);
     ctx.fill();
     if (selected) {
       ctx.strokeStyle = '#ffe27a';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y, u * 0.34, u * 0.14, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y, k * 0.34, k * 0.14, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (!walking) {
-      ctx.fillStyle = '#3a3f46';
-      ctx.beginPath();
-      ctx.roundRect(p.x - g.dir * u * 0.3, p.y - u * 0.5, u * 0.1, u * 0.42, u * 0.04);
-      ctx.fill();
-      ctx.fillStyle = gt.shirt;
-      ctx.fillRect(p.x - g.dir * u * 0.3, p.y - u * 0.5, u * 0.1, u * 0.08);
+    // ---- pose, in the golfer's own frame: facing +x, feet on the ground at the origin, units of k
+    // where the ball is, in that frame (the club head must meet it at impact)
+    let ball: Pt | null = null;
+    if (g.ballVisible || (g.phase === 'flight' && f)) {
+      const src = g.phase === 'flight' && f ? f.from : g.ball;
+      const bp = this.toScreen(src.x, src.y);
+      ball = { x: ((bp.x - p.x) * g.dir) / k, y: (bp.y - p.y) / k };
     }
+    const atBall = g.phase === 'address' || g.phase === 'swing' || (g.phase === 'flight' && !!f && f.t < 0.9);
+    let lean = 0; // forward lean of the torso
+    let crouch = 0; // knees bent
+    let ang = 0; // club angle (screen, y down; 0 = pointing forward)
+    let hands: Pt = { x: 0.12, y: -0.3 };
+    let twist = 0; // shoulder turn: narrows or widens the shoulder line
+    let lift = 0; // hop
+    let armUp = 0;
+    const strike = 0.4;
+    const ease = (t: number) => t * t * (3 - 2 * t);
+    if (atBall && ball) {
+      lean = putting || (g.phase !== 'flight' && !g.plan) ? 0.2 : 0.14;
+      crouch = lean * 0.7;
+      const hy = -0.36 + crouch * 0.1;
+      hands = { x: 0.1 + lean * 0.7, y: hy };
+      const dx = ball.x - hands.x, dy = ball.y - hands.y;
+      const base = Math.atan2(dy, dx);
+      const swingKind = putting || (g.phase !== 'flight' && !g.plan) ? 'putt' : 'full';
+      const t = g.phase === 'swing' ? g.swingT : g.phase === 'flight' ? strike + (f ? f.t : 0) : 0;
+      if (g.phase === 'address') {
+        ang = base;
+        twist = 0.04 * Math.sin(time * 6 + g.id); // a little waggle
+        hands.x += 0.012 * Math.sin(time * 7 + g.id);
+      } else if (swingKind === 'full') {
+        const back = base + 3.0;
+        const top = 0.27;
+        if (t < top) { const e = ease(t / top); ang = base + (back - base) * e; twist = -e; lean -= 0.1 * e; }
+        else if (t < strike) { const e = (t - top) / (strike - top); const q = e * e; ang = back + (base - back) * q; twist = -1 + 2 * q; lean -= 0.1 * (1 - q); }
+        else { const e = Math.min(1, (t - strike) / 0.5); const q = 1 - (1 - e) * (1 - e); ang = base - 3.1 * q; twist = 1; lean = lean * (1 - q) - 0.04 * q; crouch *= 1 - q; hands = { x: hands.x - 0.12 * q, y: hands.y - 0.2 * q }; }
+      } else {
+        const back = base + 0.75;
+        if (t < strike) { const e = ease(t / strike); ang = e < 0.5 ? base + back * 0 + (back - base) * (e / 0.5) * 1 : back - (back - base) * ((e - 0.5) / 0.5); }
+        else { const e = Math.min(1, (t - strike) / 0.35); ang = base - 0.55 * (1 - (1 - e) * (1 - e)); }
+        twist = 0;
+      }
+    } else if (walking) {
+      lean = 0.03;
+      hands = { x: 0.07 + sw * 0.05, y: -0.26 };
+      ang = 1.25 - sw * 0.25;
+    } else if (g.phase === 'holed') {
+      armUp = 1;
+      lift = Math.abs(Math.sin(Math.min(1.2, g.timer ?? 0) * 6)) * 0.05;
+      ang = 1.2;
+    } else {
+      // waiting: standing, club resting, a gentle breath
+      lean = 0.02;
+      hands = { x: 0.08, y: -0.28 + 0.006 * Math.sin(time * 2 + g.id) };
+      ang = 1.35;
+    }
+    const bobY = (walking ? Math.abs(stride) * 0.03 : 0) + lift;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(g.dir >= 0 ? k : -k, k);
+    const line = 1.1 / k; // an outline of about one pixel
+    const ink = 'rgba(32,30,24,0.6)';
+    const hipY = -0.31 + crouch * 0.12 - bobY;
+    const hip = { x: -lean * 0.1, y: hipY };
+    const shoulder = { x: hip.x + lean * 0.55, y: hipY - 0.22 + crouch * 0.05 };
+    const shoulderW = 0.075 * (1 - 0.45 * Math.abs(twist));
+    const headC = { x: shoulder.x + lean * 0.25 + twist * 0.01, y: shoulder.y - 0.115 };
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#3b3f4d';
-    ctx.lineWidth = Math.max(1.5, u * 0.07);
+    ctx.lineJoin = 'round';
+    const limb = (x1: number, y1: number, x2: number, y2: number, w: number, col: string) => {
+      ctx.strokeStyle = ink; ctx.lineWidth = w + line * 1.6;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    };
+    // legs: back leg first. Walking swings them; at the ball they plant apart and the knees flex.
+    const leg = (side: number) => {
+      const swing = walking ? sw * side * 0.11 : 0;
+      const spread = atBall ? 0.075 * side : 0.035 * side;
+      const fx = hip.x + spread + swing + (atBall && twist > 0.5 ? -0.02 * side : 0);
+      const fy = -(walking ? Math.max(0, -sw * side) * 0.035 : 0);
+      const kneeX = (hip.x + fx) / 2 + (atBall ? 0.03 : 0.015) + crouch * 0.12;
+      const kneeY = (hip.y + fy) / 2 + 0.01;
+      const short = look.bottoms === 1;
+      const col = look.bottoms === 2 ? look.skin : look.pants;
+      limb(hip.x, hip.y, kneeX, kneeY, 0.075, short ? look.pants : col);
+      limb(kneeX, kneeY, fx, fy - 0.02, 0.07, short || look.bottoms === 2 ? look.skin : look.pants);
+      ctx.fillStyle = '#f1efe6'; ctx.strokeStyle = ink; ctx.lineWidth = line;
+      ctx.beginPath(); ctx.ellipse(fx + 0.025, fy - 0.008, 0.055, 0.03, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    };
+    leg(-1);
+    // back arm (behind the torso)
+    const handFront = { x: hands.x, y: hands.y };
+    const armBack = () => {
+      if (armUp) return limb(shoulder.x - shoulderW, shoulder.y + 0.02, shoulder.x - 0.13, shoulder.y + 0.13, 0.06, look.top === 2 ? '#f4efe0' : gt.shirt);
+      if (atBall) return limb(shoulder.x - shoulderW * 0.4, shoulder.y + 0.02, handFront.x - 0.01, handFront.y + 0.015, 0.058, gt.shirt);
+      limb(shoulder.x - shoulderW, shoulder.y + 0.02, shoulder.x - shoulderW - sw * 0.07, shoulder.y + 0.2, 0.058, gt.shirt);
+      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(shoulder.x - shoulderW - sw * 0.07, shoulder.y + 0.215, 0.03, 0, Math.PI * 2); ctx.fill();
+    };
+    armBack();
+    // torso: from hips to shoulders, shirt and any trim
+    const tw = 0.115;
     ctx.beginPath();
-    ctx.moveTo(p.x - u * 0.04, p.y - u * 0.26);
-    ctx.lineTo(p.x - u * 0.05 + sw * u * 0.08, p.y);
-    ctx.moveTo(p.x + u * 0.04, p.y - u * 0.26);
-    ctx.lineTo(p.x + u * 0.05 - sw * u * 0.08, p.y);
+    ctx.moveTo(hip.x - tw * 0.8, hip.y);
+    ctx.lineTo(shoulder.x - tw, shoulder.y);
+    ctx.quadraticCurveTo(shoulder.x, shoulder.y - 0.035, shoulder.x + tw, shoulder.y);
+    ctx.lineTo(hip.x + tw * 0.8, hip.y);
+    ctx.closePath();
+    ctx.fillStyle = look.top === 2 ? '#f4efe0' : gt.shirt;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    if (look.top === 1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 0.032;
+      for (let yy = shoulder.y + 0.05; yy < hip.y; yy += 0.07) { ctx.beginPath(); ctx.moveTo(shoulder.x - 0.2, yy); ctx.lineTo(shoulder.x + 0.2, yy); ctx.stroke(); }
+    } else if (look.top === 2) {
+      ctx.fillStyle = gt.cap; // the vest
+      ctx.fillRect(shoulder.x - tw - 0.02, shoulder.y - 0.02, 0.07, 0.3);
+      ctx.fillRect(shoulder.x + tw - 0.05, shoulder.y - 0.02, 0.07, 0.3);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(shoulder.x - 0.01, shoulder.y, 0.02, 0.3);
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.13)'; // shaded side, away from the sun
+    ctx.fillRect(shoulder.x - tw, shoulder.y - 0.04, 0.05, 0.4);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(shoulder.x + tw - 0.045, shoulder.y - 0.04, 0.04, 0.4);
+    ctx.restore();
+    ctx.strokeStyle = ink; ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.moveTo(hip.x - tw * 0.8, hip.y);
+    ctx.lineTo(shoulder.x - tw, shoulder.y);
+    ctx.quadraticCurveTo(shoulder.x, shoulder.y - 0.035, shoulder.x + tw, shoulder.y);
+    ctx.lineTo(hip.x + tw * 0.8, hip.y);
     ctx.stroke();
-    const bob = walking ? Math.abs(sw) * u * 0.02 : 0;
-    ctx.fillStyle = gt.shirt;
-    ctx.beginPath();
-    ctx.roundRect(p.x - u * 0.11, p.y - u * 0.56 - bob, u * 0.22, u * 0.32, u * 0.06);
-    ctx.fill();
-    ctx.fillStyle = '#e8c39e';
-    ctx.beginPath();
-    ctx.arc(p.x, p.y - u * 0.66 - bob, u * 0.095, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = g.event ? '#f2c53d' : gt.cap;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y - u * 0.68 - bob, u * 0.098, Math.PI, 0);
-    ctx.fill();
-    ctx.fillRect(p.x + (g.dir > 0 ? 0 : -u * 0.13), p.y - u * 0.69 - bob, u * 0.13, u * 0.03);
-    // club
-    let ang = 0.5;
-    if (g.phase === 'swing') {
-      const s = Math.min(1, g.swingT / 0.4);
-      ang = s < 0.55 ? -2.2 + (s / 0.55) * 0.3 : -1.9 + ((s - 0.55) / 0.45) * 4.2;
-    } else if (g.phase === 'address') ang = 0.9;
-    const hx = p.x + g.dir * u * 0.12;
-    const hy = p.y - u * 0.4;
-    const cx = hx + Math.sin(ang) * g.dir * u * 0.5;
-    const cy = hy + Math.cos(ang) * u * 0.5;
-    ctx.strokeStyle = '#d9d9d9';
-    ctx.lineWidth = Math.max(1, u * 0.04);
-    ctx.beginPath();
-    ctx.moveTo(hx, hy);
-    ctx.lineTo(cx, cy);
-    ctx.stroke();
-    void time;
+    // belt / skirt hem
+    ctx.fillStyle = look.bottoms === 2 ? look.pants : 'rgba(40,36,28,0.55)';
+    ctx.fillRect(hip.x - tw * 0.8, hip.y - 0.015, tw * 1.6, look.bottoms === 2 ? 0.07 : 0.025);
+    leg(1);
+    // head: neck, face, hair and headwear
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(shoulder.x - 0.025 + lean * 0.1, shoulder.y - 0.06, 0.05, 0.07);
+    ctx.beginPath(); ctx.arc(headC.x, headC.y, 0.082, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = line; ctx.stroke();
+    ctx.fillStyle = look.hair;
+    if (look.long) { ctx.beginPath(); ctx.ellipse(headC.x - 0.05, headC.y + 0.03, 0.05, 0.075, 0.15, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(headC.x - 0.005, headC.y - 0.012, 0.083, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+    const hat = g.event ? '#f2c53d' : gt.cap;
+    if (look.head === 0 || g.event) { // cap with a forward peak
+      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.02, 0.087, Math.PI, 0); ctx.fill();
+      ctx.fillRect(headC.x + 0.02, headC.y - 0.032, 0.1, 0.022);
+    } else if (look.head === 1) { // visor
+      ctx.fillStyle = hat; ctx.fillRect(headC.x - 0.085, headC.y - 0.045, 0.17, 0.025); ctx.fillRect(headC.x + 0.02, headC.y - 0.03, 0.1, 0.02);
+    } else if (look.head === 2) { // bucket hat
+      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.03, 0.08, Math.PI, 0); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(headC.x, headC.y - 0.035, 0.125, 0.026, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // face: a single eye on the side facing the target keeps them from looking blank
+    ctx.fillStyle = 'rgba(30,24,20,0.8)';
+    ctx.beginPath(); ctx.arc(headC.x + 0.05, headC.y + 0.004, 0.011, 0, Math.PI * 2); ctx.fill();
+    // front arm and club
+    if (armUp) {
+      limb(shoulder.x + shoulderW, shoulder.y + 0.02, shoulder.x + 0.14, shoulder.y - 0.1, 0.06, look.top === 2 ? '#f4efe0' : gt.shirt);
+      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(shoulder.x + 0.145, shoulder.y - 0.115, 0.03, 0, Math.PI * 2); ctx.fill();
+    } else if (atBall) {
+      limb(shoulder.x + shoulderW * 0.4, shoulder.y + 0.02, handFront.x, handFront.y, 0.06, gt.shirt);
+    } else {
+      const hx = shoulder.x + shoulderW + sw * 0.07, hy2 = shoulder.y + 0.2;
+      limb(shoulder.x + shoulderW, shoulder.y + 0.02, hx, hy2, 0.06, gt.shirt);
+      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(hx, hy2 + 0.015, 0.03, 0, Math.PI * 2); ctx.fill();
+      handFront.x = hx; handFront.y = hy2 + 0.01;
+    }
+    const L = atBall && ball ? Math.max(0.28, Math.min(0.62, Math.hypot(ball.x - hands.x, ball.y - hands.y))) : 0.42;
+    const hx2 = (armUp ? shoulder.x + 0.145 : handFront.x), hy3 = (armUp ? shoulder.y - 0.115 : handFront.y);
+    const ex = hx2 + Math.cos(ang) * L, ey = hy3 + Math.sin(ang) * L;
+    ctx.strokeStyle = 'rgba(30,30,28,0.55)'; ctx.lineWidth = 0.034 + line;
+    ctx.beginPath(); ctx.moveTo(hx2, hy3); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.strokeStyle = '#e4e2da'; ctx.lineWidth = 0.022;
+    ctx.beginPath(); ctx.moveTo(hx2, hy3); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.fillStyle = '#4a4d52'; // club head
+    ctx.beginPath(); ctx.ellipse(ex, ey, 0.032, 0.02, ang, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   private drawBall(g: Golfer) {
@@ -2169,6 +2326,17 @@ export class Renderer {
     for(const i of ov.hoverTiles)tile(i);
     for(const i of ov.staged)tile(i,true);
     if (ov.club) this.drawClubGhost(game, ov.club, time);
+    if (ov.hold) {
+      // a ring that fills while the finger rests: when it closes, painting begins
+      const k = Math.min(1, (performance.now() - ov.hold.t0) / 320);
+      if (k > 0.12) {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(28,58,43,0.35)';
+        ctx.beginPath(); ctx.arc(ov.hold.x, ov.hold.y - 46, 17, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = k >= 1 ? '#c8952a' : '#f5edd8';
+        ctx.beginPath(); ctx.arc(ov.hold.x, ov.hold.y - 46, 17, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+      }
+    }
     if (ov.hint) {
       for (const [p, label] of [[ov.hint.tee, 'Tee here'], [ov.hint.cup, 'Green here']] as const) {
         if (!p) continue;

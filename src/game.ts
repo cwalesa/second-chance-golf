@@ -110,7 +110,7 @@ export class Game {
   clock = 0;
   total = 0;
   region: RegionId = 'parkland';
-  name = 'Second Chance Golf';
+  name = 'Little Links';
   logo: Logo = defaultLogo();
   fees: Record<BandId, number> = { early: 34, mid: 30, twilight: 20 };
   clubLevel = 0;
