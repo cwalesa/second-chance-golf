@@ -1,6 +1,6 @@
 import { paintToolTile } from './classic-art';
 import { journalPanel, JournalView } from './journal';
-import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
+import { projectOffers, commissionProject, nextSuggestion, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, isBuilding } from './items';
@@ -75,8 +75,7 @@ export class UI {
   private toolShown = '';
   private cat: ToolCat = 'terrain';
   onReset: () => void = () => {};
-  onPractice: () => void = () => {};
-  onGraduate: () => void = () => {};
+  onReplayTutorial: () => void = () => {};
   onSaveNow: () => void = () => {};
   onExport: () => void = () => {};
   onImport: () => void = () => {};
@@ -382,18 +381,26 @@ export class UI {
     const top = vis('top');
     let dockTop = H;
     if (this.mobile && !this.landscape) for (const id of ['tools', 'side']) { const r = vis(id); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
-    if (this.mobile && this.landscape) { const r = vis('tools'); if (r && r.height) dockTop = Math.min(dockTop, r.top); }
     // the round menu button sits in the bottom corner: docked cards and bars stay above it
     if (this.mobile && !this.landscape) dockTop = Math.min(dockTop, H - 82);
     const side = this.mobile && this.landscape ? vis('side') : null;
+    // on its side the tools and the panels share one column on the right
+    const rail = this.mobile && this.landscape ? vis('tools') ?? side : null;
+    const cf = vis('confirm');
+    // where the coach and tips sit: top (beside the chip) in portrait; in landscape the bottom, unless the bottom is taken
+    const slot = !this.landscape || cf || this.menuOpen ? 'top' : 'bottom';
+    document.body.dataset.slot = slot;
     // values are relative to the game area, which positions its own fixed pieces
-    const vals = `${Math.round(top ? top.bottom - a.top : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(a.right - side.left) : 0}`;
+    const vals = `${Math.round(top ? top.bottom - a.top : 0)}|${Math.round(H - dockTop)}|${side ? Math.round(a.right - side.left) : 0}|${top ? Math.round(top.right - a.left) : 0}|${rail ? Math.round(a.right - rail.left) : 0}|${cf ? Math.round(cf.height) : 0}`;
     if (vals === this.layoutKey) return;
     this.layoutKey = vals;
-    const [hdr, dock, sw] = vals.split('|');
+    const [hdr, dock, sw, chip, rw, ch] = vals.split('|');
     root.setProperty('--hdr', `${hdr}px`);
     root.setProperty('--dock', `${dock}px`);
     root.setProperty('--side-w', `${sw}px`);
+    root.setProperty('--chip-r', `${chip}px`);
+    root.setProperty('--rail-w', `${rw}px`);
+    root.setProperty('--cf-h', `${ch}px`);
   }
   private layoutKey = '';
   setSheet(s: 'peek' | 'half' | 'full') {
@@ -443,12 +450,14 @@ export class UI {
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
     const base = this.panelInsets();
+    const a = this.appRect;
+    // the placement bar sits at the bottom, above the tray or sheet in portrait and beside the tools in landscape
+    const cf = document.getElementById('confirm');
+    if (cf && cf.style.display !== 'none' && cf.getBoundingClientRect().height > 0) base.b = Math.max(base.b, a.bottom - cf.getBoundingClientRect().top + 8);
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
-    const c = coach.getBoundingClientRect(), a = this.appRect;
-    // On its side the coach sits top right, so the map frames itself to its left.
-    if (this.landscape) return { ...base, r: Math.max(base.r, a.right - c.left + 8) };
-    // The map frames itself clear of the coach, above or below it.
+    const c = coach.getBoundingClientRect();
+    if (c.height === 0) return base;
     if (c.top + c.height / 2 > a.top + a.height / 2) return { ...base, b: Math.max(base.b, a.bottom - c.top + 8) };
     return { ...base, t: Math.max(base.t, c.bottom - a.top + 8) };
   }
@@ -460,8 +469,8 @@ export class UI {
         // sizes, not positions: panels slide in, and a rect taken mid-animation would be wrong
         const el = (id: string) => document.getElementById(id) as HTMLElement;
         const sideOpen = this.tab !== 'none' && this.tab !== 'build';
-        return { l: nav.right + 10, r: sideOpen ? el('side').offsetWidth + 16 : 12,
-          t: r('top').bottom - this.appRect.top + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
+        return { l: nav.right + 10, r: sideOpen ? el('side').offsetWidth + 16 : this.tab === 'build' ? el('tools').offsetWidth + 16 : 12,
+          t: r('top').bottom - this.appRect.top + 10, b: 12 };
       }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
       return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet };
@@ -476,7 +485,7 @@ export class UI {
     if (choosingClub) {
       const spot = this.editor.clubSpot;
       const ok = !!spot && !spot.problem && this.editor.clubLocked;
-      const msg = !spot ? 'Tap or click the ground to place it.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'Trees will be cleared. An entrance road is included.' : 'Tap or click to choose this spot.';
+      const msg = !spot ? 'Tap the ground to place it.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'Trees will be cleared. An entrance road is included.' : 'Tap the ground to choose this spot.';
       const html = `<span class="cf-text"><b>Place your clubhouse</b><span class="cf-sub ${spot?.problem ? 'bad' : ''}">${escapeHtml(msg)}</span></span><button class="btn" id="clubSuggest">Suggest a spot</button><button class="btn primary" id="clubOk" ${ok ? '' : 'disabled'}>Build here</button>`;
       if (this.cache.get('confirm') !== html) {
         this.cache.set('confirm', html);
@@ -525,6 +534,7 @@ export class UI {
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     if (p || placing) this.clearToasts(true);
+    window.setTimeout(() => { this.onInsets(); this.frameNewHole(); }, 0);
     el.innerHTML = html;
     el.style.display = p || placing ? 'flex' : 'none';
     el.classList.toggle('placing', placing);
@@ -539,6 +549,17 @@ export class UI {
       (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
       (this.$('cfNo') as HTMLElement).onclick = () => this.editor.discard();
     }
+  }
+
+  private framedKey = '';
+  /** When a new hole's preview appears, pan so the whole thing (tee, bends, green and its length label) is clear of the bars. */
+  private frameNewHole() {
+    const nh = this.editor.proposal?.newHole;
+    if (!nh) { this.framedKey = ''; return; }
+    const key = `${nh.id}`;
+    if (this.framedKey === key) return;
+    this.framedKey = key;
+    this.editor.ensureVisible([nh.tee, nh.cup, ...holeBends(nh)]);
   }
 
   /** Jump to a problem on the map and, when asked, pick the tool that fixes it. */
@@ -571,18 +592,11 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdTutorial">${g.practice ? 'Leave the practice course' : 'Play the practice course'}</button>
-      <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
+      <button class="btn" id="mdSettings">Settings</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
-    (m.querySelector('#mdTutorial') as HTMLElement).onclick = () => {
-      if (g.practice) { this.closeModal(); this.onGraduate(); return; }
-      const t = this.modal(`<h2>Play the practice course?</h2><p>A short guided course to learn the basics. Your own course is kept safe and comes back when you finish.</p><div class="actions"><button class="btn" id="tuNo">Not now</button><button class="btn primary" id="tuOk">Practice</button></div>`);
-      (t.querySelector('#tuNo') as HTMLElement).onclick = () => this.closeModal();
-      (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onPractice(); };
-    };
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
     (m.querySelector('#mdName') as HTMLElement).onclick = () => this.nameModal();
@@ -647,9 +661,18 @@ export class UI {
   }
   private settingsModal() {
     const prefs = this.game.preferences;
-    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><div class="menu-list"><button class="btn" id="setReplay">Replay the tutorial</button></div><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    (m.querySelector('#setReplay') as HTMLElement).onclick = () => this.replayModal();
     m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
+  }
+  /** Replaying the tutorial builds one more hole on the current course, at normal prices. */
+  private replayModal() {
+    const g = this.game;
+    const why = g.addHoleProblem() ?? (g.cash < 3500 ? 'You need about $3,500 in cash to build the practice hole.' : null);
+    const m = this.modal(`<h2>Replay the tutorial?</h2><p>It walks through building, opening and pricing one more hole on this course. The hole costs the usual price and Undo refunds it.</p>${why ? `<p class="dim">${escapeHtml(why)}</p>` : ''}<div class="actions"><button class="btn" id="rpNo">Not now</button><button class="btn primary" id="rpOk" ${why ? 'disabled' : ''}>Replay</button></div>`);
+    (m.querySelector('#rpNo') as HTMLElement).onclick = () => this.closeModal();
+    (m.querySelector('#rpOk') as HTMLElement).onclick = () => { this.closeModal(); this.onReplayTutorial(); };
   }
   private showRecap() {
     const g = this.game, d = g.pendingRecap; if (!d) return;
@@ -707,6 +730,8 @@ export class UI {
 
   /** After a build: what happened, and one tap to take it back. */
   private builtToast(label: string, cost: number) {
+    // during the tutorial the coach says what happened, and the tray's undo is always there
+    if (document.body.classList.contains('coaching')) return;
     const box = this.$('toasts');
     box.querySelectorAll('.toast.undo').forEach((n) => n.remove());
     const t = document.createElement('div');
@@ -749,12 +774,11 @@ export class UI {
     }
     if (performance.now() - this.dayCheck > 2000) {
       this.dayCheck = performance.now();
-      if (!g.practice && !document.body.classList.contains('coaching') && rollDay(g)) {
+      if (!document.body.classList.contains('coaching') && rollDay(g)) {
         g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
       }
     }
-    document.body.classList.toggle('practice', g.practice);
-    const badge = g.practice ? 0 : claimable(g);
+    const badge = claimable(g);
     if (this.cache.get('badge') !== String(badge)) {
       this.cache.set('badge', String(badge));
       this.$('fab').dataset.badge = badge ? String(badge) : '';

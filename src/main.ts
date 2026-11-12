@@ -4,18 +4,22 @@ import { Tutorial } from './tutorial';
 import './style.css';
 import './phone.css';
 import './theme.css';
+import './guide.css';
 import { CFG } from './config';
 import { Game } from './game';
 import { Renderer } from './render';
 import { Editor } from './input';
 import { UI } from './ui';
-import { PRACTICED_KEY, clearSave, loadGame, parkSave, restoreParked, saveGame, serialize, importSave } from './save';
+import { PRACTICED_KEY, clearSave, hasParked, loadGame, restoreParked, saveGame, serialize, importSave } from './save';
 import { startScreen } from './start';
 import { suggestClubhouse } from './wilderness';
 
 async function boot() {
   const canvas = document.getElementById('view') as HTMLCanvasElement;
-  const loaded = loadGame();
+  let loaded = loadGame();
+  // An older version ran the tutorial on a separate practice course and set the player's own course aside while it did.
+  // That course comes back; a practice course with nothing set aside simply becomes the player's course.
+  if ((!loaded || loaded.legacyPractice) && hasParked() && restoreParked()) loaded = loadGame();
   let game: Game;
   let away: { days: number; net: number } | null = null;
   if (loaded) {
@@ -23,16 +27,16 @@ async function boot() {
     away = game.applyAway((Date.now() - loaded.savedAt) / 1000);
   } else {
     let practiced = false;
-    let replay = false;
-    try { practiced = localStorage.getItem(PRACTICED_KEY) === '1'; replay = sessionStorage.getItem('scg.replayPractice') === '1'; sessionStorage.removeItem('scg.replayPractice'); } catch { /* storage is optional */ }
-    const opts = replay ? { practice: true, tutorial: false } : await startScreen(practiced);
+    try { practiced = localStorage.getItem(PRACTICED_KEY) === '1'; } catch { /* storage is optional */ }
+    const opts = await startScreen(practiced);
     // A short loading card while the land is laid out, so the tap on Start answers at once.
     const splash = document.createElement('div');
     splash.id = 'splash';
     splash.innerHTML = '<div class="sp-flag"><svg viewBox="0 0 24 24" fill="none" stroke="#2f6424" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21V3l11 4-11 4"/><ellipse cx="7" cy="21" rx="4" ry="1"/></svg></div><b>Laying out the land</b><small>Trees, water and meadows are on their way</small>';
     document.body.append(splash);
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
-    game = new Game(undefined, Math.floor(Math.random() * 1e9), opts.practice ? { practice: true } : { ...opts, tutorial: false });
+    game = new Game(undefined, Math.floor(Math.random() * 1e9), opts);
+    if (opts.tutorial) { try { localStorage.setItem(PRACTICED_KEY, '1'); } catch { /* storage is optional */ } }
     window.setTimeout(() => { splash.classList.add('out'); window.setTimeout(() => splash.remove(), 400); }, 350);
   }
   game.applyRegion();
@@ -50,22 +54,8 @@ async function boot() {
     if (resetting) return;
     if (saveGame(game)) ui.markSaved();
   };
-  // The practice course is over: start (or go back to) the player's own course.
-  ui.onGraduate = () => tutorial.onGraduate();
-  tutorial.onGraduate = () => {
-    resetting = true;
-    try { localStorage.setItem(PRACTICED_KEY, '1'); } catch { /* storage is optional */ }
-    if (!restoreParked()) clearSave();
-    location.reload();
-  };
-  // Play the practice course again; the real course is set aside and comes back afterwards.
-  ui.onPractice = () => {
-    resetting = true;
-    if (!game.practice) parkSave(game);
-    else clearSave();
-    try { sessionStorage.setItem('scg.replayPractice', '1'); } catch { /* storage is optional */ }
-    location.reload();
-  };
+  // Replay the first-session tutorial on the current course.
+  ui.onReplayTutorial = () => tutorial.restart();
   ui.onReset = () => {
     resetting = true;
     clearSave();

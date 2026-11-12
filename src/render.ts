@@ -56,6 +56,9 @@ export interface Overlay {
   club: { x: number; y: number; problem: string | null } | null;
   /** Where the tutorial suggests putting a tee and a green. */
   hint: { tee?: Pt; cup?: Pt } | null;
+  /** The tutorial's target area for painting (tile centre and radius in tiles) and a looping demonstration of the gesture. */
+  zone: { x: number; y: number; r: number; label: string } | null;
+  demo: { from: Pt; to: Pt } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
   hold: { x: number; y: number; t0: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
@@ -2511,6 +2514,7 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(ov.hold.x, ov.hold.y - 46, 17, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
       }
     }
+    if (ov.zone) this.drawZone(ov.zone, ov.demo, time);
     if (ov.hint) {
       for (const [p, label] of [[ov.hint.tee, 'Tee here'], [ov.hint.cup, 'Green here']] as const) {
         if (!p) continue;
@@ -2634,6 +2638,84 @@ export class Renderer {
       }
     }
     this.drawGhost(ov, h);
+  }
+
+  /** An outlined target area with a short looping hand: press and hold until the ring fills, drag across, lift. */
+  private drawZone(z: NonNullable<Overlay['zone']>, demo: Overlay['demo'], time: number) {
+    const ctx = this.ctx;
+    const pulse = 0.5 + 0.5 * Math.sin(time * 3);
+    const ring = (k: number) => {
+      const pts: { x: number; y: number }[] = [];
+      for (let a = 0; a < 48; a++) pts.push(this.toScreen(z.x + 0.5 + Math.cos((a / 48) * Math.PI * 2) * z.r * k, z.y + 0.5 + Math.sin((a / 48) * Math.PI * 2) * z.r * k));
+      return pts;
+    };
+    const pts = ring(1);
+    ctx.save();
+    ctx.beginPath();
+    pts.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255,226,122,${0.14 + 0.1 * pulse})`;
+    ctx.fill();
+    ctx.setLineDash([9, 7]);
+    ctx.lineDashOffset = -time * 14;
+    ctx.strokeStyle = '#ffe27a';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // label above the outline
+    const top = pts.reduce((a, p) => (p.y < a.y ? p : a), pts[0]);
+    ctx.font = '700 12px system-ui, sans-serif';
+    const wd = ctx.measureText(z.label).width + 16;
+    ctx.fillStyle = 'rgba(40,32,10,.9)';
+    ctx.beginPath();
+    ctx.roundRect(top.x - wd / 2, top.y - 30, wd, 24, 12);
+    ctx.fill();
+    ctx.fillStyle = '#ffe9a6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(z.label, top.x, top.y - 17.5);
+    ctx.textAlign = 'left';
+    if (demo) {
+      // 3.6 s loop: press and hold (ring fills), drag across the area, lift, rest
+      const T = 3.6, t = time % T;
+      const A = this.toScreen(demo.from.x + 0.5, demo.from.y + 0.5), B = this.toScreen(demo.to.x + 0.5, demo.to.y + 0.5);
+      const hold = Math.min(1, t / 1.0), drag = Math.max(0, Math.min(1, (t - 1.0) / 1.6)), fade = t > 2.6 ? Math.max(0, 1 - (t - 2.6) / 0.4) : 1;
+      const e = drag * drag * (3 - 2 * drag);
+      const fx = A.x + (B.x - A.x) * e, fy = A.y + (B.y - A.y) * e;
+      ctx.globalAlpha = t > 3.0 ? 0 : fade;
+      // sand trail
+      if (drag > 0) {
+        ctx.strokeStyle = 'rgba(236,214,150,.85)';
+        ctx.lineWidth = 16;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(fx, fy);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+      if (hold < 1 || drag === 0) {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(28,58,43,0.35)';
+        ctx.beginPath(); ctx.arc(A.x, A.y - 30, 15, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = hold >= 1 ? '#c8952a' : '#f5edd8';
+        ctx.beginPath(); ctx.arc(A.x, A.y - 30, 15, -Math.PI / 2, -Math.PI / 2 + hold * Math.PI * 2); ctx.stroke();
+      }
+      // a simple pointing hand: fingertip at the touch point
+      ctx.translate(fx, fy);
+      ctx.rotate(-0.25);
+      ctx.fillStyle = '#fff8e7';
+      ctx.strokeStyle = '#26381f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-5, -2, 10, 24, 5);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.roundRect(-13, 14, 26, 22, 8);
+      ctx.fill(); ctx.stroke();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.restore();
   }
 
   /** The unbuilt tee, green and turning points a pending hole plan would create, with its route and length. */

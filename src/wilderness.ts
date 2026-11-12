@@ -3,7 +3,7 @@
 // shading can be rebuilt on load without saving anything extra.
 import { CFG } from './config';
 import { REGIONS, RegionId } from './progression';
-import { CLUB_H, CLUB_W, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
+import { CLUB_H, CLUB_W, Hole, Pt, T, World, computeZones, hash2, holePath, idx, inBounds, polyDist, vnoise } from './terrain';
 
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const smooth = (a: number, b: number, x: number) => {
@@ -292,12 +292,25 @@ export function placeClubhouse(world: World, c: Pt): string | null {
  * A short, dry, easy-to-build par 3 near the clubhouse for the tutorial to point at: a clear corridor with
  * no water or paving in the way, a pond to look at beside the green when there is one, and as few trees to cut as it can find.
  */
-export function suggestFirstHole(world: World): { tee: Pt; cup: Pt } | null {
+export function suggestFirstHole(world: World, opts: { avoid?: Hole[]; near?: Pt } = {}): { tee: Pt; cup: Pt } | null {
   const c = world.clubhouse;
   if (!c) return null;
   const door = { x: c.x + 3.5, y: c.y + 2.5 };
+  const anchor = opts.near ?? door;
+  const [near0, near1] = opts.near ? [5, 26] : [9, 20];
+  // tiles too close to a hole that already exists, so a second suggestion never lands on the first
+  const taken = new Uint8Array(world.w * world.h);
+  for (const h of opts.avoid ?? []) {
+    const path = holePath(h);
+    for (let y = 0; y < world.h; y++) {
+      const dy = Math.min(...path.map((p) => Math.abs(p.y - y)));
+      if (dy > 8) continue;
+      for (let x = 0; x < world.w; x++) if (polyDist(x + 0.5, y + 0.5, path).d < 6) taken[y * world.w + x] = 1;
+    }
+  }
   const blocked = (x: number, y: number) => {
     if (!inBounds(world, x, y)) return true;
+    if (taken[idx(world, x, y)]) return true;
     const t = world.terrain[idx(world, x, y)];
     return t === T.WATER || t === T.PATH || t === T.BUILDING;
   };
@@ -305,8 +318,8 @@ export function suggestFirstHole(world: World): { tee: Pt; cup: Pt } | null {
   let bestScore = -Infinity;
   for (let ty = 5; ty < world.h - 5; ty += 2)
     for (let tx = 5; tx < world.w - 5; tx += 2) {
-      const dd = Math.hypot(tx - door.x, ty - door.y);
-      if (dd < 9 || dd > 20) continue;
+      const dd = Math.hypot(tx - anchor.x, ty - anchor.y);
+      if (dd < near0 || dd > near1) continue;
       for (let a = 0; a < 24; a++) {
         const ang = (a / 24) * Math.PI * 2;
         const len = 15 + (a % 3);

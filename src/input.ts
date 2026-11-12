@@ -28,7 +28,7 @@ export const HOLD_MS = 320;
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null, bGhost: null };
+  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, zone: null, demo: null, hold: null, bGhost: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
   /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
@@ -188,6 +188,13 @@ export class Editor {
     const zoom = Math.max(0.45, Math.min(maxZoom, width / spanX, Math.max(120, height) / spanY));
     this.r.focus((Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2 + 0.5, (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2 + 0.5, zoom, this.game.world);
   }
+  /** Keep the given tiles on screen, clear of the panels: nothing moves if they already fit with room for labels. */
+  ensureVisible(pts: Pt[], margin = 36) {
+    const ins = this.r.insets;
+    const sc = pts.map((p) => this.r.toScreen(p.x + 0.5, p.y + 0.5));
+    const fits = sc.every((s) => s.x >= ins.l + margin && s.x <= this.r.cw - ins.r - margin && s.y >= ins.t + margin + 30 && s.y <= this.r.ch - ins.b - margin);
+    if (!fits) this.focusPoints(pts, Math.max(0.6, this.r.cam.zoom));
+  }
   setTool(t: ToolId) {
     if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
     this.cancelStroke();
@@ -346,7 +353,16 @@ export class Editor {
     if (!this.tryReplan()) this.replanNew();
     this.game.notify('info', 'Turning point removed.');
   }
+  /** True once the player has tapped a par button (so a tutorial can tell a choice from the preset). */
+  parPicked = false;
+  /** Yards from the placed tee to the tile under the pointer, while the green is being chosen with a mouse. Null on touch. */
+  get liveYards(): number | null {
+    if (!this.buildTee || !this.hover || this.pending) return null;
+    const d = Math.hypot(this.hover.x - this.buildTee.x, this.hover.y - this.buildTee.y);
+    return d >= 2 ? Math.round(d * CFG.grid.yardsPerTile) : null;
+  }
   setNewPar(par: number) {
+    this.parPicked = true;
     this.newPar = par;
     this.replanNew();
     this.onChange();

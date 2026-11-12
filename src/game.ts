@@ -1,6 +1,6 @@
 import { Experience, freshExperience, awardExperience, constructionFactor } from './experience';
 import type { Feedback } from './feedback';
-import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from './wilderness';
+import { createWilderness, newLandSeed, placeClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
@@ -68,10 +68,8 @@ export interface NewGameOptions {
   region?: RegionId;
   name?: string;
   logo?: Logo;
-  /** false skips the optional tutorial. */
+  /** false skips the optional tutorial; otherwise it runs on this course, starting with the clubhouse. */
   tutorial?: boolean;
-  /** the practice course: the tutorial runs here, then the player starts their own course */
-  practice?: boolean;
 }
 
 export const STAFF = {
@@ -87,7 +85,7 @@ export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak'; title: stri
 export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; /** help tips already shown, by key */ tipsSeen?: string[]; }
 export class Game {
   experience: Experience = freshExperience();
-  /** Level 1 walkthrough progress. New games start at step 0. */
+  /** First-session tutorial progress, on the player's real course. New games start at step 0. */
   tutorial: TutorialState = freshTutorial();
   preferences: Preferences = { sound: true, music: true, haptics: true, dailyReports: true };
   pendingRecap: DaySummary | null = null;
@@ -165,14 +163,6 @@ export class Game {
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
     if (opts.tutorial === false) this.tutorial.done = true;
-    if (opts.practice) {
-      // a ready clubhouse, plenty of money, nothing that counts: just learning
-      this.practice = true;
-      this.name = 'Practice Course';
-      this.cash = 60000;
-      const spot = suggestClubhouse(this.world);
-      if (spot) placeClubhouse(this.world, spot);
-    }
     // a course handed in ready-made starts its goals at the first one it has not reached, unpaid
     if (world) this.catchUpGoals();
     this.rng = new Rng(seed);
@@ -259,11 +249,15 @@ export class Game {
   }
   dismiss(id: StaffId) { if (id in STAFF) { this.staff[id] = false; this.dirtySave = true; } }
   toggleDesignMode() {
-    if (this.owner.active) return;
-    this.designMode = !this.designMode;
-    if (this.designMode) { this.designSpeed = this.settings.speed; this.setSpeed(0); }
+    this.setDesignMode(!this.designMode);
+  }
+  /** Pause time for building (design mode) or let it run again at the speed it had. */
+  setDesignMode(on: boolean, quiet = false) {
+    if (this.owner.active || this.designMode === on) return;
+    this.designMode = on;
+    if (on) { this.designSpeed = this.settings.speed || 1; this.setSpeed(0); }
     else this.setSpeed(this.designSpeed || 1);
-    this.notify('info', this.designMode ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
+    if (!quiet) this.notify('info', on ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
   }
   claimObjective(id: string) {
     const o = GOALS.find(o => o.id === id);
@@ -613,8 +607,6 @@ export class Game {
     this.onFeedback(c.kind === 'level' ? 'level' : 'reward');
   }
   daily: DailyState = freshDaily();
-  /** The practice course the tutorial runs on: no goals, no streaks, not the player's real club. */
-  practice = false;
   /** Collect the streak reward. */
   claimStreak(): number {
     const n = this.daily.pending;
@@ -645,7 +637,6 @@ export class Game {
   goalJustDone: { title: string; reward: number; next: string | null } | null = null;
   /** Advance the goal chain: one goal at a time, each paying its grant. */
   checkGoals() {
-    if (this.practice) return;
     const i = chainStep(this);
     const goal = CHAIN[i];
     if (!goal || goal.value(this) < goal.target) return;

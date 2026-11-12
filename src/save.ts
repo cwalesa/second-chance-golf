@@ -8,11 +8,13 @@ import { REGIONS } from './progression';
 import { CHAIN, CHAIN_V1 } from './campaign';
 import { ITEMS } from './items';
 import { defaultLogo } from './logo';
+import { legacyTutorialStep } from './tutorial';
 
 const KEY = 'second-chance-golf.save.v2';
 const VERSION = 2;
 const BACKUP_KEY = KEY + '.backup';
-export interface LoadedSave { game: Game; savedAt: number; recovered?: boolean; }
+/** `legacyPractice` marks a save from the old practice-course tutorial, which has been converted to an ordinary course. */
+export interface LoadedSave { game: Game; savedAt: number; recovered?: boolean; legacyPractice?: boolean; }
 
 export function serialize(g: Game): string {
   const w = g.world;
@@ -21,8 +23,7 @@ export function serialize(g: Game): string {
     savedAt: Date.now(),
     campaign: g.campaign,
     daily: g.daily,
-    practice: g.practice,
-    tutorial: g.tutorial,
+    tutorial: { ...g.tutorial, v: 2 },
     experience: g.experience,
     preferences: g.preferences,
     pendingRecap: g.pendingRecap,
@@ -118,7 +119,6 @@ export function deserialize(text: string): LoadedSave | null {
     g.preferences = { ...g.preferences, ...(d.preferences ?? {}) };
     g.pendingRecap = d.pendingRecap ?? null;
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
-    g.practice = d.practice === true;
     if (d.daily && typeof d.daily.date === 'string' && Array.isArray(d.daily.challenges)) g.daily = { ...g.daily, ...d.daily };
     if (d.campaign?.step === undefined) g.catchUpGoals();
     else {
@@ -130,10 +130,18 @@ export function deserialize(text: string): LoadedSave | null {
       // goals added before this point that the course has already met are skipped, unpaid
       g.catchUpGoals();
     }
-    // Saves from before the walkthrough existed already know the controls.
-    g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
-    // the walkthrough only runs on the practice course; a real course from an older version is past it
-    if (!g.practice) g.tutorial.done = true;
+    // Tutorial progress. Version 2 runs on the player's real course and is stored by step id. Older saves ran it on a
+    // separate practice course (or not at all), so only a practice course still in progress has anywhere to resume.
+    const t = d.tutorial;
+    const legacyPractice = d.practice === true;
+    if (t && t.v === 2 && Number.isInteger(t.step)) g.tutorial = { step: Math.max(0, t.step), done: !!t.done, at: typeof t.at === 'string' ? t.at : undefined, v: 2 };
+    else if (legacyPractice && t && !t.done && Number.isInteger(t.step)) g.tutorial = { step: legacyTutorialStep(t.step, world.holes.length > 0), done: false, v: 2 };
+    else g.tutorial = { step: 0, done: true, v: 2 };
+    // a practice course becomes an ordinary one: the practice name and cash do not carry over
+    if (legacyPractice) {
+      if (d.name === 'Practice Course') d.name = 'Willow Creek';
+      d.cash = Math.min(d.cash, CFG.economy.startCash);
+    }
     g.staff = { ...g.staff, ...(d.staff ?? {}) };
     g.members = Array.isArray(d.members) ? d.members : [];
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];
@@ -174,7 +182,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
-    return { game: g, savedAt: d.savedAt ?? Date.now() };
+    return { game: g, savedAt: d.savedAt ?? Date.now(), legacyPractice: legacyPractice || undefined };
   } catch {
     return null;
   }
@@ -206,9 +214,9 @@ export function loadGame(): LoadedSave | null {
 }
 const PARKED_KEY = KEY + '.parked';
 export const PRACTICED_KEY = 'second-chance-golf.practiced';
-/** Put the current course aside (for a replay of the practice course). */
-export function parkSave(g: Game) {
-  try { localStorage.setItem(PARKED_KEY, serialize(g)); localStorage.removeItem(KEY); localStorage.removeItem(BACKUP_KEY); } catch { /* No storage available. */ }
+/** True when a real course was set aside by the old practice-course replay. */
+export function hasParked(): boolean {
+  try { return !!localStorage.getItem(PARKED_KEY); } catch { return false; }
 }
 /** Bring a parked course back; false if there was none. */
 export function restoreParked(): boolean {

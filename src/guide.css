@@ -1,0 +1,83 @@
+/*
+  Guidance layer: the tutorial coach, introductions and the phone layout rules they depend on.
+  Loaded last, so it states the layout contract once instead of patching the older rules above it.
+
+  Portrait:  chip and coach at the top; placement bar above the tray or sheet at the bottom; menu button bottom right.
+  Landscape: chip top left; tools or panels in a column on the right; the placement bar bottom left; the coach
+             bottom left, or top (beside the chip) when the bottom is taken.
+*/
+
+/* the coach is the only guide during the tutorial: no goal card, no goal pop-ups behind it */
+body.coaching #goalbar { display: none !important; }
+
+/* the placement bar teaches par and shows the length and price, so it stays visible during the tutorial */
+body.mobile.coaching #confirm.placing:not(:has(#clubOk)) { display: flex !important; }
+body.mobile.coaching.placing-club #confirm .cf-text { display: flex !important; }
+
+/* ---------- coach card ---------- */
+body.mobile #coach { padding: 10px 12px 6px !important; }
+body.mobile #coach .coach-row { display: flex; align-items: center; gap: 10px; }
+body.mobile #coach .coach-short { font-size: 14.5px !important; line-height: 1.3; flex: 1; min-width: 0; }
+body.mobile #coach .coach-actions { display: flex; align-items: center; gap: 4px; margin: 0; }
+body.mobile #coach .coach-x { min-height: 32px !important; padding: 0 10px 0 0 !important; font-size: 12.5px; }
+body.mobile #coach .coach-more { margin-top: 2px !important; border-top: 1px solid var(--pp-edge); padding-top: 6px; }
+body.mobile #coach .coach-more p { font-size: 13px !important; font-weight: 500 !important; color: var(--ink-dim) !important; margin: 0 0 4px !important; }
+body.mobile #coach .coach-x.quiet { padding-left: 0 !important; color: var(--clay) !important; }
+body.mobile.coaching #confirm #cfStop { display: none !important; }
+body.mobile #confirm .cf-pars { width: fit-content; }
+
+/* ================= phone on its side ================= */
+@media (orientation: landscape) and (max-height: 600px) {
+  /* tools: a column on the right, so the map keeps the full height */
+  body.mobile #tools {
+    top: calc(6px + env(safe-area-inset-top)) !important; bottom: calc(6px + env(safe-area-inset-bottom)) !important;
+    right: calc(6px + env(safe-area-inset-right)) !important; left: auto !important; width: 200px !important; height: auto !important; max-height: none !important;
+    flex-direction: column !important; align-items: stretch !important; gap: 6px !important; padding: 8px !important; border-radius: 20px !important; overflow: hidden !important;
+  }
+  body.mobile #tools .ph-mode { flex-direction: row !important; align-self: stretch !important; flex: none; }
+  body.mobile #tools .ph-mode button { flex: 1; padding: 4px 2px !important; font-size: 10.5px !important; min-height: 30px !important; }
+  body.mobile #tools .phonerow { flex: 1 1 auto !important; min-height: 0; width: 100% !important; display: grid !important; grid-template-columns: 44px 1fr; grid-template-rows: minmax(0, 1fr) auto; gap: 6px !important; align-items: stretch !important; }
+  body.mobile #tools .ph-tools { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; overflow-x: hidden; overflow-y: auto; -webkit-mask-image: none !important; mask-image: none !important; padding: 2px 2px 6px !important; min-height: 0; }
+  body.mobile #tools[data-set="course"] .ph-decor, body.mobile #tools[data-set="decor"] .ph-tools:not(.ph-decor), body.mobile #tools[data-set="buildings"] .ph-tools:not(.ph-decor) { display: none !important; }
+  body.mobile #tools .ph-tools .tool { width: auto !important; height: 62px !important; min-height: 0 !important; }
+  body.mobile #tools .ph-decor .tool { height: 70px !important; }
+  body.mobile #tools .ph-undo { grid-column: 1; grid-row: 2; width: 44px !important; height: 40px !important; min-height: 0 !important; border-radius: 14px !important; }
+  body.mobile #tools .phonerow .tray-done { grid-column: 2; grid-row: 2; height: 40px !important; min-height: 0 !important; border-radius: 14px !important; width: auto !important; }
+
+  /* the placement bar: bottom left, beside the tools; it never covers the right-hand column */
+  body.mobile #confirm, body.mobile[data-tab] #confirm {
+    left: calc(8px + env(safe-area-inset-left)) !important; right: auto !important; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: min(500px, calc(100vw - var(--rail-w, 0px) - 28px - env(safe-area-inset-left) - env(safe-area-inset-right))) !important;
+  }
+
+  /* the coach: bottom left, or top beside the chip when the bottom is taken (placement bar, open menu) */
+  body.mobile #coach, body.mobile #coach.ontop { right: auto !important; margin: 0 !important; max-height: 46vh; }
+  body.mobile[data-slot="bottom"] #coach, body.mobile[data-slot="bottom"] #coach.ontop {
+    top: auto !important; left: calc(8px + env(safe-area-inset-left)) !important; bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: min(460px, calc(100vw - var(--rail-w, 0px) - 28px - env(safe-area-inset-left) - env(safe-area-inset-right))) !important;
+  }
+  body.mobile[data-slot="top"] #coach, body.mobile[data-slot="top"] #coach.ontop {
+    top: calc(6px + env(safe-area-inset-top)) !important; bottom: auto !important; left: calc(var(--chip-r, 0px) + 8px) !important;
+    width: min(460px, calc(100vw - var(--chip-r, 0px) - var(--rail-w, 0px) - 28px - env(safe-area-inset-right))) !important;
+  }
+  /* toasts sit under the chip, clear of everything else */
+  body.mobile #toasts, body.mobile.coaching #toasts, body.mobile.has-proposal #toasts { top: calc(var(--hdr) + 12px) !important; bottom: auto !important; left: calc(8px + env(safe-area-inset-left)) !important; right: auto !important; width: min(340px, 40vw) !important; transform: none !important; }
+  /* the side panel header is never covered: the coach lives at the bottom of the free column */
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  body.mobile #tools .ph-mode button { font-size: 9.5px !important; letter-spacing: 0 !important; padding: 4px 0 !important; }
+}
+
+/* ---------- start screen on its side: the club details take the empty left column, so Start fits without scrolling ---------- */
+@media (orientation: landscape) and (max-height: 600px) {
+  #start .guide { max-width: none !important; width: 100%; grid-template-columns: minmax(280px, 340px) 1fr !important; grid-template-rows: auto minmax(0, 1fr) auto !important; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  #start .guide-head { grid-row: 1 !important; grid-column: 1 !important; border-right: 2px solid var(--ink) !important; border-bottom: 2px solid var(--ink) !important; display: block !important; }
+  #start .guide-head .banner { height: 54px !important; }
+  #start .guide-body { display: contents !important; }
+  #start .guide-club { grid-row: 2; grid-column: 1; overflow-y: auto; padding: 8px 14px; border-right: 2px solid var(--ink); min-height: 0; }
+  #start .guide-places { grid-row: 1 / span 2; grid-column: 2; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 14px 8px; min-height: 0; }
+  #start .guide-foot { grid-row: 3 !important; grid-column: 1 / -1 !important; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+  #start .guide-foot .start-play { min-height: 44px; }
+  #start .crest-btn canvas { width: 64px !important; height: 64px !important; }
+  #start .guide-club .rule-head { margin-bottom: 6px; }
+}
