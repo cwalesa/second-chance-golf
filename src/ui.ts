@@ -49,7 +49,7 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   course: 'Every hole you build, with its par, length and whether it is open. Only open holes earn money.',
   guests: 'How happy your golfers are, and why. Happy golfers come back and may join as members.',
   money: 'Set green fees for each time of day; keep them near what guests think is fair. Improvements here earn extra money.',
-  club: 'Upgrade the clubhouse to allow more holes, hire staff and see what raises your rating.',
+  club: 'Upgrade the clubhouse to draw more golfers and, later, to allow more than nine holes. Hire staff and see what raises your rating.',
   events: 'Book a tournament or outing for a big one-day crowd. Each event lists what it needs.',
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
 };
@@ -1036,7 +1036,10 @@ export class UI {
     }
     if (performance.now() - this.dayCheck > 2000) {
       this.dayCheck = performance.now();
-      if (!g.practice && !document.body.classList.contains('coaching') && rollDay(g)) {
+      // The very first day's reward and challenges arrive quietly (a badge on the menu and on Goals): a brand-new course
+      // has nobody to welcome back, and the player is busy opening for the first time.
+      const firstEver = !g.daily.date;
+      if (!g.practice && !document.body.classList.contains('coaching') && rollDay(g) && !firstEver) {
         g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
       }
     }
@@ -1576,7 +1579,7 @@ export class UI {
     let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="96" height="96"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
-      <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${club.holes}</span></div>`;
+      <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${g.maxHoles}</span></div>`;
     html += next ? `<div class="note ${why ? 'warn' : 'good'}">Next: ${next.name}. ${why ?? 'Requirements met.'}</div><button class="btn primary" data-act="club" ${why || g.cash < next.cost ? 'disabled' : ''}>Upgrade for ${fmtMoney(next.cost)}</button>` : '<div class="note good">Fully upgraded.</div>';
     html += `</div></div>`;
     html += `<div class="sec"><h3>What raises your rating</h3><div class="dim">Open holes (${g.openHoles.length}), turf condition (${Math.round(g.avgCondition)}), guest satisfaction (${Math.round(g.reputation)}), improvements owned and the clubhouse level. Higher ratings lift demand and fees, and unlock bigger clubhouse upgrades and events.</div></div>`;
