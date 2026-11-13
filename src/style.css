@@ -999,3 +999,8 @@ body.has-proposal #roundcard, body.menu-open #roundcard { display: none; }
 
 /* while the result card is up, notifications move to the top so they never sit on it */
 body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
+
+/* ---- the closed-hole reminder shares the Next job bar ---- */
+#goalbar.alert { min-height: 52px; padding-right: 6px; cursor: default; }
+#goalbar .k.closed { background: #d0442b; color: #fff; }
+#goalbar .gb-act { flex: none; min-height: 40px; padding: 0 12px; font-size: 13px; }

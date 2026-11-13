@@ -337,7 +337,17 @@ export class UI {
       this.onInsets();
       if (el.dataset.act === 'focus') this.editor.focusHole();
     });
-    this.$('goalbar').addEventListener('click', () => {
+    this.$('goalbar').addEventListener('click', (e) => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>('[data-gb]')?.dataset.gb;
+      if (act) {
+        // the closed-hole reminder: open what is ready, or show why the first one cannot open
+        const { waiting, ready } = this.closedHoles();
+        if (act === 'open') for (const h of ready) this.game.openHole(h.id);
+        else if (waiting[0]) { this.editor.selectHole(waiting[0].id); this.editor.focusHole(); this.tab = 'course'; this.sheet = 'half'; this.cache.delete('side'); }
+        this.refresh(true);
+        this.onInsets();
+        return;
+      }
       this.tab = 'journey';
       this.refresh(true);
     });
@@ -672,6 +682,7 @@ export class UI {
     if (speed <= 0) { this.game.pause(); return; }
     if (!this.leaveDesignForResume()) return;
     this.game.setSpeed(speed);
+    this.warnNoHoles();
   }
   /** The Resume / Open for business button on the clock chip. */
   chipAction() {
@@ -679,6 +690,7 @@ export class UI {
     if (!g.settings.open) { g.openForBusiness(); return; }
     if (!this.leaveDesignForResume()) return;
     g.resume();
+    this.warnNoHoles();
   }
   /** Resuming time ends designing: put the tools down and close the tray, but never throw away an unbuilt change. */
   private leaveDesignForResume(): boolean {
@@ -1177,15 +1189,31 @@ export class UI {
     }
   }
 
+  /** Holes that were built or closed by building work and have not been opened since, and which of them could open now. */
+  private closedHoles() {
+    const g = this.game;
+    const waiting = g.world.holes.filter((h) => !h.open && h.awaiting);
+    return { waiting, ready: waiting.filter((h) => g.validate(h.id).ok) };
+  }
+  /** Time is running but nobody can play: say so, since nothing else on screen does. */
+  private warnNoHoles() {
+    const g = this.game;
+    if (g.businessRunning && g.world.holes.length && !g.openHoles.length) this.toast('No holes are open, so no golfers will come. Open a hole first.', 'bad');
+  }
   private renderGoalBar() {
     const g = this.game;
     const goal = currentGoal(g);
-    const html = goal
+    const { waiting, ready } = this.closedHoles();
+    const what = waiting.length === 1 ? `Hole ${waiting[0]?.id} is closed` : `${waiting.length} holes are closed`;
+    const html = waiting.length && !g.practice
+      ? `<div class="k closed"><span>Closed</span></div><div class="gt">${what}</div><button class="btn primary gb-act" data-gb="${ready.length ? 'open' : 'why'}">${ready.length ? (ready.length > 1 ? `Open ${ready.length}` : 'Open it') : 'See why'}</button>`
+      : goal
       ? `<div class="k">${flagMark()}<span>Next job</span></div><div class="gt">${goal.title}</div><div class="p"><i class="box"></i>${goalProgressText(goal, g)}</div>`
       : `<div class="k">${flagMark()}<span>All done</span></div><div class="gt">Build freely</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
+      this.$('goalbar').classList.toggle('alert', html.includes('gb-act'));
     }
   }
   /** Goal and reward pop-ups: shown by the moment queue (see moments.ts), one at a time. */
