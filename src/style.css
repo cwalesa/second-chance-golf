@@ -1060,3 +1060,12 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
 
 /* reward pop-ups sit below the Next job bar instead of on top of it */
 #goalpop { top: calc(134px + var(--sat)); }
+
+/* ---- landscape: messages keep out of the side panel, and tips sit beside the header, not over the map ---- */
+@media (orientation: landscape) and (max-height: 600px) {
+  body[data-tab]:is([data-tab="course"], [data-tab="guests"], [data-tab="money"], [data-tab="club"], [data-tab="journey"], [data-tab="events"]) #toasts { right: calc(var(--side-w, 0px) + 8px); }
+  /* with the tray up, messages sit just above it, beside the brush button, instead of across the header */
+  body[data-tab="build"] #toasts { bottom: calc(var(--dock) + 10px); left: calc(72px + var(--sal)); }
+  #tip, body.has-proposal #tip { left: auto; right: calc(8px + var(--sar)); top: calc(8px + var(--sat)); width: min(390px, calc(100% - 460px - var(--sal) - var(--sar))); padding: 6px 8px 6px 10px; gap: 8px; }
+  #tip p { font-size: 12px; line-height: 1.3; }
+}
