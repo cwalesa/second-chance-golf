@@ -13,6 +13,7 @@ import type { Cheer } from './game';
 import { StaffId } from './game';
 import { CFG } from './config';
 import { Game, fmtMoney } from './game';
+import { TUTORIAL_STEPS } from './tutorial';
 import { Editor, terrainLabel } from './input';
 import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint, planStraighten } from './editing';
 import { EVENTS, EVENT_IDS, EventId } from './events';
@@ -75,8 +76,6 @@ export class UI {
   private toolShown = '';
   private cat: ToolCat = 'terrain';
   onReset: () => void = () => {};
-  onPractice: () => void = () => {};
-  onGraduate: () => void = () => {};
   onSaveNow: () => void = () => {};
   onExport: () => void = () => {};
   onImport: () => void = () => {};
@@ -95,6 +94,7 @@ export class UI {
     this.buildTop();
     this.buildSide();
     this.buildNav();
+    this.buildChip();
     // One layout: the game is an iPhone game. In a wide browser window it shows in a phone-sized frame.
     this.setMobile(true);
     game.onNotice = (n) => this.toast(n.text, n.kind);
@@ -152,7 +152,7 @@ export class UI {
       if (b.dataset.buycart) { if (!this.game.upgrades.carts) this.game.buyUpgrade('carts'); else this.game.buyCart(); this.refresh(true); return; }
       if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
-      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.refresh(true); this.onInsets(); return; }
+      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
       else if (b.dataset.cat) {
         const order: ToolCat[] = ['terrain', 'nature', 'holes'];
@@ -186,7 +186,7 @@ export class UI {
     top.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
-      if (b.dataset.speed !== undefined) this.game.setSpeed(Number(b.dataset.speed));
+      if (b.dataset.speed !== undefined) this.setTimeSpeed(Number(b.dataset.speed));
       if (b.id === 'menuBtn' || b.id === 'brandBtn') this.openMenu();
     });
     const stopRepeat = () => {
@@ -252,11 +252,10 @@ export class UI {
         else if (el.dataset.act === 'holetool') { this.editor.setTool(el.dataset.id as ToolId); this.tab = this.mobile ? 'build' : this.tab; }
         else if (el.dataset.act === 'newhole') { this.editor.setTool('build'); this.tab = this.mobile ? 'build' : this.tab; }
         else if (el.dataset.act === 'testgolfers') {
+          // Test golfers play on their own: the business clock and the player's chosen speed are left exactly as they are.
           const g = this.game;
-          if (g.designMode) g.toggleDesignMode();
-          if (g.settings.speed < 3) g.setSpeed(3);
           this.editor.setTool('inspect');
-          g.sendTestGolfers(this.game.selectedHole);
+          g.sendTestGolfers(this.game.selectedHole, g.tutorial.done ? undefined : ['regular']);
           g.followGolfer = 0;
           this.editor.focusHole();
           if (this.mobile) this.tab = 'none';
@@ -264,8 +263,9 @@ export class UI {
         else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'undo') this.editor.undo();
         else if (el.dataset.act === 'practice' || el.dataset.act === 'playround') {
-          this.editor.discard(); this.game.designMode = false; this.editor.setTool('inspect'); this.game.owner.start(this.game, el.dataset.act === 'playround');
-          this.game.setSpeed(0); this.editor.focusHole(); if (this.mobile) this.tab = 'none';
+          // The practice round holds the clock only while it lasts; whether time was running or held beforehand is untouched.
+          this.editor.discard(); this.editor.setTool('inspect'); this.game.exitDesign(); this.game.owner.start(this.game, el.dataset.act === 'playround');
+          this.editor.focusHole(); if (this.mobile) this.tab = 'none';
         }
         else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'open') this.openFromPanel(id);
@@ -303,6 +303,43 @@ export class UI {
     });
   }
 
+  /** A small status chip with the one button that matters: Resume, or Open for business. Visible whenever time is held. */
+  private chip = document.createElement('div');
+  private buildChip() {
+    this.chip.id = 'timechip';
+    this.chip.setAttribute('role', 'status');
+    this.chip.hidden = true;
+    this.chip.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) { this.chipAction(); this.refresh(true); } });
+    // Touches on the chip never reach the course underneath.
+    this.chip.addEventListener('pointerdown', (e) => e.stopPropagation());
+    document.getElementById('app')!.append(this.chip);
+  }
+  /** Label and button for whatever is holding time, or null when the clock is running. */
+  chipView(): { label: string; button: string | null; tone: 'design' | 'hold' } | null {
+    const g = this.game;
+    switch (g.timeHold) {
+      case 'design': return { label: 'Designing · Time paused', button: 'Resume', tone: 'design' };
+      case 'paused': return { label: 'Time paused', button: 'Resume', tone: 'hold' };
+      case 'unopened': {
+        // While the tutorial is teaching, its own last step offers Open for business; the chip only labels the pause until then.
+        const teaching = !g.tutorial.done && g.tutorial.step < TUTORIAL_STEPS - 1;
+        return { label: 'Setting up · Time paused', button: g.world.clubhouse && !teaching ? 'Open for business' : null, tone: 'design' };
+      }
+      default: return null;
+    }
+  }
+  private updateChip() {
+    const v = this.chipView();
+    const html = v ? `<span class="tc-dot" aria-hidden="true"></span><b>${v.label}</b>${v.button ? `<button class="tc-btn" type="button">${v.button}</button>` : ''}` : '';
+    if (this.cache.get('chip') !== html) {
+      this.cache.set('chip', html);
+      this.chip.innerHTML = html;
+      this.chip.hidden = !v;
+      this.chip.dataset.tone = v?.tone ?? '';
+    }
+    document.body.classList.toggle('time-held', !!v);
+  }
+
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${icon(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
@@ -314,7 +351,7 @@ export class UI {
     fab.setAttribute('aria-label', 'Menu');
     document.getElementById('app')!.append(fab);
     fab.onclick = () => {
-      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); }
+      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); this.game.exitDesign(); }
       else this.menuOpen = !this.menuOpen;
       this.refresh(true);
       this.onInsets();
@@ -322,7 +359,7 @@ export class UI {
     this.$('nav').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
-      if (b.dataset.mspeed !== undefined) { this.game.setSpeed(Number(b.dataset.mspeed)); this.menuOpen = false; this.refresh(true); return; }
+      if (b.dataset.mspeed !== undefined) { this.setTimeSpeed(Number(b.dataset.mspeed)); this.menuOpen = false; this.refresh(true); return; }
       if (b.dataset.m) {
         this.menuOpen = false;
         if (b.dataset.m === 'settings') this.openMenu();
@@ -442,6 +479,8 @@ export class UI {
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
     const base = this.panelInsets();
+    const chip = document.getElementById('timechip');
+    if (chip && !chip.hidden && !this.landscape) base.t = Math.max(base.t, chip.offsetTop + chip.offsetHeight + 6);
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
     const c = coach.getBoundingClientRect(), a = this.appRect;
@@ -554,6 +593,31 @@ export class UI {
     if (!v.ok && v.issues[0]?.at) this.editor.focusPoint(v.issues[0].at);
   }
 
+  /** Pause, or choose a running speed (which resumes an open course). Closes the build tray when time restarts. */
+  setTimeSpeed(speed: number) {
+    if (speed <= 0) { this.game.pause(); return; }
+    if (!this.leaveDesignForResume()) return;
+    this.game.setSpeed(speed);
+  }
+  /** The Resume / Open for business button on the clock chip. */
+  chipAction() {
+    const g = this.game;
+    if (!g.settings.open) { g.openForBusiness(); return; }
+    if (!this.leaveDesignForResume()) return;
+    g.resume();
+  }
+  /** Resuming time ends designing: put the tools down and close the tray, but never throw away an unbuilt change. */
+  private leaveDesignForResume(): boolean {
+    if (!this.game.settings.open) return true;
+    if (this.editor.proposal || this.editor.bGhost || this.editor.placingClub) { this.toast('Build or cancel the change in progress first.', 'info'); return false; }
+    if (this.tab === 'build') this.tab = 'none';
+    if (this.editor.tool !== 'inspect' && this.editor.tool !== 'pan') this.editor.setTool('inspect');
+    this.game.exitDesign();
+    this.refresh(true);
+    this.onInsets();
+    return true;
+  }
+
   // ---------- menu and modals ----------
   private modal(html: string): HTMLElement {
     const m = this.$('modal');
@@ -569,18 +633,11 @@ export class UI {
     const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdTutorial">${g.practice ? 'Leave the practice course' : 'Play the practice course'}</button>
       <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button>
       <button class="btn" id="mdClose">Close</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
-    (m.querySelector('#mdTutorial') as HTMLElement).onclick = () => {
-      if (g.practice) { this.closeModal(); this.onGraduate(); return; }
-      const t = this.modal(`<h2>Play the practice course?</h2><p>A short guided course to learn the basics. Your own course is kept safe and comes back when you finish.</p><div class="actions"><button class="btn" id="tuNo">Not now</button><button class="btn primary" id="tuOk">Practice</button></div>`);
-      (t.querySelector('#tuNo') as HTMLElement).onclick = () => this.closeModal();
-      (t.querySelector('#tuOk') as HTMLElement).onclick = () => { this.closeModal(); this.onPractice(); };
-    };
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
     (m.querySelector('#mdName') as HTMLElement).onclick = () => this.nameModal();
@@ -780,7 +837,8 @@ export class UI {
     if (waiting) set('oncourse', `${g.sim.golfers.length} · ${waiting} waiting`);
     const sec = Math.round((performance.now() - this.lastSaved) / 1000);
     set('saved', this.lastSaved ? (sec < 4 ? 'Saved' : `Saved ${sec}s ago`) : '');
-    this.$('speed').querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.speed) === g.settings.speed));
+    this.updateChip();
+    this.$('speed').querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.speed) === g.speedShown));
 
     // tool buttons
     this.$('tools').querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tool === this.editor.tool));
@@ -807,7 +865,7 @@ export class UI {
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
     document.body.classList.toggle('menu-open', this.menuOpen);
-    this.$('nav').querySelectorAll<HTMLElement>('[data-mspeed]').forEach((b) => b.classList.toggle('on', Number(b.dataset.mspeed) === g.settings.speed));
+    this.$('nav').querySelectorAll<HTMLElement>('[data-mspeed]').forEach((b) => b.classList.toggle('on', Number(b.dataset.mspeed) === g.speedShown));
     const fabState = this.tab === 'build' ? 'done' : this.menuOpen ? 'close' : 'menu';
     if (this.cache.get('fab') !== fabState) {
       this.cache.set('fab', fabState);

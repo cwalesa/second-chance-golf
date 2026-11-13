@@ -161,7 +161,7 @@ export class Editor {
       } else if (e.key === 'Enter' && this.proposal) this.confirm();
       else if (e.key === '[') this.setBrush(Math.max(0, this.brush - 1));
       else if (e.key === ']') this.setBrush(Math.min(BRUSH_RADII.length - 1, this.brush + 1));
-      else if (e.key.toLowerCase() === 'p') this.game.setSpeed(this.game.settings.speed === 0 ? 1 : 0);
+      else if (e.key.toLowerCase() === 'p') { if (this.game.settings.paused) this.game.resume(); else this.game.pause(); }
     });
     window.addEventListener('keyup', (e) => {
       if (e.key === ' ') this.space = false;
@@ -189,6 +189,8 @@ export class Editor {
     this.r.focus((Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2 + 0.5, (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2 + 0.5, zoom, this.game.world);
   }
   setTool(t: ToolId) {
+    // Picking anything that edits the course starts designing: the business clock holds until the player resumes.
+    if (t !== 'inspect' && t !== 'pan') this.game.enterDesign();
     if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();

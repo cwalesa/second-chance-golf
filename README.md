@@ -25,7 +25,7 @@ Each new game begins on untouched land in one of five regions. All of the map is
 | Mountains | Hard | Rugged slopes, dense pines up to a bare treeline | Higher construction costs, strong seasons |
 | Desert | Very hard | Sparse scrub, sand wastes, a dry wash and oases | Highest green fees, higher turf upkeep and wear |
 
-The start screen also has a switch for the optional tutorial, which works in every region. Difficulty comes only from the existing regional modifiers in `src/progression.ts`; there is no irrigation, water budget or extra resource.
+The start screen also has a switch for the guided first-hole tutorial, which runs on your own course in whichever region you chose. Difficulty comes only from the existing regional modifiers in `src/progression.ts`; there is no irrigation, water budget or extra resource.
 
 ## Bigger map and navigation
 
@@ -46,7 +46,7 @@ The interface has four states so the course stays visible:
 - **Viewing:** a compact header (cash, time, speed, menu; hole selector with undo/redo) and bottom navigation (portrait) or an edge rail (landscape). Zoom and find-hole are small buttons on the map edge.
 - **Editing (Design):** the tool tray with Terrain / Nature / Holes groups. Placing a tee, cup, dogleg or new hole shows a bar with what to tap and a **Cancel** button; a pending change shows its price with **Build** / **Cancel**.
 - **Managing a hole (Holes):** a bottom sheet in portrait with a handle, the hole's name, and collapsed / half / full positions (drag the handle, tap it, or use ▴). Content scrolls on its own and never moves the map. **Edit hole** groups Move tee, Move cup, Dogleg, Rename and Remove; choosing one closes the sheet so you can see where to place. In landscape the same content is a narrow side panel.
-- **Tutorial:** one short instruction at a time, docked just above the bottom controls, with **More**, **‹ Back**, **Skip** and collapse. The gold ring marks the target; the card never covers it. It shrinks to one line while a Build/placement bar is up and sits beside that bar in landscape.
+- **Tutorial:** one short instruction at a time, docked under the clock chip at the top, with a gold ring (or a glow on the map) on the exact thing to use. **Skip this step** appears on optional steps and **Exit tutorial** ends it at any time, keeping everything built.
 
 Touch: one finger drags the map; press-and-hold then drag paints; a tap paints one spot or drops a placement preview; two fingers pinch and never edit. Undo is always in the header.
 
@@ -70,7 +70,7 @@ A new game no longer drops you into a half-built course. You begin with untouche
 Optional steps have a *Skip this step* link. 
 How it works: `wilderness.ts` generates the land from a seed (a creek, ponds in hollows and a height field with valleys carved around them), picks clubhouse spots, and suggests the first hole. The clubhouse is no longer fixed in the corner: `World.clubhouse` / `World.gate` say where it stands and where golfers appear, and `clubSites()` derives the door and entry from that, so the existing clubhouse art is simply drawn at an offset. Level 1's objectives are to open 3 holes, welcome 12 rounds and earn $500 profit. Saves store the clubhouse, gate and land seed, and a course with no holes is a valid save.
 
-A coach card shows one step at a time and a glowing ring marks the button to press; steps advance when you actually do the thing. The clock is paused while you set up. Progress is saved, so a reload resumes the same step. **Skip** ends it; Menu → **Replay the Level 1 tutorial** starts a fresh game.
+The tutorial runs on your own permanent course: place the clubhouse, build and open a first hole, send a test golfer and read its actual result, optionally add a bunker, then choose **Open for business**. A coach card shows one step at a time and steps advance when you actually do the thing. Time is paused throughout; a new course stays paused and closed until you open for business. Progress is saved, so a reload resumes the same step. If you exit early, the clock chip at the top keeps an **Open for business** button.
 
 There is no pre-built course: every game, and every later property reached through the campaign, starts as untouched land. (`tests/fixtures/classic-course.ts` keeps a small hand-built layout for tests only; the game never builds it.) Saves from before this version can't be loaded, because they have no generated land to rebuild.
 
@@ -388,3 +388,10 @@ Shortcuts: `P` pause, `[` `]` brush size, `Ctrl/Cmd+Z` undo, `Esc` back to Inspe
 | `ui.ts`, `style.css` | Top bar, toolbar, inspector tabs, toasts, reset dialog |
 
 Simulation runs on a fixed 1/30 s step independent of rendering; the speed buttons only change how many steps run per frame, so refresh rate never changes the economy.
+
+## Unhurried design
+
+- Entering Design, picking any editing tool, or editing from another panel pauses the business clock. A small chip ("Designing · Time paused") shows it, with a **Resume** button.
+- Leaving Design keeps time paused until you press Resume (or a speed button), which returns to the speed you had chosen.
+- Test golfers play while the business is held, at a quick fixed pace, without arrivals, income, upkeep, turf wear or day progress. Guests already on the course stay frozen. Your saved speed is not changed.
+- Offline catch-up only applies to a course left running; a paused, designing or not-yet-open course is unchanged when you return.

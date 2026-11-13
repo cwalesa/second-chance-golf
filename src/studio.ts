@@ -76,8 +76,9 @@ export class Studio {
       if (b.dataset.club) { this.g.owner.club = b.dataset.club as ClubId; this.g.owner.swing.cancel(); }
       if (b.dataset.owner === 'hit') { const o = this.g.owner; if (o.swing.active) o.hit(this.g, o.swing.strike()); else o.swing.start(); }
       if (b.dataset.owner === 'aim') { const h = this.g.hole(this.g.owner.holeId); this.g.owner.aim = { x: h.cup.x + .5, y: h.cup.y + .5 }; this.g.owner.swing.cancel(); }
-      if (b.dataset.owner === 'next') { this.g.owner.next(this.g); if (!this.g.owner.active) this.g.setSpeed(1); this.editor.focusHole(); }
-      if (b.dataset.owner === 'stop') { this.g.owner.stop(this.g); this.g.designMode = false; this.g.setSpeed(1); this.ui.refresh(true); }
+      if (b.dataset.owner === 'next') { this.g.owner.next(this.g); this.editor.focusHole(); }
+      // A practice round never changes whether time is held: a paused course stays paused afterwards.
+      if (b.dataset.owner === 'stop') { this.g.owner.stop(this.g); this.ui.refresh(true); }
       this.update(0);
     };
   }

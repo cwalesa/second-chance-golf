@@ -470,7 +470,8 @@ export class CourseSim {
     for (const g of this.golfers) g.route = g.route.filter((r) => r !== id || g.holeId === id);
   }
 
-  private manageTees() {
+  /** With onlyTests, guests are frozen where they stand (the business is held), so only test golfers queue and tee off. */
+  private manageTees(onlyTests = false) {
     for (const h of this.world.holes) {
       if (!h.open) continue;
       const q = this.queueFor(h.id);
@@ -479,12 +480,16 @@ export class CourseSim {
         const o = this.golfers.find((g) => g.id === t.occupant);
         if (!o || o.holeId !== h.id || !isPlaying(o)) t.occupant = 0;
       }
-      if (!q.length || t.occupant) continue;
-      if (this.now - t.last < CFG.holes.teeInterval * this.teeIntervalMult || this.onHole(h.id) >= CFG.holes.maxOnHole) continue;
-      const g = this.golfers.find((x) => x.id === q[0]);
-      q.shift();
+      const occupant = t.occupant ? this.golfers.find((g) => g.id === t.occupant) : undefined;
+      if (!q.length || (t.occupant && (!onlyTests || occupant?.test))) continue;
+      const qi = onlyTests ? q.findIndex((id) => this.golfers.find((x) => x.id === id)?.test) : 0;
+      if (qi < 0) continue;
+      const busy = onlyTests ? this.golfers.filter((x) => x.test && x.holeId === h.id && isPlaying(x)).length : this.onHole(h.id);
+      if (this.now - t.last < CFG.holes.teeInterval * this.teeIntervalMult || busy >= CFG.holes.maxOnHole) continue;
+      const g = this.golfers.find((x) => x.id === q[qi]);
+      q.splice(qi, 1);
       if (!g) continue;
-      t.occupant = g.id;
+      if (!t.occupant) t.occupant = g.id;
       t.last = this.now;
       const c = center(h.tee);
       g.ball = { x: c.x + this.rng.range(-0.8, 0.8), y: c.y + this.rng.range(-0.8, 0.8) };
@@ -496,7 +501,8 @@ export class CourseSim {
     }
   }
 
-  private wearAt(x: number, y: number, amount: number) {
+  private wearAt(x: number, y: number, amount: number, by?: Golfer) {
+    if (by?.test) return; // test golfers are free and leave no mark on the turf
     const tx = Math.floor(x);
     const ty = Math.floor(y);
     if (!inBounds(this.world, tx, ty)) return;
@@ -537,9 +543,9 @@ export class CourseSim {
         if (!isValidLie(world, end.x, end.y)) end = nearestValid(world, end.x, end.y);
       }
       g.flight = { from: { ...g.ball }, air: { ...g.ball }, end, t: 0, tAir: 0, tRoll: 0.4 + feet / 35, apex: 0, putt: true, holed, shot: null, penalty: 0 };
-      this.wearAt(g.ball.x, g.ball.y, CFG.wear.putt);
+      this.wearAt(g.ball.x, g.ball.y, CFG.wear.putt, g);
       for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) if (Math.hypot(dx, dy) <= CFG.wear.cupRadius) this.wearAt(cup.x + dx, cup.y + dy, CFG.wear.putt * 0.6);
+        for (let dx = -2; dx <= 2; dx++) if (Math.hypot(dx, dy) <= CFG.wear.cupRadius) this.wearAt(cup.x + dx, cup.y + dy, CFG.wear.putt * 0.6, g);
       if (!g.hs.saidGreen) {
         g.hs.saidGreen = true;
         if (g.returning && h.fixedGreenAt >= 0 && this.now - h.fixedGreenAt < 900 && lie.cond >= 60) this.say(g, 'Much better since you fixed the green.');
@@ -550,7 +556,7 @@ export class CourseSim {
     const plan = g.plan ?? planShot(world, h, g.type, g.ball);
     const shot = executeShot(world, this.rng, g.type, g.ball, plan);
     this.addFx(lie.kind === 'bunker' ? 'sand' : 'divot', g.ball.x, g.ball.y);
-    this.wearAt(g.ball.x, g.ball.y, lie.kind === 'tee' ? CFG.wear.teeShot : CFG.wear.fairwayShot);
+    this.wearAt(g.ball.x, g.ball.y, lie.kind === 'tee' ? CFG.wear.teeShot : CFG.wear.fairwayShot, g);
     if (lie.kind !== 'tee' && lie.kind !== 'bunker' && lie.cond < 35) this.sayOnce(g, 'dirt', 'Playing off bare dirt out here.');
     const dist = Math.hypot(shot.air.x - g.ball.x, shot.air.y - g.ball.y);
     g.flight = {
@@ -615,7 +621,7 @@ export class CourseSim {
   private holeOut(g: Golfer) {
     const h = this.hole(g.holeId)!;
     this.addFx('cup', h.cup.x + 0.5, h.cup.y + 0.5);
-    if (g.hs.strokes === 1) this.hooks.onAce?.(g);
+    if (g.hs.strokes === 1 && !g.test) this.hooks.onAce?.(g);
     this.hooks.onHoleOut?.(g, h, g.hs.strokes - h.par);
     g.ballVisible = false;
     g.scoreFlash = { text: scoreName(g.hs.strokes - h.par, g.hs.strokes), t: 2.2 };
@@ -643,11 +649,13 @@ export class CourseSim {
     this.setPhase(g, 'leave');
   }
 
-  update(dt: number) {
+  /** onlyTests: the business is held, so guests already on the course stay frozen and only test golfers move. */
+  update(dt: number, onlyTests = false) {
     this.now += dt;
     while (this.fx.length && this.now - this.fx[0].t0 > 2.8) this.fx.shift();
-    this.manageTees();
+    this.manageTees(onlyTests);
     for (const g of this.golfers) {
+      if (onlyTests && !g.test) continue;
       g.px = g.x;
       g.py = g.y;
       g.pbx = g.ball.x;

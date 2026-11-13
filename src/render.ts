@@ -55,7 +55,7 @@ export interface Overlay {
   /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
   club: { x: number; y: number; problem: string | null } | null;
   /** Where the tutorial suggests putting a tee and a green. */
-  hint: { tee?: Pt; cup?: Pt } | null;
+  hint: { tee?: Pt; cup?: Pt; club?: Pt } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
   hold: { x: number; y: number; t0: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
@@ -2512,7 +2512,7 @@ export class Renderer {
       }
     }
     if (ov.hint) {
-      for (const [p, label] of [[ov.hint.tee, 'Tee here'], [ov.hint.cup, 'Green here']] as const) {
+      for (const [p, label] of [[ov.hint.tee, 'Tee here'], [ov.hint.cup, 'Green here'], [ov.hint.club, 'Clubhouse here']] as const) {
         if (!p) continue;
         const s = this.toScreen(p.x + 0.5, p.y + 0.5);
         const pulse = 1 + 0.12 * Math.sin(time * 4);
