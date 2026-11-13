@@ -1087,3 +1087,8 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
   .guide-foot .check-line { margin: 0; flex: 1; }
   .guide-foot p { display: none; }
 }
+
+/* ---- small fixes: the clubhouse tile gets a real picture; par buttons are a full tap tall in landscape ---- */
+#tools .club-tile { font-size: 0; }
+#tools .club-tile svg.pic { width: 44px; height: 44px; }
+@media (orientation: landscape) and (max-height: 600px) { #confirm .cf-pars .mini { min-height: 40px; } }

@@ -314,7 +314,7 @@ export class Game {
   enterDesign() {
     if (this.owner.active) return;
     if (!this.designMode) this.designMode = true;
-    if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; this.notify('info', 'Designing: time is paused. Resume from the clock chip when you are ready.'); }
+    if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; this.notify('info', 'Designing: time is paused. Tap Resume when you are ready.'); }
   }
   /** Stop designing but leave time paused. */
   exitDesign() { this.designMode = false; }

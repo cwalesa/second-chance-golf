@@ -129,7 +129,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">&#8962;</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -372,7 +372,7 @@ export class UI {
   chipView(): { cap: string; act: string; icon: string; hold: string; off: boolean } {
     const g = this.game;
     switch (g.timeHold) {
-      case 'design': return { cap: 'Designing · Time paused', act: 'Resume', icon: 'play', hold: 'design', off: false };
+      case 'design': return { cap: 'Designing · paused', act: 'Resume', icon: 'play', hold: 'design', off: false };
       case 'paused': return { cap: 'Time paused', act: 'Resume', icon: 'play', hold: 'paused', off: false };
       case 'owner': return { cap: 'Practice round', act: 'Playing', icon: 'play', hold: 'paused', off: true };
       case 'unopened': {
@@ -726,10 +726,10 @@ export class UI {
   }
   openMenu() {
     const g = this.game;
-    const m = this.modal(`<h2>${escapeHtml(g.name)}</h2><div class="menu-list">
+    const m = this.modal(`<h2>Settings and save</h2><div class="menu-list">
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
-      <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
+      <button class="btn" id="mdSettings">Sound and day reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
@@ -796,7 +796,7 @@ export class UI {
   }
   private settingsModal() {
     const prefs = this.game.preferences;
-    const m = this.modal(`<h2>Settings</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
+    const m = this.modal(`<h2>Sound and day reports</h2><div class="preference-list">${([['music','Music','A relaxed tune while you build.'],['sound','Sound effects','Swing, build and reward sounds.'],['haptics','Touch feedback','Short vibration on touch devices.'],['dailyReports','End-of-day reports','Pause at closing time to show the day’s figures.']] as const).map(([id,title,detail]) => `<label><span><b>${title}</b><small>${detail}</small></span><input type="checkbox" data-pref="${id}" ${prefs[id] ? 'checked' : ''}/></label>`).join('')}</div><p class="dim">Career: ${CAREER[careerLevel(this.game)].title} · ${this.game.experience.xp} XP</p><div class="actions"><button class="btn primary" id="settingsDone">Done</button></div>`);
     m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
   }
@@ -1232,7 +1232,7 @@ export class UI {
       ? `<div class="k closed"><span>Closed</span></div><div class="gt">${what}</div><button class="btn primary gb-act" data-gb="${ready.length ? 'open' : 'why'}">${ready.length ? (ready.length > 1 ? `Open ${ready.length}` : 'Open it') : 'See why'}</button>`
       : held ? `<div class="k held"><span>Paused</span></div><div class="gt">Time is paused</div><button class="btn primary gb-act" data-gb="resume">Resume</button>`
       : goal
-      ? `<div class="k">${flagMark()}<span>Next job</span></div><div class="gt">${goal.title}</div><div class="p"><i class="box"></i>${goalProgressText(goal, g)}</div>`
+      ? `<div class="k">${flagMark()}<span>Next goal</span></div><div class="gt">${goal.title}</div><div class="p"><i class="box"></i>${goalProgressText(goal, g)}</div>`
       : `<div class="k">${flagMark()}<span>All done</span></div><div class="gt">Build freely</div>`;
     if (this.cache.get('goalbar') !== html) {
       this.cache.set('goalbar', html);
@@ -1268,7 +1268,7 @@ export class UI {
     const tool = this.editor.tool;
     let key = '', title = '', text = '';
     if (this.tab === 'build' && tool !== 'inspect' && tool !== 'pan') {
-      if (tool === 'decor') { const k = this.editor.decorKind; key = `decor:${k}`; title = ITEMS[k].label; text = `${ITEMS[k].hint} Costs $${ITEMS[k].cost}. Pretty things near tees and greens make golfers happier.`; }
+      if (tool === 'decor') { const k = this.editor.decorKind; key = `decor:${k}`; title = ITEMS[k].label; text = `${ITEMS[k].hint} Costs ${fmtMoney(ITEMS[k].cost)}.${isBuilding(k) ? '' : ' Pretty things near tees and greens make golfers happier.'}`; }
       else { key = `tool:${tool}`; title = TOOL_INFO[tool].label; text = TOOL_TIPS[tool] ?? TOOL_INFO[tool].hint; }
     } else if (this.tab !== 'none' && this.tab !== 'build' && TAB_TIPS[this.tab]) {
       // panel help sits inside the panel (see sideHtml), never over it
@@ -1434,7 +1434,7 @@ export class UI {
     }
     html += h.open
       ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="practice">Play it</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
-      : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? '<p class="dim small">Opening it lets golfers play. Time stays paused until you open for business.</p>' : ''}`;
+      : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
     if (v.warnings.length) html += xp('warn', 'Things to check', `${v.warnings.length}`, v.warnings.map((p) => `<div class="note warn">${p}</div>`).join(''));
     const icon = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -1489,7 +1489,7 @@ export class UI {
     notes.push(`<div class="note ${g.fee > fair + 6 ? 'bad' : g.fee > fair + 2 ? 'warn' : 'good'}">Fee ${fmtMoney(g.fee)} against a fair price of about ${fmtMoney(fair)}.${g.fee > fair + 2 ? ' Guests feel overcharged.' : g.fee < fair - 8 ? ' Great value, but you are leaving money behind.' : ''}</div>`);
     if (rec.length) {
       const wornHoles = g.world.holes.filter((h) => h.open && holeCondition(g.world, h).green < CFG.turf.wornBelow);
-      if (avg('cond') < 65) notes.push(`<div class="note ${avg('cond') < 45 ? 'bad' : 'warn'}">Turf: average lie condition is low${wornHoles.length ? `. The green on hole ${wornHoles.map((h) => h.id).join(', ')} is worn` : ''}. Use Repair.</div>`);
+      if (avg('cond') < 65) notes.push(`<div class="note ${avg('cond') < 45 ? 'bad' : 'warn'}">Turf: average lie condition is low${wornHoles.length ? `. The green on hole ${wornHoles.map((h) => h.id).join(', ')} is worn` : ''}. Use Repair in Design.</div>`);
       const rough = rec.reduce((s, r) => s + r.rough, 0) / rec.length;
       const water = rec.reduce((s, r) => s + r.water, 0) / rec.length;
       if (avg('diff') < 60) notes.push(`<div class="note bad">Difficulty: ${Math.round(rough * 100)}% of shots from rough, ${water.toFixed(1)} water balls per round.</div>`);
