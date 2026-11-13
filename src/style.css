@@ -1012,3 +1012,28 @@ body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px);
   #nav .mspeed { grid-column: span 3; }
   #nav .mset { grid-column: span 4; }
 }
+
+/* ---- dialogs: a close button that never scrolls away, and action buttons that stay in view ---- */
+#modal .boxwrap { position: relative; display: flex; width: min(380px, 100%); max-height: 100%; }
+#modal .boxwrap > .box { width: 100%; }
+#modal .mx { position: absolute; z-index: 3; top: 4px; right: 6px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--ink); cursor: pointer; }
+#modal .mx .ic { width: 20px; height: 20px; }
+#modal .box > h2:first-child { padding-right: 48px; }
+#modal .box > .actions, .day-report > .report-actions { position: sticky; bottom: 0; z-index: 2; margin-top: 0; margin-bottom: 0; padding: 12px 0 14px; background: var(--panel-2); }
+#modal .box > .actions::before, .day-report > .report-actions::before { content: ''; position: absolute; left: 0; right: 0; top: -10px; height: 10px; background: linear-gradient(transparent, var(--panel-2)); pointer-events: none; }
+#modal .box:has(.day-report) > .day-report { padding-bottom: 0; }
+.day-report > .eyebrow { padding-right: 44px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  #modal { padding: 8px; }
+  #modal .boxwrap { width: min(560px, 100%); }
+  .menu-list { display: grid; grid-template-columns: 1fr 1fr; }
+  /* the day report reads across: the result on the left, the breakdown on the right */
+  .day-report { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-items: start; }
+  .day-report > .eyebrow, .day-report > h2, .day-report > .report-next, .day-report > .report-actions { grid-column: 1 / -1; }
+  .day-report > .report-chart { display: none; }
+  .day-report > .report-profit, .day-report > .report-kpis { grid-column: 1; }
+  .day-report > .ledger-rows { grid-column: 2; grid-row: 3 / span 2; }
+}
+
+/* a toast never sits on top of the open menu */
+body.menu-open #toasts { z-index: 19; }

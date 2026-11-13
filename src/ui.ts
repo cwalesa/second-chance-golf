@@ -705,10 +705,17 @@ export class UI {
   }
 
   // ---------- menu and modals ----------
-  private modal(html: string): HTMLElement {
+  /** What the × (or a tap outside the dialog) does: closing is always the safe choice, the same as the dialog's own Cancel or Done. */
+  private modalDismiss: () => void = () => {};
+  private modal(html: string, onDismiss?: () => void): HTMLElement {
     const m = this.$('modal');
     m.hidden = false;
-    m.innerHTML = `<div class="box" role="dialog">${html}</div>`;
+    m.innerHTML = `<div class="boxwrap"><div class="box" role="dialog">${html}</div><button class="mx" data-mx="1" aria-label="Close">${icon('close')}</button></div>`;
+    this.modalDismiss = onDismiss ?? (() => { this.closeModal(); this.refresh(true); });
+    m.onclick = (e) => {
+      const t = e.target as HTMLElement;
+      if (t === m || t.closest('[data-mx]')) this.modalDismiss();
+    };
     return m;
   }
   closeModal() {
@@ -720,8 +727,7 @@ export class UI {
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
       <button class="btn" id="mdSettings">Sound, feedback & daily reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
-      <button class="btn danger" id="mdReset">Reset game</button>
-      <button class="btn" id="mdClose">Close</button></div>
+      <button class="btn danger" id="mdReset">Reset game</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
@@ -734,7 +740,6 @@ export class UI {
       this.toast('Saved.', 'good');
     };
     (m.querySelector('#mdReset') as HTMLElement).onclick = () => this.confirmReset();
-    (m.querySelector('#mdClose') as HTMLElement).onclick = () => this.closeModal();
   }
   nameModal() {
     const m = this.modal(`<h2>Rename your club</h2><input id="nmIn" maxlength="28" value="${this.game.name.replace(/"/g, '&quot;')}" /><div class="actions"><button class="btn" id="nmNo">Cancel</button><button class="btn primary" id="nmOk">Save</button></div>`);
@@ -798,7 +803,7 @@ export class UI {
     this.recapShowing = true;
     const history = g.days.slice(-7), max = Math.max(1, ...history.map(d => Math.abs(d.profit)));
     const suggestion = nextSuggestion(g);
-    const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
+    const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`, () => { finish(); this.refresh(true); });
     const finish = () => { g.pendingRecap = null; this.recapShowing = false; g.dirtySave = true; this.closeModal(); };
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
