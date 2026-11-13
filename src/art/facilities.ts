@@ -61,7 +61,7 @@ interface FaceOpts {
   grad?: boolean;
   bias?: number;
 }
-const EDGE = 'rgba(46,38,28,0.42)';
+const EDGE = 'rgba(28,26,46,0.9)';
 
 export class Mesh {
   faces: Face[] = [];
@@ -215,7 +215,7 @@ function draw(P: Painter, prep: Prepared, ox: number, oy: number, alpha = 1) {
   const kx = ISO_X * ts, ky = ISO_Y * ts;
   const sx = (v: V3) => o0.x + (v[0] - v[1]) * kx;
   const sy = (v: V3) => o0.y + (v[0] + v[1]) * ky - v[2] * ts;
-  const lw = Math.max(0.55, ts * 0.016);
+  const lw = Math.max(2.6, ts * 0.1); // thick ink edges on every face: the chunky look
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';

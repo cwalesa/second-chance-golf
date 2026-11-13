@@ -6,9 +6,9 @@ import type { Painter } from './art/buildings';
 export type { Painter } from './art/buildings';
 export { drawCountryClub, drawVillageAmenities, drawClubGround } from './art/buildings';
 
-const polygon = (ctx: CanvasRenderingContext2D, points: Pt[], color: string, stroke?: string) => {
+const polygon = (ctx: CanvasRenderingContext2D, points: Pt[], color: string, _stroke?: string) => {
   ctx.fillStyle = color; ctx.beginPath();points.forEach((p,i)=> i ? ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill();
-  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=.7;ctx.stroke();}
+  ctx.strokeStyle='rgba(28,26,46,0.9)';ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.stroke();
 };
 function point(p: Painter,x:number,y:number,z=0):Pt { const a=p.toScreen(x,y);return{x:a.x,y:a.y-z*p.ts}; }
 

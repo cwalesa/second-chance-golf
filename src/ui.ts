@@ -31,7 +31,7 @@ type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'clu
 const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'journey'];
 /** Plain help for each tool, the first time it is picked. */
 const TOOL_TIPS: Partial<Record<string, string>> = {
-  build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust. Nothing is built until you tap Build.',
+  build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust (on touch, press and hold it first). Nothing is built until you tap Build.',
   fairway: 'Hold a finger on the map, then drag to paint fairway. Golfers aim for it. Every hole needs fairway from tee to green.',
   green: 'Hold and drag to grow or reshape a green. Bigger greens are easier to hit.',
   bunker: 'Hold and drag to dig sand. Bunkers beside greens and fairways make holes more interesting, but keep a clear way to the green.',
@@ -532,11 +532,13 @@ export class UI {
           t: r('top').bottom - this.appRect.top + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
       }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
-      return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet };
+      return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet + (this.tab === 'build' ? this.barH : 0) };
     }
     return { l: 12, r: this.tab !== 'none' && this.tab !== 'build' ? r('side').width + 24 : 12, t: r('top').bottom + 12, b: r('tools').height + 24 };
   }
 
+  /** Height of the Build bar when it is showing (0 when hidden), so the map can frame itself above it. */
+  private barH = 0;
   private updateConfirm() {
     const el = this.$('confirm');
     const choosingClub = this.editor.placingClub;
@@ -576,36 +578,53 @@ export class UI {
     const p = this.editor.proposal;
     const short = p ? p.cost - this.game.cash : 0;
     const what = p ? (p.tiles.length ? `${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}` : 'No terrain change') : '';
-    const placing = !p && this.editor.isPlacement && !this.game.owner.active && (!this.mobile || this.tab === 'build' || this.tab === 'none');
+    const shaping = this.editor.shaping;
+    const bendTool = shaping && this.editor.tool === 'bend';
+    const placing = !p && !bendTool && this.editor.isPlacement && !this.game.owner.active && (!this.mobile || this.tab === 'build' || this.tab === 'none');
     const hn = this.game.selectedHole;
     const hint = this.editor.tool === 'tee' ? `Tap where hole ${hn}'s new tee goes` : this.editor.tool === 'cup' ? `Tap where hole ${hn}'s new green goes` : this.editor.tool === 'bend' ? `Tap a new turning point for hole ${hn}` : this.editor.buildStarted ? 'Now tap where the green goes' : 'Tap where the new tee goes';
     const building = this.editor.tool === 'build';
-    const adding = this.editor.addingBend;
     const nh = p?.newHole;
-    const parBar = building && (nh || placing)
-      ? `<span class="cf-pars" role="group" aria-label="Par"><b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}${nh ? `<button class="mini wide ${adding ? 'on' : ''}" id="cfBend" ${this.editor.newBends.length >= MAX_BENDS ? 'disabled' : ''}>${adding ? 'Tap the map' : '+ Bend'}</button>${this.editor.newBends.length ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}` : ''}</span>`
+    const ui = this.editor.overlay.bendUi;
+    const bends = this.editor.shapingBends;
+    const sel = this.editor.selBend;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const bendBtns = shaping
+      ? `<button class="mini wide" id="cfBend" ${bends.length >= MAX_BENDS ? 'disabled' : ''}>+ Bend</button>${sel >= 0 && sel < bends.length ? `<button class="mini wide warn" id="cfRemove">Remove bend ${sel + 1}</button>` : ''}${bends.length && !(sel >= 0 && sel < bends.length) ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}`
       : '';
-    const route = nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
-    const dragHint = nh && !adding ? `<span class="cf-hint">Drag T, G or a bend to move it${this.editor.newBends.length ? '. Tap a bend to remove it' : ''}.</span>` : '';
+    const parBar = (building && (nh || placing)) || bendBtns
+      ? `<span class="cf-pars" role="group" aria-label="${building ? 'Par and bends' : 'Bends'}">${building && (nh || placing) ? `<b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}` : ''}${bendBtns}</span>`
+      : '';
+    // live numbers for the route being shaped: the same total the finished hole reports, each leg, and what Build would charge
+    const legs = ui && ui.legs.length > 1 ? ` (${ui.legs.join(' + ')})` : '';
+    const route = ui ? `${ui.total} yd${legs} · par ${ui.par} · ` : nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
+    const problem = ui?.drag?.problem;
+    const dragHint = shaping && !problem && !(sel >= 0 && sel < bends.length) ? `<span class="cf-hint">${bends.length ? (coarse ? 'Press and hold a bend, then drag it.' : 'Drag a bend to shape the hole.') : 'Add a bend, then drag it where the turn should be.'}${this.editor.tool === 'bend' ? ' Tap empty ground to add one.' : ''}</span>` : '';
+    const badLine = problem ? `<span class="cf-sub bad">${escapeHtml(problem)}</span>` : '';
     const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
-    const html = p ? `<span class="cf-text"><b>${escapeHtml(p.label)}</b><span class="cf-sub">${route}${what} · <span class="cf-cost">${fmtMoney(p.cost)}</span>${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${dragHint}${noteLine}${parBar}</span><button class="btn" id="cfNo">Cancel</button><button class="btn primary" id="cfOk" ${short > 0 ? 'disabled' : ''}>Build</button>`
+    const costText = p ? `<span class="cf-cost">${fmtMoney(p.cost)}</span>` : '<span class="dim">No change yet</span>';
+    const html = p || bendTool ? `<span class="cf-text"><b>${escapeHtml(p ? p.label : `Shape hole ${hn}`)}</b><span class="cf-sub">${route}${bendTool ? '' : `${what} · `}${costText}${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${badLine}${dragHint}${noteLine}${parBar}</span><button class="btn" id="${p ? 'cfNo' : 'cfStop'}" ${p ? '' : 'aria-label="Stop shaping"'}>Cancel</button><button class="btn primary" id="cfOk" ${!p || short > 0 ? 'disabled' : ''}>Build</button>`
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
-    el.style.display = p || placing ? 'flex' : 'none';
+    el.style.display = p || placing || bendTool ? 'flex' : 'none';
+    // the map frames itself above the bar, which grows and shrinks with what is being shaped
+    const barH = el.style.display === 'none' ? 0 : el.offsetHeight;
+    if (barH !== this.barH) { this.barH = barH; this.onInsets(); }
     el.classList.toggle('placing', placing);
-    document.body.classList.toggle('has-proposal', !!p || placing);
+    document.body.classList.toggle('has-proposal', !!p || placing || bendTool);
     el.querySelectorAll<HTMLElement>('[data-par]').forEach((b) => { b.onclick = () => this.editor.setNewPar(Number(b.dataset.par)); });
     const bendBtn = el.querySelector<HTMLElement>('#cfBend');
-    if (bendBtn) bendBtn.onclick = () => this.editor.startAddBend();
+    if (bendBtn) bendBtn.onclick = () => this.editor.addBend();
+    const removeBtn = el.querySelector<HTMLElement>('#cfRemove');
+    if (removeBtn) removeBtn.onclick = () => this.editor.removeSelectedBend();
     const straight = el.querySelector<HTMLElement>('#cfStraight');
-    if (straight) straight.onclick = () => this.editor.clearNewBends();
-    if (placing) (this.$('cfStop') as HTMLElement).onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
-    if (p) {
-      (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
-      (this.$('cfNo') as HTMLElement).onclick = () => this.editor.discard();
-    }
+    if (straight) straight.onclick = () => this.editor.straighten();
+    const stop = el.querySelector<HTMLElement>('#cfStop');
+    if (stop) stop.onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
+    if (p || bendTool) (this.$('cfOk') as HTMLElement).onclick = () => this.editor.confirm();
+    if (p) (this.$('cfNo') as HTMLElement).onclick = () => this.editor.discard();
   }
 
   /** Jump to a problem on the map and, when asked, pick the tool that fixes it. */
@@ -1230,7 +1249,7 @@ export class UI {
       <p class="dim small">Pick an action, then tap the map. You see a preview and the price before anything is built.${h.open ? ' Editing its ground closes the hole while work is done.' : ''}</p><div class="edit-grid">
       <button class="edit-act" data-act="holetool" data-id="tee">${icon('<path d="M8 21l4-7 4 7"/><circle cx="12" cy="10" r="3"/>')}<span><b>Move tee</b><small>New tee box</small></span></button>
       <button class="edit-act" data-act="holetool" data-id="cup">${icon('<path d="M12 21V4l7 3-7 3"/><ellipse cx="12" cy="21" rx="5" ry="1.5"/>')}<span><b>Move cup</b><small>New green</small></span></button>
-      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Turning points</b><small>Tap to add, move or remove</small></span></button>
+      <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Shape bends</b><small>Drag to move, tap to add</small></span></button>
       <button class="edit-act" data-act="straighten" ${holeBends(h).length ? '' : 'disabled'}>${icon('<path d="M4 20L20 4"/>')}<span><b>Straighten</b><small>Remove all turns</small></span></button>
       <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
       <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>

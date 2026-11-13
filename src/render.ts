@@ -15,6 +15,7 @@ import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
+import { chunky, INK_RGB } from './art/ink';
 
 interface Decor { x: number; y: number; kind: 'shrub' | 'rock' | 'flowers' | 'reeds'; v: number; i: number }
 type Tex = { w: number; h: number; d: Uint8ClampedArray };
@@ -37,9 +38,29 @@ const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
 const aa = (d: number, o: number) => clamp01((d - o) * (TS / 1.5) + 0.5);
 const css = (c: RGB, j = 0) => `rgb(${Math.max(0, Math.min(255, Math.round(c[0] + j)))},${Math.max(0, Math.min(255, Math.round(c[1] + j)))},${Math.max(0, Math.min(255, Math.round(c[2] + j)))})`;
 
-const COL: Palette = { ...REGIONS.parkland.palette };
+const chunkyPalette = (p: Palette): Palette => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, k === 'sandRim' || k === 'dirt' ? v : chunky(v as RGB, 1.2, 4)])) as unknown as Palette;
+const COL: Palette = chunkyPalette(REGIONS.parkland.palette);
+
+/** Everything the map needs to draw the bend handles, route, yardage and cost while a hole is being shaped. */
+export interface BendUi {
+  tee: Pt;
+  cup: Pt;
+  bends: Pt[];
+  par: number;
+  /** What Build would charge for the layout shown. */
+  cost: number;
+  legs: number[];
+  total: number;
+  selected: number;
+  /** 'bends': an existing hole, only its bends move. 'all': a new hole, its tee and green move too. */
+  movable: 'bends' | 'all';
+  drag: { kind: 'tee' | 'cup' | 'bend'; i: number; engaged: boolean; tip: Pt; tile: Pt; problem: string | null; attempt: Pt | null; touch: boolean; since: number } | null;
+  settle: { kind: 'tee' | 'cup' | 'bend'; i: number; from: Pt; to: Pt; t0: number; dur: number } | null;
+}
 
 export interface Overlay {
+  /** Set while a route is being shaped; read fresh each frame. */
+  bendUi: BendUi | null;
   tool: ToolId;
   hoverTiles: number[];
   changed: Set<number>;
@@ -59,7 +80,7 @@ export interface Overlay {
   /** Where the tutorial suggests putting a tee and a green. */
   hint: { tee?: Pt; cup?: Pt; club?: Pt } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
-  hold: { x: number; y: number; t0: number } | null;
+  hold: { x: number; y: number; t0: number; ms?: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
   bGhost: { x: number; y: number; k: string; ok: boolean; sell: boolean } | null;
 }
@@ -315,7 +336,7 @@ export class Renderer {
     if (this.builtFor !== w || this.regionKey !== w.region) {
       this.builtFor = w;
       this.regionKey = w.region;
-      Object.assign(COL, REGIONS[w.region].palette);
+      Object.assign(COL, chunkyPalette(REGIONS[w.region].palette));
       this.fields.clear();
       this.patterns.clear();
       this.pages.clear();
@@ -1275,7 +1296,9 @@ export class Renderer {
     t.rect(X, Y, CW, CHH);
     t.clip();
     t.fillStyle = this.turfPattern(t, 'rough');
+    t.globalAlpha = 0.5; // flatter ground: the cartoon look keeps the texture quiet
     t.fillRect(X, Y, CW, CHH);
+    t.globalAlpha = 1;
     for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.ROUGH) this.roughTufts(t, w, x, y);
     t.restore();
     const buf = t.getImageData(0, 0, CW, CHH);
@@ -1324,17 +1347,18 @@ export class Renderer {
     // ---- fairway family (fairway, plus the ground under greens and tees)
     const grass = dist('grass');
     flatStamp(grass, falloff(0.1), [14, 50, 26], 0.17);
-    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway'), tex('stripe-fw', () => makeStripeTexture(64, 0.09, 'x'))]);
+    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway', 0.5), tex('stripe-fw', () => makeStripeTexture(64, 0.13, 'x'))]);
     // a fine pale cut line just inside the edge of the mown area
     flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
+    flatStamp(grass, band(-0.1, 0), INK_RGB, 0.85);
 
     // ---- green: fringe collar with its own cut line, crisp perimeter, finest turf
     const green = dist('green');
     if (green) {
       const collar = mix(COL.fairGood, COL.greenGood, 0.45);
       shadeStamp(green, band(-0.24, 0), [{ rgb: collar }, turf('green')]);
-      shadeStamp(green, inside, [{ rgb: COL.greenGood }, { cmap: 'green' }, turf('green'), tex('stripe-green', () => makeStripeTexture(32, 0.05, 'y'))]);
-      flatStamp(green, band(-0.02, 0.025), [22, 82, 38], 0.3);
+      shadeStamp(green, inside, [{ rgb: COL.greenGood }, { cmap: 'green' }, turf('green', 0.5), tex('stripe-green', () => makeStripeTexture(32, 0.08, 'y'))]);
+      flatStamp(green, band(-0.085, 0.0), INK_RGB, 0.85);
     }
 
     // ---- tee box: geometric, tight, with a lit rim
@@ -1345,6 +1369,7 @@ export class Renderer {
       // then the grain and mowing stripes on top, so a failed texture can never leave a blank white box
       shadeStamp(tee, inside, [{ rgb: COL.teeGood }, turf('tee', 0.9), tex('stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))]);
       flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
+      flatStamp(tee, band(-0.08, 0), INK_RGB, 0.85);
     }
 
     // ---- worn turf: crisp patches that grow from where condition is lowest
@@ -1357,14 +1382,14 @@ export class Renderer {
       shadeStamp(bunker, inside, [{ rgb: COL.sand }, tex('sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))]);
       flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
       flatStamp(bunker, innerShade(-6, -2, 0.18, 1), [255, 251, 234], 0.45);
-      flatStamp(bunker, band(-0.005, 0.03), [122, 88, 46], 0.55);
+      flatStamp(bunker, band(-0.09, 0.0), INK_RGB, 0.85);
     }
 
     // ---- water: wet bank, a thin pale shoreline, depth from the colour map, bank shadow on the sun side
     const water = dist('water');
     if (water) {
       flatStamp(water, falloff(0.18), [58, 74, 38], 0.22);
-      flatStamp(water, band(-0.06, 0.015), [196, 192, 150], 0.3);
+      flatStamp(water, band(-0.1, 0.0), INK_RGB, 0.85);
       shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
       flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.34), [150, 210, 196], 0.24);
       // a thin lighter line just inside the water's edge: the shore catching the light
@@ -1377,8 +1402,8 @@ export class Renderer {
     if (path) {
       flatStamp(path, falloff(0.06), [24, 40, 22], 0.2);
       shadeStamp(path, inside, [{ rgb: COL.path }, tex('paving', () => makePavingTexture(COL.path))]);
-      flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
-      flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
+      flatStamp(path, band(-0.07, 0.0), INK_RGB, 0.85);
+      flatStamp(path, band(0, 0.05), mix(COL.path, [70, 62, 50], 0.3), 0.7);
     }
 
     // ---- bridges: a plank deck over the water with a shadow below and a rail along each edge
@@ -1386,7 +1411,7 @@ export class Renderer {
     if (bridge) {
       flatStamp(bridge, falloff(0.1), [10, 30, 44], 0.45);
       shadeStamp(bridge, inside, [{ rgb: [150, 112, 72] }, tex('deck', () => makeDeckTexture())]);
-      flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
+      flatStamp(bridge, band(-0.08, 0.12), INK_RGB, 0.95);
       flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }
 
@@ -1679,13 +1704,13 @@ export class Renderer {
         const cx = driving ? g.rx : g.rx + 0.85, cy = driving ? g.ry : g.ry - 0.2;
         items.push({ y: cx + cy - 0.02, draw: () => drawCart(this.facilityPainter(), cx, cy, h, g.cart ?? 0) });
       }
-      items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
+      items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, game.sim.now, this.puttingSpot(game, g), this.aimSide(game, g)) });
     }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
 
     // balls and trails above everything
-    for (const g of game.sim.golfers) this.drawBall(g);
+    for (const g of game.sim.golfers) this.drawBall(g, game.sim.now);
     for (const g of game.sim.golfers) if (g.bubble) this.drawBubble(g);
     for (const g of game.sim.golfers) this.drawChips(g);
 
@@ -1729,7 +1754,7 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, ts * .35), 0, Math.PI * 2); ctx.fill();
       }
     }
-    if (game.settings.tool === 'bend' || game.heatmap) {
+    if (game.heatmap) {
       const h = game.hole(game.selectedHole);
       if (h) {
         const pts = [h.tee, h.bend, h.cup].map(p => this.toScreen(p.x + .5, p.y + .5));
@@ -1922,19 +1947,60 @@ export class Renderer {
       long: h(7) < 0.3,
     };
   }
-  private drawGolfer(g: Golfer, selected: boolean, time: number) {
+  /** True when this golfer's next stroke is a putt: on the green and close to the cup, the same test the simulation uses. */
+  private puttingSpot(game: Game, g: Golfer): boolean {
+    if (g.flight) return g.flight.putt;
+    const h = game.world.holes.find((x) => x.id === g.holeId);
+    if (!h || !g.ballVisible) return false;
+    const bx = Math.floor(g.ball.x), by = Math.floor(g.ball.y);
+    return inBounds(game.world, bx, by) && game.world.terrain[by * game.world.w + bx] === T.GREEN && Math.hypot(h.cup.x + 0.5 - g.ball.x, h.cup.y + 0.5 - g.ball.y) < 6;
+  }
+  /**
+   * Draw one golfer. `now` is simulation time, so every pose pauses with the game and runs at the game's speed;
+   * `putt` says whether the stroke at hand is a putt.
+   */
+  /**
+   * Which side of the ball a golfer should stand on so the shot goes away from them: +1 when the target lies to the right
+   * on screen (stand on the left, face right), -1 when it lies to the left. Judged in the isometric view, from the cup for a putt
+   * and otherwise from the next turn of the hole that is still ahead.
+   */
+  private aimSide(game: Game, g: Golfer): number {
+    const h = game.world.holes.find((x) => x.id === g.holeId);
+    if (!h) return 1;
+    const path = holePath(h);
+    let t = path[path.length - 1];
+    if (!this.puttingSpot(game, g)) for (let k = 1; k < path.length; k++) if (Math.hypot(path[k].x - g.ball.x, path[k].y - g.ball.y) > 3) { t = path[k]; break; }
+    // screen x grows with (x - y) in the isometric ground projection
+    return (t.x - g.ball.x) - (t.y - g.ball.y) < -0.5 ? -1 : 1;
+  }
+  /** Per golfer, which side they stand on and how far they have moved there (0 = where the simulation put them). */
+  private stance = new Map<number, { m: number; side: number; t: number }>();
+  private drawGolfer(g: Golfer, selected: boolean, now: number, putt: boolean, aim: number) {
     const ctx = this.ctx;
-    const u = Math.max(this.ts, 16);
+    const calm = Renderer.reducedMotion; // no waggles, hops or gestures; the swing itself stays
+    const u = Math.max(this.ts, 18);
     const k = u * 1.32; // figure scale: a little larger than a tile so people read at phone zoom
     const rides = cartDriving(g);
-    const p0 = this.toScreen(g.rx, g.ry);
+    // When the target is to the left on screen the golfer stands on the right of the ball and faces left, so the ball never
+    // runs back through them. The simulation keeps them on one side; this shifts the figure over as it arrives and back as it leaves.
+    let st = this.stance.get(g.id);
+    if (!st) { if (this.stance.size > 400) this.stance.clear(); this.stance.set(g.id, (st = { m: 0, side: 1, t: now })); }
+    const atBallPhase = g.phase === 'address' || g.phase === 'swing' || g.phase === 'flight';
+    const arriving = g.phase === 'toBall' && Math.hypot(g.rx - (g.ball.x - 0.45), g.ry - (g.ball.y + 0.15)) < 1.8;
+    const nearBall = atBallPhase || arriving;
+    if (nearBall && (st.m < 0.02 || g.phase === 'toBall')) st.side = aim;
+    const dtS = Math.max(0, Math.min(0.2, now - st.t));
+    st.t = now;
+    st.m = Renderer.reducedMotion ? (nearBall ? 1 : 0) : Math.max(0, Math.min(1, st.m + ((nearBall ? 1 : -1) * dtS) / 0.3));
+    const swap = st.side < 0 ? st.m : 0;
+    const p0 = this.toScreen(g.rx + 0.9 * swap, g.ry - 0.3 * swap);
     // seated: lifted onto the seat, legs behind the cart's body
     const p = rides ? { x: p0.x, y: p0.y - k * 0.13 } : p0;
     const gt = CFG.golfers.types[g.type];
     const look = this.golferLook(g);
     const walking = !rides && (g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave');
     const f = g.flight;
-    const putting = !!f && f.putt;
+    const putting = putt;
     const sw = walking ? Math.sin(g.walkT) : 0;
     const stride = walking ? Math.cos(g.walkT) : 0;
     // soft shadow toward the lower right, same sun as the trees, plus a tight contact shadow (a cart casts its own)
@@ -1957,13 +2023,18 @@ export class Renderer {
     }
     // ---- pose, in the golfer's own frame: facing +x, feet on the ground at the origin, units of k
     // where the ball is, in that frame (the club head must meet it at impact)
+    // the golfer faces the ball while playing it, whichever way the last step happened to point
+    let dir = g.dir >= 0 ? 1 : -1;
+    if (atBallPhase && st.side < 0) dir = -1;
     let ball: Pt | null = null;
     if (g.ballVisible || (g.phase === 'flight' && f)) {
       const src = g.phase === 'flight' && f ? f.from : g.ball;
       const bp = this.toScreen(src.x, src.y);
-      ball = { x: ((bp.x - p.x) * g.dir) / k, y: (bp.y - p.y) / k };
+      if (atBallPhase && Math.abs(bp.x - p.x) > 2) dir = bp.x > p.x ? 1 : -1;
+      ball = { x: ((bp.x - p.x) * dir) / k, y: (bp.y - p.y) / k };
     }
-    const atBall = g.phase === 'address' || g.phase === 'swing' || (g.phase === 'flight' && !!f && f.t < 0.9);
+    // address -> swing -> contact -> follow-through is held through the ball's flight, then eased into the carry before walking starts
+    const atBall = g.phase === 'address' || g.phase === 'swing' || (g.phase === 'flight' && !!f);
     let lean = 0; // forward lean of the torso
     let crouch = 0; // knees bent
     let ang = 0; // club angle (screen, y down; 0 = pointing forward)
@@ -1971,37 +2042,58 @@ export class Renderer {
     let twist = 0; // shoulder turn: narrows or widens the shoulder line
     let lift = 0; // hop
     let armUp = 0;
-    const strike = 0.4;
+    let droop = 0; // head bowed after a poor shot
+    let shake = 0; // and shaken
+    const strike = 0.4; // the simulation launches the ball exactly this far into the swing
     const ease = (t: number) => t * t * (3 - 2 * t);
+    const idle = calm ? 0 : now; // small idle motion runs on game time, so it stops when the game is paused
+    const carry = { lean: 0.03, hx: 0.07, hy: -0.26, ang: 1.25 };
+    let relax = 0; // 0 = still in the finish, 1 = back to the carry
     if (atBall && ball) {
-      lean = putting || (g.phase !== 'flight' && !g.plan) ? 0.2 : 0.14;
+      lean = putting ? 0.2 : 0.14;
       crouch = lean * 0.7;
       const hy = -0.36 + crouch * 0.1;
       hands = { x: 0.1 + lean * 0.7, y: hy };
       const dx = ball.x - hands.x, dy = ball.y - hands.y;
       const base = Math.atan2(dy, dx);
-      const swingKind = putting || (g.phase !== 'flight' && !g.plan) ? 'putt' : 'full';
       const t = g.phase === 'swing' ? g.swingT : g.phase === 'flight' ? strike + (f ? f.t : 0) : 0;
       if (g.phase === 'address') {
-        ang = base;
-        twist = 0.04 * Math.sin(time * 6 + g.id); // a little waggle
-        hands.x += 0.012 * Math.sin(time * 7 + g.id);
-      } else if (swingKind === 'full') {
+        // the walk ends, the club settles behind the ball, then a little waggle
+        const a = ease(Math.min(1, g.phaseTime / 0.2));
+        ang = carry.ang + (base - carry.ang) * a;
+        hands = { x: carry.hx + (hands.x - carry.hx) * a, y: carry.hy + (hands.y - carry.hy) * a };
+        lean = carry.lean + (lean - carry.lean) * a;
+        crouch *= a;
+        twist = 0.04 * Math.sin(idle * 6 + g.id) * a;
+        hands.x += 0.012 * Math.sin(idle * 7 + g.id) * a;
+      } else if (!putting) {
         const back = base + 3.0;
         const top = 0.27;
         if (t < top) { const e = ease(t / top); ang = base + (back - base) * e; twist = -e; lean -= 0.1 * e; }
         else if (t < strike) { const e = (t - top) / (strike - top); const q = e * e; ang = back + (base - back) * q; twist = -1 + 2 * q; lean -= 0.1 * (1 - q); }
         else { const e = Math.min(1, (t - strike) / 0.5); const q = 1 - (1 - e) * (1 - e); ang = base - 3.1 * q; twist = 1; lean = lean * (1 - q) - 0.04 * q; crouch *= 1 - q; hands = { x: hands.x - 0.12 * q, y: hands.y - 0.2 * q }; }
       } else {
+        // a putt: a short, even pendulum from the shoulders, the head still
         const back = base + 0.75;
-        if (t < strike) { const e = ease(t / strike); ang = e < 0.5 ? base + back * 0 + (back - base) * (e / 0.5) * 1 : back - (back - base) * ((e - 0.5) / 0.5); }
+        if (t < strike) { const e = ease(t / strike); ang = e < 0.5 ? base + (back - base) * (e / 0.5) : back - (back - base) * ((e - 0.5) / 0.5); }
         else { const e = Math.min(1, (t - strike) / 0.35); ang = base - 0.55 * (1 - (1 - e) * (1 - e)); }
         twist = 0;
       }
+      if (g.phase === 'flight' && f) {
+        // in the last moments of the ball's travel the golfer straightens up, so walking starts from a standing pose
+        const rem = f.tAir + f.tRoll - f.t;
+        relax = ease(Math.max(0, Math.min(1, 1 - rem / 0.25)));
+        if (relax > 0) {
+          lean += (carry.lean - lean) * relax; crouch *= 1 - relax; twist *= 1 - relax;
+          hands = { x: hands.x + (carry.hx - hands.x) * relax, y: hands.y + (carry.hy - hands.y) * relax };
+          ang += (carry.ang - ang) * relax;
+        }
+      }
     } else if (walking) {
+      const a = g.phase === 'toBall' ? ease(Math.min(1, g.phaseTime / 0.18)) : 1; // easing out of the stance
       lean = 0.03;
-      hands = { x: 0.07 + sw * 0.05, y: -0.26 };
-      ang = 1.25 - sw * 0.25;
+      hands = { x: 0.07 + sw * 0.05 * a, y: -0.26 };
+      ang = 1.25 + (-sw * 0.25) * a;
     } else if (g.phase === 'holed') {
       armUp = 1;
       lift = Math.abs(Math.sin(Math.min(1.2, g.timer ?? 0) * 6)) * 0.05;
@@ -2009,144 +2101,209 @@ export class Renderer {
     } else {
       // waiting: standing, club resting, a gentle breath
       lean = 0.02;
-      hands = { x: 0.08, y: -0.28 + 0.006 * Math.sin(time * 2 + g.id) };
+      hands = { x: 0.08, y: -0.28 + 0.006 * Math.sin(idle * 2 + g.id) };
       ang = 1.35;
+    }
+    // a small reaction to how the last shot turned out, in the first moments of the walk to the ball
+    const rt = g.react && !calm && g.phase === 'toBall' ? now - g.react.t0 : -1;
+    if (g.react && rt >= 0 && rt < 0.9) {
+      const bell = Math.sin(Math.PI * (rt / 0.9));
+      if (g.react.kind === 'good') {
+        lift = 0.03 * Math.abs(Math.sin(rt * 11)) * bell;
+        if (g.react.v < 0.3) { armUp = 1; ang = 1.2; } // fist pump
+        else { hands = { x: hands.x + 0.02, y: hands.y - 0.1 * bell }; ang = carry.ang - 2 * bell; } // club raised in salute
+      } else {
+        droop = 0.025 * bell;
+        shake = Math.sin(rt * 24) * 0.012 * bell;
+        lean += 0.04 * bell;
+        if (g.react.v >= 0.5) ang = carry.ang + 0.5 * bell; // club tip to the ground
+      }
     }
     const bobY = (walking ? Math.abs(stride) * 0.03 : 0) + lift;
     ctx.save();
     if (rides) { ctx.beginPath(); ctx.rect(p.x - 2 * k, p.y - 4 * k, 4 * k, 3.72 * k); ctx.clip(); }
     ctx.translate(p.x, p.y);
-    ctx.scale(g.dir >= 0 ? k : -k, k);
-    const line = 1.1 / k; // an outline of about one pixel
-    const ink = 'rgba(32,30,24,0.6)';
-    const hipY = -0.31 + crouch * 0.12 - bobY;
+    ctx.scale(dir >= 0 ? k : -k, k);
+    // A cartoon person with believable joints: a round head with ear, nose and eye, a neck, rounded shoulders, arms that bend at the
+    // elbow and end in hands on the grip, a waist and belt, legs that bend at the knee, and shoes. Outlined like the rest of the interface.
+    const line = 1.8 / k;
+    const ink = 'rgba(28,26,46,0.88)';
+    const hipY = -0.34 + crouch * 0.12 - bobY;
     const hip = { x: -lean * 0.1, y: hipY };
-    const shoulder = { x: hip.x + lean * 0.55, y: hipY - 0.22 + crouch * 0.05 };
-    const shoulderW = 0.075 * (1 - 0.45 * Math.abs(twist));
-    const headC = { x: shoulder.x + lean * 0.25 + twist * 0.01, y: shoulder.y - 0.115 };
+    const shoulder = { x: hip.x + lean * 0.55, y: hipY - 0.25 + crouch * 0.05 };
+    const shoulderW = 0.115 * (1 - 0.4 * Math.abs(twist));
+    const HR = 0.1; // head radius
+    const headC = { x: shoulder.x + lean * 0.25 + twist * 0.012 + shake, y: shoulder.y - 0.135 + droop };
+    const shirt = look.top === 2 ? '#f4efe0' : gt.shirt;
+    const skinShade = 'rgba(120,70,40,0.28)';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     const limb = (x1: number, y1: number, x2: number, y2: number, w: number, col: string) => {
-      ctx.strokeStyle = ink; ctx.lineWidth = w + line * 1.6;
+      ctx.strokeStyle = ink; ctx.lineWidth = w + line * 2;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       ctx.strokeStyle = col; ctx.lineWidth = w;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     };
+    /** Two equal bones from shoulder to hand; the elbow bows toward `bend`. */
+    const arm = (sx: number, sy: number, hx: number, hy: number, bx: number, by: number) => {
+      const l = 0.14, dx = hx - sx, dy = hy - sy, d = Math.hypot(dx, dy) || 1e-6, dd = Math.min(d, 2 * l - 0.002), a = dd / 2;
+      const h = Math.sqrt(Math.max(0, l * l - a * a)), ux = dx / d, uy = dy / d;
+      let px = -uy, py = ux;
+      if (px * bx + py * by < 0) { px = -px; py = -py; }
+      const ex = sx + ux * a + px * h, ey = sy + uy * a + py * h, hx2 = sx + ux * dd, hy2 = sy + uy * dd;
+      limb(sx, sy, ex, ey, 0.072, shirt); // sleeve
+      limb(ex, ey, hx2, hy2, 0.056, look.skin); // forearm
+      ctx.fillStyle = look.skin; ctx.strokeStyle = ink; ctx.lineWidth = line;
+      ctx.beginPath(); ctx.arc(hx2, hy2, 0.04, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); // hand
+      return { x: hx2, y: hy2 };
+    };
     // legs: back leg first. Walking swings them; at the ball they plant apart and the knees flex.
+    const plant = atBall ? 1 - relax : 0;
     const leg = (side: number) => {
-      const swing = walking ? sw * side * 0.11 : 0;
-      const spread = atBall ? 0.075 * side : 0.035 * side;
+      const swing = walking ? sw * side * 0.12 : 0;
+      const spread = (0.04 + 0.04 * plant) * side;
+      const hx = hip.x + side * 0.045;
       const fx = hip.x + spread + swing + (atBall && twist > 0.5 ? -0.02 * side : 0);
-      const fy = -(walking ? Math.max(0, -sw * side) * 0.035 : 0);
-      const kneeX = (hip.x + fx) / 2 + (atBall ? 0.03 : 0.015) + crouch * 0.12;
+      const fy = -(walking ? Math.max(0, -sw * side) * 0.04 : 0);
+      const kneeX = (hx + fx) / 2 + 0.02 + 0.02 * plant + crouch * 0.12;
       const kneeY = (hip.y + fy) / 2 + 0.01;
       const short = look.bottoms === 1;
-      const col = look.bottoms === 2 ? look.skin : look.pants;
-      limb(hip.x, hip.y, kneeX, kneeY, 0.075, short ? look.pants : col);
-      limb(kneeX, kneeY, fx, fy - 0.02, 0.07, short || look.bottoms === 2 ? look.skin : look.pants);
-      ctx.fillStyle = '#f1efe6'; ctx.strokeStyle = ink; ctx.lineWidth = line;
-      ctx.beginPath(); ctx.ellipse(fx + 0.025, fy - 0.008, 0.055, 0.03, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      const skirt = look.bottoms === 2;
+      limb(hx, hip.y, kneeX, kneeY, 0.088, skirt ? look.skin : look.pants);
+      limb(kneeX, kneeY, fx, fy - 0.03, 0.074, short || skirt ? look.skin : look.pants);
+      // a white shoe with a dark sole
+      ctx.fillStyle = '#fbfaf4'; ctx.strokeStyle = ink; ctx.lineWidth = line;
+      ctx.beginPath(); ctx.ellipse(fx + 0.04, fy - 0.017, 0.07, 0.036, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(28,26,46,0.7)'; ctx.lineWidth = line * 1.6;
+      ctx.beginPath(); ctx.moveTo(fx - 0.02, fy - 0.003); ctx.lineTo(fx + 0.105, fy - 0.003); ctx.stroke();
     };
     leg(-1);
     // back arm (behind the torso)
-    const handFront = { x: hands.x, y: hands.y };
-    const armBack = () => {
-      if (armUp) return limb(shoulder.x - shoulderW, shoulder.y + 0.02, shoulder.x - 0.13, shoulder.y + 0.13, 0.06, look.top === 2 ? '#f4efe0' : gt.shirt);
-      if (atBall) return limb(shoulder.x - shoulderW * 0.4, shoulder.y + 0.02, handFront.x - 0.01, handFront.y + 0.015, 0.058, gt.shirt);
-      limb(shoulder.x - shoulderW, shoulder.y + 0.02, shoulder.x - shoulderW - sw * 0.07, shoulder.y + 0.2, 0.058, gt.shirt);
-      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(shoulder.x - shoulderW - sw * 0.07, shoulder.y + 0.215, 0.03, 0, Math.PI * 2); ctx.fill();
+    const grip = { x: hands.x, y: hands.y };
+    if (armUp) arm(shoulder.x - shoulderW, shoulder.y + 0.03, shoulder.x - 0.12, shoulder.y + 0.17, -0.4, 0.8);
+    else if (atBall) arm(shoulder.x - shoulderW * 0.5, shoulder.y + 0.03, grip.x - 0.012, grip.y + 0.012, 0.15, 1);
+    else arm(shoulder.x - shoulderW, shoulder.y + 0.03, shoulder.x - shoulderW - sw * 0.08, shoulder.y + 0.27, -0.35, 0.3);
+    // torso: tapered from broad rounded shoulders to the waist
+    const tw = 0.125, hw = 0.095;
+    const torso = () => {
+      ctx.beginPath();
+      ctx.moveTo(hip.x - hw, hip.y + 0.02);
+      ctx.quadraticCurveTo(hip.x - hw - 0.012, (hip.y + shoulder.y) / 2, shoulder.x - tw, shoulder.y + 0.035);
+      ctx.quadraticCurveTo(shoulder.x - tw, shoulder.y - 0.02, shoulder.x - tw * 0.55, shoulder.y - 0.03);
+      ctx.lineTo(shoulder.x + tw * 0.55, shoulder.y - 0.03);
+      ctx.quadraticCurveTo(shoulder.x + tw, shoulder.y - 0.02, shoulder.x + tw, shoulder.y + 0.035);
+      ctx.quadraticCurveTo(hip.x + hw + 0.012, (hip.y + shoulder.y) / 2, hip.x + hw, hip.y + 0.02);
+      ctx.closePath();
     };
-    armBack();
-    // torso: from hips to shoulders, shirt and any trim
-    const tw = 0.115;
-    ctx.beginPath();
-    ctx.moveTo(hip.x - tw * 0.8, hip.y);
-    ctx.lineTo(shoulder.x - tw, shoulder.y);
-    ctx.quadraticCurveTo(shoulder.x, shoulder.y - 0.035, shoulder.x + tw, shoulder.y);
-    ctx.lineTo(hip.x + tw * 0.8, hip.y);
-    ctx.closePath();
-    ctx.fillStyle = look.top === 2 ? '#f4efe0' : gt.shirt;
+    torso();
+    ctx.fillStyle = shirt;
     ctx.fill();
     ctx.save();
     ctx.clip();
     if (look.top === 1) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 0.032;
-      for (let yy = shoulder.y + 0.05; yy < hip.y; yy += 0.07) { ctx.beginPath(); ctx.moveTo(shoulder.x - 0.2, yy); ctx.lineTo(shoulder.x + 0.2, yy); ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 0.034;
+      for (let yy = shoulder.y + 0.04; yy < hip.y + 0.03; yy += 0.075) { ctx.beginPath(); ctx.moveTo(shoulder.x - 0.2, yy); ctx.lineTo(shoulder.x + 0.2, yy); ctx.stroke(); }
     } else if (look.top === 2) {
       ctx.fillStyle = gt.cap; // the vest
-      ctx.fillRect(shoulder.x - tw - 0.02, shoulder.y - 0.02, 0.07, 0.3);
-      ctx.fillRect(shoulder.x + tw - 0.05, shoulder.y - 0.02, 0.07, 0.3);
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
-      ctx.fillRect(shoulder.x - 0.01, shoulder.y, 0.02, 0.3);
+      ctx.fillRect(shoulder.x - tw - 0.02, shoulder.y - 0.02, 0.08, 0.34);
+      ctx.fillRect(shoulder.x + tw - 0.06, shoulder.y - 0.02, 0.08, 0.34);
     }
-    ctx.fillStyle = 'rgba(0,0,0,0.13)'; // shaded side, away from the sun
-    ctx.fillRect(shoulder.x - tw, shoulder.y - 0.04, 0.05, 0.4);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(shoulder.x + tw - 0.045, shoulder.y - 0.04, 0.04, 0.4);
+    ctx.fillStyle = 'rgba(28,26,46,0.14)'; // the shaded side, away from the sun
+    ctx.fillRect(shoulder.x - tw, shoulder.y - 0.04, 0.055, 0.4);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(shoulder.x + tw - 0.05, shoulder.y - 0.04, 0.045, 0.4);
     ctx.restore();
-    ctx.strokeStyle = ink; ctx.lineWidth = line;
-    ctx.beginPath();
-    ctx.moveTo(hip.x - tw * 0.8, hip.y);
-    ctx.lineTo(shoulder.x - tw, shoulder.y);
-    ctx.quadraticCurveTo(shoulder.x, shoulder.y - 0.035, shoulder.x + tw, shoulder.y);
-    ctx.lineTo(hip.x + tw * 0.8, hip.y);
-    ctx.stroke();
-    // belt / skirt hem
-    ctx.fillStyle = look.bottoms === 2 ? look.pants : 'rgba(40,36,28,0.55)';
-    ctx.fillRect(hip.x - tw * 0.8, hip.y - 0.015, tw * 1.6, look.bottoms === 2 ? 0.07 : 0.025);
-    leg(1);
-    // head: neck, face, hair and headwear
+    torso();
+    ctx.strokeStyle = ink; ctx.lineWidth = line * 1.2; ctx.stroke();
+    // collar: a small V of skin and a placket line
     ctx.fillStyle = look.skin;
-    ctx.fillRect(shoulder.x - 0.025 + lean * 0.1, shoulder.y - 0.06, 0.05, 0.07);
-    ctx.beginPath(); ctx.arc(headC.x, headC.y, 0.082, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = ink; ctx.lineWidth = line; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(shoulder.x + 0.015 - 0.05, shoulder.y - 0.03); ctx.lineTo(shoulder.x + 0.015 + 0.05, shoulder.y - 0.03); ctx.lineTo(shoulder.x + 0.015, shoulder.y + 0.045); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = line * 0.8; ctx.stroke();
+    // belt, or a skirt hem
+    ctx.fillStyle = look.bottoms === 2 ? look.pants : 'rgba(40,34,28,0.85)';
+    ctx.fillRect(hip.x - hw, hip.y - 0.012, hw * 2, look.bottoms === 2 ? 0.085 : 0.03);
+    leg(1);
+    // neck and head
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(shoulder.x - 0.03 + lean * 0.1, shoulder.y - 0.075, 0.06, 0.09);
+    ctx.strokeStyle = ink; ctx.lineWidth = line;
+    ctx.beginPath(); ctx.arc(headC.x, headC.y, HR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // ear
+    ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(headC.x - 0.02, headC.y + 0.012, 0.03, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = skinShade; ctx.beginPath(); ctx.arc(headC.x - 0.02, headC.y + 0.012, 0.014, 0, Math.PI * 2); ctx.fill();
+    // hair: long hair falls behind, short hair caps the back and top
     ctx.fillStyle = look.hair;
-    if (look.long) { ctx.beginPath(); ctx.ellipse(headC.x - 0.05, headC.y + 0.03, 0.05, 0.075, 0.15, 0, Math.PI * 2); ctx.fill(); }
-    ctx.beginPath(); ctx.arc(headC.x - 0.005, headC.y - 0.012, 0.083, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+    if (look.long) { ctx.beginPath(); ctx.ellipse(headC.x - 0.065, headC.y + 0.045, 0.06, 0.1, 0.12, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(headC.x - 0.008, headC.y - 0.012, HR + 0.004, Math.PI * 0.82, Math.PI * 2.02); ctx.fill();
     const hat = g.event ? '#f2c53d' : gt.cap;
+    ctx.strokeStyle = ink; ctx.lineWidth = line;
     if (look.head === 0 || g.event) { // cap with a forward peak
-      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.02, 0.087, Math.PI, 0); ctx.fill();
-      ctx.fillRect(headC.x + 0.02, headC.y - 0.032, 0.1, 0.022);
+      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.022, HR + 0.006, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(headC.x + 0.02, headC.y - 0.04, 0.125, 0.03, 0.015); ctx.fill(); ctx.stroke();
     } else if (look.head === 1) { // visor
-      ctx.fillStyle = hat; ctx.fillRect(headC.x - 0.085, headC.y - 0.045, 0.17, 0.025); ctx.fillRect(headC.x + 0.02, headC.y - 0.03, 0.1, 0.02);
+      ctx.fillStyle = hat; ctx.beginPath(); ctx.roundRect(headC.x - HR, headC.y - 0.055, HR * 2, 0.03, 0.015); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(headC.x + 0.02, headC.y - 0.04, 0.125, 0.026, 0.013); ctx.fill(); ctx.stroke();
     } else if (look.head === 2) { // bucket hat
-      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.03, 0.08, Math.PI, 0); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(headC.x, headC.y - 0.035, 0.125, 0.026, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(headC.x, headC.y - 0.035, HR - 0.004, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(headC.x, headC.y - 0.04, 0.15, 0.032, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
-    // face: a single eye on the side facing the target keeps them from looking blank
-    ctx.fillStyle = 'rgba(30,24,20,0.8)';
-    ctx.beginPath(); ctx.arc(headC.x + 0.05, headC.y + 0.004, 0.011, 0, Math.PI * 2); ctx.fill();
+    // face: eye, nose and mouth (a smile when pleased)
+    ctx.fillStyle = 'rgba(28,26,46,0.95)';
+    ctx.beginPath(); ctx.arc(headC.x + 0.055, headC.y + 0.0, 0.0145, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = look.skin; ctx.strokeStyle = ink; ctx.lineWidth = line * 0.9;
+    ctx.beginPath(); ctx.arc(headC.x + HR - 0.004, headC.y + 0.016, 0.02, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(28,26,46,0.8)'; ctx.lineWidth = line;
+    ctx.beginPath();
+    if (armUp || (g.react && g.react.kind === 'good' && rt >= 0 && rt < 0.9)) ctx.arc(headC.x + 0.052, headC.y + 0.045, 0.026, 0.1 * Math.PI, 0.9 * Math.PI);
+    else if (droop > 0.005) ctx.arc(headC.x + 0.052, headC.y + 0.066, 0.02, 1.15 * Math.PI, 1.85 * Math.PI);
+    else { ctx.moveTo(headC.x + 0.038, headC.y + 0.052); ctx.lineTo(headC.x + 0.07, headC.y + 0.052); }
+    ctx.stroke();
     // front arm and club
-    if (armUp) {
-      limb(shoulder.x + shoulderW, shoulder.y + 0.02, shoulder.x + 0.14, shoulder.y - 0.1, 0.06, look.top === 2 ? '#f4efe0' : gt.shirt);
-      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(shoulder.x + 0.145, shoulder.y - 0.115, 0.03, 0, Math.PI * 2); ctx.fill();
-    } else if (atBall) {
-      limb(shoulder.x + shoulderW * 0.4, shoulder.y + 0.02, handFront.x, handFront.y, 0.06, gt.shirt);
-    } else {
-      const hx = shoulder.x + shoulderW + sw * 0.07, hy2 = shoulder.y + 0.2;
-      limb(shoulder.x + shoulderW, shoulder.y + 0.02, hx, hy2, 0.06, gt.shirt);
-      ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(hx, hy2 + 0.015, 0.03, 0, Math.PI * 2); ctx.fill();
-      handFront.x = hx; handFront.y = hy2 + 0.01;
-    }
-    const L = atBall && ball ? Math.max(0.28, Math.min(0.62, Math.hypot(ball.x - hands.x, ball.y - hands.y))) : 0.42;
-    const hx2 = (armUp ? shoulder.x + 0.145 : handFront.x), hy3 = (armUp ? shoulder.y - 0.115 : handFront.y);
+    let hx2: number, hy3: number;
+    if (armUp) { const h = arm(shoulder.x + shoulderW, shoulder.y + 0.03, shoulder.x + 0.15, shoulder.y - 0.13, 0.4, 0.5); hx2 = h.x; hy3 = h.y; }
+    else if (atBall) { const h = arm(shoulder.x + shoulderW * 0.5, shoulder.y + 0.03, grip.x, grip.y, 0.2, 1); hx2 = h.x; hy3 = h.y; }
+    else { const h = arm(shoulder.x + shoulderW, shoulder.y + 0.03, shoulder.x + shoulderW + sw * 0.08, shoulder.y + 0.27, 0.45, 0.3); hx2 = h.x; hy3 = h.y; }
+    // at the ball the club is as long as the reach to it, so the head meets the ball at contact; a putter is shorter and its head flat
+    const L = atBall && ball ? Math.max(putting ? 0.24 : 0.28, Math.min(putting ? 0.5 : 0.85, Math.hypot(ball.x - hands.x, ball.y - hands.y))) : 0.42;
     const ex = hx2 + Math.cos(ang) * L, ey = hy3 + Math.sin(ang) * L;
-    ctx.strokeStyle = 'rgba(30,30,28,0.55)'; ctx.lineWidth = 0.034 + line;
+    ctx.strokeStyle = 'rgba(28,26,46,0.85)'; ctx.lineWidth = 0.036 + line;
     ctx.beginPath(); ctx.moveTo(hx2, hy3); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.strokeStyle = '#e4e2da'; ctx.lineWidth = 0.022;
+    ctx.strokeStyle = '#eceae2'; ctx.lineWidth = 0.022;
     ctx.beginPath(); ctx.moveTo(hx2, hy3); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.fillStyle = '#4a4d52'; // club head
-    ctx.beginPath(); ctx.ellipse(ex, ey, 0.032, 0.02, ang, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#2a2a38'; ctx.lineWidth = 0.04; // the grip
+    ctx.beginPath(); ctx.moveTo(hx2, hy3); ctx.lineTo(hx2 + Math.cos(ang) * 0.08, hy3 + Math.sin(ang) * 0.08); ctx.stroke();
+    ctx.fillStyle = '#4a4d62'; ctx.strokeStyle = ink; ctx.lineWidth = line; // club head
+    ctx.beginPath(); ctx.ellipse(ex, ey, atBall && putting ? 0.048 : 0.036, atBall && putting ? 0.016 : 0.024, ang, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
 
-  private drawBall(g: Golfer) {
+  /**
+   * The ball: a dashed flight line, a shadow that stays on the ground and fades as the ball climbs, a small bounce and a decelerating
+   * roll after landing, and a brief flash at contact. The path and timing come from the simulation; only the easing along it is drawn here.
+   */
+  private drawBall(g: Golfer, _now: number) {
     if (!g.ballVisible) return;
     const ctx = this.ctx;
+    const calm = Renderer.reducedMotion;
     const u = Math.max(this.ts, 22);
-    const p = this.toScreen(g.rbx, g.rby);
-    if (g.flight && g.trail.length > 1 && !g.flight.putt) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    const f = g.flight;
+    let bx = g.rbx, by = g.rby, bz = g.rbz;
+    if (f && f.t >= f.tAir) {
+      // rolling: same endpoints and same duration, but it runs out of speed instead of stopping dead
+      const dx = f.end.x - f.air.x, dy = f.end.y - f.air.y;
+      const len2 = dx * dx + dy * dy;
+      if (len2 > 1e-6) {
+        const lin = Math.max(0, Math.min(1, ((bx - f.air.x) * dx + (by - f.air.y) * dy) / len2));
+        const eased = 1 - (1 - lin) * (1 - lin);
+        bx = f.air.x + dx * eased;
+        by = f.air.y + dy * eased;
+        // one low hop as a lofted ball lands
+        if (!f.putt && !calm && f.apex > 0.8 && lin < 0.4) bz += Math.min(0.5, f.apex * 0.1) * 4 * (lin / 0.4) * (1 - lin / 0.4);
+      }
+    }
+    const p = this.toScreen(bx, by);
+    if (f && g.trail.length > 1 && !f.putt) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.lineWidth = Math.max(1, u * 0.05);
       ctx.setLineDash([u * 0.12, u * 0.1]);
       ctx.beginPath();
@@ -2158,18 +2315,37 @@ export class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const r = Math.max(2.2, u * 0.085) * (1 + g.rbz * 0.1);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    // landing: a faint ring of dust where it came down (not into water, which splashes by itself)
+    if (f && !f.putt && !calm && f.shot && f.shot.kind !== 'water' && f.t >= f.tAir && f.t - f.tAir < 0.3) {
+      const k = (f.t - f.tAir) / 0.3;
+      const a = this.toScreen(f.air.x, f.air.y);
+      ctx.strokeStyle = `rgba(245,240,220,${0.4 * (1 - k)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(a.x, a.y, u * (0.1 + 0.28 * k), u * (0.05 + 0.14 * k), 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    const r = Math.max(2.2, u * 0.085) * (1 + bz * 0.08);
+    // the shadow stays on the ground, to the lower right like the trees' shadows, smaller and fainter the higher the ball is
+    ctx.fillStyle = `rgba(0,0,0,${(0.3 / (1 + bz * 0.35)).toFixed(3)})`;
     ctx.beginPath();
-    ctx.ellipse(p.x + g.rbz * u * 0.12, p.y, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x + bz * u * 0.1, p.y, r * 0.9 / (1 + bz * 0.12), r * 0.45 / (1 + bz * 0.12), 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
-    ctx.arc(p.x, p.y - g.rbz * u * 0.5 - r * 0.4, r, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y - bz * u * 0.5 - r * 0.4, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    // contact: a tiny burst on the ball in the instant the club meets it
+    if (f && !f.putt && !calm && f.t < 0.1) {
+      const k = f.t / 0.1;
+      ctx.strokeStyle = `rgba(255,252,235,${0.85 * (1 - k)})`;
+      ctx.lineWidth = 1.6;
+      const cy = p.y - bz * u * 0.5 - r * 0.4, rr = r * (1.4 + 2.2 * k);
+      ctx.beginPath();
+      for (let n = 0; n < 6; n++) { const a = (n / 6) * Math.PI * 2 + 0.4; ctx.moveTo(p.x + Math.cos(a) * rr * 0.6, cy + Math.sin(a) * rr * 0.6); ctx.lineTo(p.x + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+      ctx.stroke();
+    }
   }
 
   private drawBubble(g: Golfer) {
@@ -2634,7 +2810,7 @@ export class Renderer {
     let total = 0;
     for (let k = 0; k + 1 < route.length; k++) total += Math.hypot(route[k + 1].x - route[k].x, route[k + 1].y - route[k].y);
     // a straight hole wears its total at the middle; one with turns wears it above the green so it never sits on a leg chip
-    if (turns) chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, cup.x, cup.y, 36);
+    if (turns) chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, cup.x, cup.y, ghost ? Math.max(this.ts * 1.9, 34) + 34 : 36);
     else chip(`Par ${par} · ${Math.round(total * CFG.grid.yardsPerTile)} y`, (tee.x + cup.x) / 2, (tee.y + cup.y) / 2, 4);
   }
 
@@ -2669,7 +2845,7 @@ export class Renderer {
     }
     if (ov.hold) {
       // a ring that fills while the finger rests: when it closes, painting begins
-      const k = Math.min(1, (performance.now() - ov.hold.t0) / 320);
+      const k = Math.min(1, (performance.now() - ov.hold.t0) / (ov.hold.ms ?? 320));
       if (k > 0.12) {
         ctx.lineWidth = 4;
         ctx.strokeStyle = 'rgba(28,58,43,0.35)';
@@ -2705,7 +2881,7 @@ export class Renderer {
     }
 
     // new-hole placement guide
-    if (ov.buildLine) {
+    if (ov.buildLine && !ov.bendUi) {
       const f = this.toScreen(ov.buildLine.from.x + 0.5, ov.buildLine.from.y + 0.5);
       const t2 = this.toScreen(ov.buildLine.to.x + 0.5, ov.buildLine.to.y + 0.5);
       ctx.setLineDash([10, 8]);
@@ -2733,7 +2909,9 @@ export class Renderer {
     // selected hole routing line
     const h = game.world.holes.find((x) => x.id === game.selectedHole);
     if (h) {
+      const shaping = !!ov.bendUi;
       const pts = holePath(h).map((p) => this.toScreen(p.x, p.y));
+      if (!shaping) {
       ctx.setLineDash([8, 7]);
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = 2;
@@ -2760,6 +2938,7 @@ export class Renderer {
       mk(center(h.tee), 'T', '#2d6ccb');
       mk(center(h.cup), String(h.id), '#c2552d');
       this.drawYardage(holePath(h), h.par);
+      }
       if (!h.open) {
         const v = game.validate(h.id);
         if (v.breakAt) {
@@ -2778,7 +2957,120 @@ export class Renderer {
         }
       }
     }
-    this.drawGhost(ov, h);
+    if (ov.bendUi) this.drawBendUi(ov.bendUi);
+    else this.drawGhost(ov, h);
+  }
+
+  /** A route pin on screen: where its round head and its tip are. Hit-testing uses this same shape, so what is drawn is what can be grabbed. */
+  pinGeom(tip: Pt): { head: Pt; base: Pt; r: number } {
+    const base = this.toScreen(tip.x, tip.y);
+    return { base, head: { x: base.x, y: base.y - Math.max(this.ts * 1.9, 34) }, r: 13 };
+  }
+
+  /** The route being shaped: dashed line, leg and total yardage, numbered pins, the held handle and a live readout beside it. */
+  private drawBendUi(ui: BendUi) {
+    const ctx = this.ctx;
+    const now = performance.now();
+    const reduced = Renderer.reducedMotion;
+    const ease = (t: number) => t * t * (3 - 2 * t);
+    type P = { kind: 'tee' | 'cup' | 'bend'; i: number; label: string; tile: Pt; w: Pt };
+    const pins: P[] = [
+      { kind: 'tee', i: 0, label: 'T', tile: ui.tee, w: center(ui.tee) },
+      ...ui.bends.map((b, i) => ({ kind: 'bend' as const, i, label: String(i + 1), tile: b, w: center(b) })),
+      { kind: 'cup', i: 0, label: 'G', tile: ui.cup, w: center(ui.cup) },
+    ];
+    const d = ui.drag && ui.drag.engaged ? ui.drag : null;
+    const st = ui.settle && !reduced && now - ui.settle.t0 < ui.settle.dur ? ui.settle : null;
+    for (const p of pins) {
+      if (d && d.kind === p.kind && d.i === p.i) p.w = d.tip;
+      else if (st && st.kind === p.kind && st.i === p.i) {
+        const k = ease((now - st.t0) / st.dur);
+        p.w = { x: st.from.x + (st.to.x - st.from.x) * k, y: st.from.y + (st.to.y - st.from.y) * k };
+      }
+    }
+    const held = d ? pins.find((p) => p.kind === d.kind && p.i === d.i) : undefined;
+    const bad = !!d?.problem;
+    // the route: through the pins, so it follows the handle smoothly while the numbers use the snapped tiles
+    ctx.lineCap = 'round';
+    ctx.setLineDash([3, 6]);
+    ctx.strokeStyle = '#ffe27a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    pins.forEach((p, k) => { const s = this.toScreen(p.w.x, p.w.y); if (k) ctx.lineTo(s.x, s.y); else ctx.moveTo(s.x, s.y); });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
+    // the tile the handle will land on; red, with the neighbours' legs, when the hole is not allowed there
+    if (d && held) {
+      const t = d.problem && d.attempt ? d.attempt : d.tile;
+      ctx.beginPath();
+      this.groundPolygon(t.x, t.y);
+      ctx.fillStyle = bad ? 'rgba(236,72,52,.38)' : 'rgba(255,226,122,.30)';
+      ctx.strokeStyle = bad ? '#ff5a40' : '#ffe27a';
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+      if (bad && d.attempt) {
+        const at = this.toScreen(d.attempt.x + 0.5, d.attempt.y + 0.5);
+        const k = pins.indexOf(held);
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = '#ff5a40';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        for (const o of [pins[k - 1], pins[k + 1]]) if (o) { const s = this.toScreen(o.tile.x + 0.5, o.tile.y + 0.5); ctx.moveTo(s.x, s.y); ctx.lineTo(at.x, at.y); }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    this.drawYardage(pins.map((p) => center(p.tile)), ui.par, true);
+    // pins: the selected and the held one last, so nothing hides them
+    const order = [...pins].sort((a, b) => Number(a === held || (ui.selected >= 0 && a.kind === 'bend' && a.i === ui.selected)) - Number(b === held || (ui.selected >= 0 && b.kind === 'bend' && b.i === ui.selected)));
+    for (const p of order) {
+      const isHeld = p === held;
+      const selected = p.kind === 'bend' && p.i === ui.selected;
+      const fixed = ui.movable === 'bends' && p.kind !== 'bend';
+      const g = this.pinGeom(p.w);
+      const r = fixed ? 9 : isHeld ? 17 : selected ? 15 : g.r;
+      const head = isHeld ? { x: g.head.x, y: g.head.y - 3 } : g.head;
+      const warn = isHeld && bad;
+      if (isHeld || selected) {
+        ctx.fillStyle = 'rgba(8,26,16,.28)';
+        ctx.beginPath(); ctx.ellipse(g.base.x, g.base.y, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = warn ? '#7a1608' : '#3a2d0c';
+      ctx.lineWidth = isHeld ? 2.5 : 2;
+      ctx.beginPath(); ctx.moveTo(head.x, head.y + r); ctx.lineTo(g.base.x, g.base.y); ctx.stroke();
+      if (selected || isHeld) { ctx.fillStyle = warn ? '#ff5a40' : '#fff6d6'; ctx.beginPath(); ctx.arc(head.x, head.y, r + 4, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = warn ? '#ff7a62' : fixed ? '#d8d0b0' : p.kind === 'bend' ? '#ffe27a' : '#ffd24a';
+      ctx.beginPath(); ctx.arc(head.x, head.y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = warn ? '#3a0a04' : '#2a2110';
+      ctx.font = `800 ${fixed ? 10 : 12}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(p.label, head.x, head.y + 0.5);
+      ctx.textAlign = 'left';
+    }
+    // live readout, above the handle (below it when there is no room), never under the finger
+    if (d && held) {
+      const g = this.pinGeom(held.w);
+      const k = pins.indexOf(held);
+      const legs = held.kind === 'bend' ? `${ui.legs[k - 1]} y + ${ui.legs[k]} y` : held.kind === 'tee' ? `${ui.legs[0]} y to the first turn` : `${ui.legs[ui.legs.length - 1]} y to the green`;
+      const title = held.kind === 'bend' ? `Bend ${held.i + 1}` : held.kind === 'tee' ? 'Tee' : 'Green';
+      const lines = d.problem ? [d.problem] : [`${title}: ${legs}`, `Hole ${ui.total} y · par ${ui.par} · ${ui.cost > 0 ? '$' + ui.cost.toLocaleString('en-US') : 'no charge'}`];
+      ctx.font = '700 12px system-ui, sans-serif';
+      const w = Math.min(this.cw - 16, Math.max(...lines.map((t) => ctx.measureText(t).width)) + 18);
+      const h = 10 + lines.length * 16;
+      let x = Math.max(8, Math.min(this.cw - 8 - w, g.head.x - w / 2));
+      let y = g.head.y - 17 - 8 - h;
+      if (y < this.insets.t - 30) y = g.base.y + 14;
+      ctx.fillStyle = bad ? 'rgba(96,18,8,.94)' : 'rgba(58,45,12,.94)';
+      ctx.strokeStyle = bad ? '#ff5a40' : '#ffe27a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 9); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = bad ? '#ffd9d0' : '#ffe9a6';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      lines.forEach((t, n) => ctx.fillText(t, x + w / 2, y + 5 + 8 + n * 16, w - 10));
+      ctx.textAlign = 'left';
+    }
   }
 
   /** The unbuilt tee, green and turning points a pending hole plan would create, with its route and length. */

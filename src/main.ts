@@ -1,6 +1,7 @@
 import { FeedbackPlayer } from './feedback';
 import { Studio } from './studio';
 import { Tutorial } from './tutorial';
+import './fonts';
 import './style.css';
 import { CFG } from './config';
 import { Game } from './game';

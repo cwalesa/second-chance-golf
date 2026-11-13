@@ -36,11 +36,11 @@ function poly(ctx: CanvasRenderingContext2D, points: Pt[], fill: string | Canvas
   points.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
   ctx.closePath();
   ctx.fill();
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = lw;
-    ctx.stroke();
-  }
+  // every face is outlined in ink, thick for the big shapes: the chunky look
+  ctx.strokeStyle = stroke && lw >= 1.4 ? stroke : 'rgba(28,26,46,0.9)';
+  ctx.lineWidth = Math.max(3, lw * 3);
+  ctx.lineJoin = 'round';
+  ctx.stroke();
 }
 
 function line(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, color: string, width: number) {
