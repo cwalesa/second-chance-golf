@@ -410,3 +410,7 @@ Simulation runs on a fixed 1/30 s step independent of rendering; the speed butto
 - The hole panel shows the essentials first (name, par and length, status, Open hole), with editing, scores, design, turf and the hole list in expandable sections.
 - The tutorial is a compact strip that expands for more help, Skip and Exit.
 - Reduced-motion preferences turn the animations off; everything still works instantly.
+
+## Browser tests
+
+`npm run e2e` starts its own dev server and drives the game in Chromium with real touch events: tutorial without Skip, building (fade, cancel, undo, bend drag), the hole panel, the first-round card, the pop-up queue and terrain continuity on a slow renderer. `npm run e2e -- panel` runs only matching suites. It needs Chromium: `npx playwright install chromium`, or set `E2E_CHROMIUM` to a binary. It is separate from `npm test` (vitest) and takes about five minutes.

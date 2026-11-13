@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "cap:sync": "npm run build && npx cap sync",
-    "cap:ios": "npm run cap:sync && npx cap open ios"
+    "cap:ios": "npm run cap:sync && npx cap open ios",
+    "e2e": "node e2e/run.cjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.0",
+    "playwright": "^1.49.1",
     "typescript": "^5.6.0",
     "vite": "^5.4.0",
     "vitest": "^2.1.0"
