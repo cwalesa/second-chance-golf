@@ -1192,8 +1192,8 @@ export class Renderer {
 
     // ---- fairway family (fairway, plus the ground under greens and tees)
     const grass = dist('grass');
-    flatStamp(grass, falloff(0.1), [14, 50, 26], 0.3);
-    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway'), tex('stripe-fw', () => makeStripeTexture(64, 0.075, 'x'))]);
+    flatStamp(grass, falloff(0.1), [14, 50, 26], 0.17);
+    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway'), tex('stripe-fw', () => makeStripeTexture(64, 0.09, 'x'))]);
     // a fine pale cut line just inside the edge of the mown area
     flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
 
@@ -1209,7 +1209,7 @@ export class Renderer {
     // ---- tee box: geometric, tight, with a lit rim
     const tee = dist('tee');
     if (tee) {
-      flatStamp(tee, falloff(0.07), [14, 50, 26], 0.32);
+      flatStamp(tee, falloff(0.07), [14, 50, 26], 0.2);
       // plain colour first, through the same path as the soft shadow above (known to draw everywhere),
       // then the grain and mowing stripes on top, so a failed texture can never leave a blank white box
       shadeStamp(tee, inside, [{ rgb: COL.teeGood }, turf('tee', 0.9), tex('stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))]);
@@ -1222,7 +1222,7 @@ export class Renderer {
     // ---- bunkers: turf lip, warm sand, crisp edge, shaded inner wall on the side away from the sun
     const bunker = dist('bunker');
     if (bunker) {
-      flatStamp(bunker, falloff(0.07), [28, 66, 30], 0.42);
+      flatStamp(bunker, falloff(0.07), [28, 66, 30], 0.28);
       shadeStamp(bunker, inside, [{ rgb: COL.sand }, tex('sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))]);
       flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
       flatStamp(bunker, innerShade(-6, -2, 0.18, 1), [255, 251, 234], 0.45);
@@ -1232,7 +1232,7 @@ export class Renderer {
     // ---- water: wet bank, a thin pale shoreline, depth from the colour map, bank shadow on the sun side
     const water = dist('water');
     if (water) {
-      flatStamp(water, falloff(0.11), [58, 74, 38], 0.45);
+      flatStamp(water, falloff(0.11), [58, 74, 38], 0.3);
       flatStamp(water, band(-0.035, 0.005), [204, 198, 150], 0.7);
       shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
       flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.18), [156, 228, 216], 0.26);
@@ -1242,7 +1242,7 @@ export class Renderer {
     // ---- paths and paving: contact shadow, flagstones at a fixed scale, a kerb of constant width
     const path = dist('path');
     if (path) {
-      flatStamp(path, falloff(0.06), [24, 40, 22], 0.32);
+      flatStamp(path, falloff(0.06), [24, 40, 22], 0.2);
       shadeStamp(path, inside, [{ rgb: COL.path }, tex('paving', () => makePavingTexture(COL.path))]);
       flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
       flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
@@ -1386,7 +1386,7 @@ export class Renderer {
     const px = x * TS;
     const py = y * TS;
     const tall = cond < 40;
-    const n = tall ? 4 : 2;
+    const n = tall ? 3 : 2;
     c.lineWidth = 1.1;
     c.lineCap = 'round';
     for (let k = 0; k < n; k++) {
@@ -1394,14 +1394,14 @@ export class Renderer {
       const by = py + 3 + hash2(x, y, 150 + k) * (TS - 6);
       const len = tall ? 4 + hash2(x, y, 170 + k) * 3 : 2.5 + hash2(x, y, 170 + k) * 1.5;
       // shaded blades lean away from the sun (+x), a lit blade toward it
-      c.strokeStyle = tall ? 'rgba(150,150,86,0.42)' : 'rgba(20,70,34,0.4)';
+      c.strokeStyle = tall ? 'rgba(150,150,86,0.3)' : 'rgba(20,70,34,0.26)';
       c.beginPath();
       c.moveTo(bx, by);
       c.lineTo(bx - len * 0.4, by - len);
       c.moveTo(bx, by);
       c.lineTo(bx - len * 0.7, by - len * 0.7);
       c.stroke();
-      c.strokeStyle = tall ? 'rgba(206,196,128,0.38)' : 'rgba(132,186,96,0.3)';
+      c.strokeStyle = tall ? 'rgba(206,196,128,0.28)' : 'rgba(132,186,96,0.2)';
       c.beginPath();
       c.moveTo(bx, by);
       c.lineTo(bx - len * 0.95, by - len * 0.35);

@@ -36,3 +36,25 @@ export const icon = (name: string, cls = '') =>
 /** The crest-sized flag mark used on the wordmark, empty states and the goal slip. */
 export const flagMark = (cls = '') =>
   `<svg class="flagmark ${cls}" viewBox="0 0 24 28" aria-hidden="true"><path d="M5 26V2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M5 3l15 5.5L5 14z" fill="var(--flag,#b63d2a)"/><ellipse cx="5" cy="26" rx="4.5" ry="1.4" fill="currentColor" opacity=".35"/></svg>`;
+
+/**
+ * Illustrated destination icons for the menu. One family: a 44-unit grid, light from the upper left
+ * (light face, mid face, dark face), a single dark-green outline weight, and the game's own subjects
+ * (a green with its flag, a golfer, a clubhouse, a coin stack, a clipboard, a pencil).
+ */
+const O = '#22402b', GL = '#a9d68a', GM = '#74b45e', GD = '#4e8f49', CREAM = '#f3ecd6', CREAM_D = '#d9cdaa', ROOF = '#b9573b', ROOF_L = '#d3735a', GOLD = '#e9b72a', GOLD_L = '#f8d96a', GOLD_D = '#b98912';
+const slab = (cx: number, cy: number, w: number) => {
+  const h = w / 2, d = w * 0.22;
+  return `<path d="M${cx} ${cy - h / 2}L${cx + w / 2} ${cy}L${cx} ${cy + h / 2}L${cx - w / 2} ${cy}Z" fill="${GL}" stroke="${O}"/><path d="M${cx - w / 2} ${cy}L${cx} ${cy + h / 2}L${cx} ${cy + h / 2 + d}L${cx - w / 2} ${cy + d}Z" fill="${GM}" stroke="${O}"/><path d="M${cx + w / 2} ${cy}L${cx} ${cy + h / 2}L${cx} ${cy + h / 2 + d}L${cx + w / 2} ${cy + d}Z" fill="${GD}" stroke="${O}"/>`;
+};
+const PICS: Record<string, string> = {
+  build: `${slab(22, 33, 30)}<g transform="rotate(42 22 18)"><rect x="19" y="3" width="6" height="19" fill="#f4c63a" stroke="${O}"/><rect x="22.2" y="3.5" width="2.3" height="18" fill="#d49e18"/><path d="M19 22h6l-3 7z" fill="#ecd2a0" stroke="${O}"/><path d="M21 26.4h2L22 29z" fill="#3a3a3a"/><rect x="19" y="1" width="6" height="3.5" rx="1" fill="#e58f8f" stroke="${O}"/></g>`,
+  course: `${slab(22, 33, 34)}<path d="M22 31V7" stroke="${O}" stroke-width="2.4" stroke-linecap="round"/><path d="M22 7l12 5.5L22 18z" fill="#d0472d" stroke="${O}"/><path d="M22 7l12 5.5-12 2z" fill="#e5705a"/><circle cx="29" cy="33" r="2" fill="#fff" stroke="${O}"/>`,
+  guests: `<ellipse cx="22" cy="39" rx="12" ry="3" fill="rgba(34,64,43,.25)"/><circle cx="20" cy="9" r="4.6" fill="#f1cba2" stroke="${O}"/><path d="M15.5 8.5a5 4 0 0110 -1.2l-1 2.6h-9z" fill="#f3ecd6" stroke="${O}"/><path d="M14 16.5q6-3 12 0l2 12h-16z" fill="#4f86b6" stroke="${O}"/><path d="M14 16.5q3-1.5 6-1.6l-2 13.100h-4.200z" fill="#79a6d1"/><path d="M16 28.5h8l.5 10h-3.200l-1.300-7-1.300 7h-3.200z" fill="#3d4a55" stroke="${O}"/><path d="M26 18l9 17" stroke="${O}" stroke-width="2" stroke-linecap="round"/><path d="M33.500 34.500l4 .5-.5 2.500-4-.5z" fill="#c9ced2" stroke="${O}"/><circle cx="38" cy="39" r="1.800" fill="#fff" stroke="${O}"/>`,
+  money: `<ellipse cx="22" cy="39" rx="15" ry="3" fill="rgba(34,64,43,.25)"/>${[32, 25, 18].map((y) => `<path d="M7 ${y}v5a15 6 0 0030 0v-5z" fill="${GOLD}" stroke="${O}"/><path d="M7 ${y}v5a15 6 0 0015 6v-5z" fill="${GOLD_L}" opacity=".55"/><ellipse cx="22" cy="${y}" rx="15" ry="6" fill="${GOLD_L}" stroke="${O}"/>`).join('')}<text x="22" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="11" fill="${GOLD_D}">$</text>`,
+  club: `<ellipse cx="22" cy="39" rx="17" ry="3" fill="rgba(34,64,43,.25)"/><path d="M6 21h32v17H6z" fill="${CREAM}" stroke="${O}"/><path d="M26 21h12v17H26z" fill="${CREAM_D}" stroke="${O}"/><path d="M3 22L22 8l19 14z" fill="${ROOF}" stroke="${O}"/><path d="M3 22L22 8v14z" fill="${ROOF_L}"/><rect x="18" y="28" width="8" height="10" fill="#8a5a38" stroke="${O}"/><rect x="9" y="26" width="6" height="6" fill="#a9d0e6" stroke="${O}"/><rect x="29" y="26" width="6" height="6" fill="#a9d0e6" stroke="${O}"/><path d="M22 8V2" stroke="${O}" stroke-width="1.600"/><path d="M22 2l7 2-7 2.500z" fill="#d0472d" stroke="${O}"/>`,
+  journey: `<rect x="8" y="6" width="28" height="34" rx="3" fill="#b9824f" stroke="${O}"/><rect x="11" y="10" width="22" height="27" rx="1" fill="${CREAM}" stroke="${O}"/><rect x="16" y="3" width="12" height="7" rx="2" fill="#aab2ad" stroke="${O}"/>${[16, 23, 30].map((y, i) => `<path d="M14 ${y}l2 2 3.500-4" fill="none" stroke="${i < 2 ? '#2f8a3f' : '#b9b39c'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 ${y}h8" stroke="#8d8a78" stroke-width="2" stroke-linecap="round"/>`).join('')}`,
+};
+/** An illustrated menu icon, or the plain line icon when none exists. */
+export const pic = (name: string) =>
+  PICS[name] ? `<svg class="pic" viewBox="0 0 44 44" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">${PICS[name]}</svg>` : icon(name);
