@@ -3,6 +3,11 @@ import { Rng } from './rng';
 import { Hole, Pt, T, World, center, clubSites, findPath, idx, inBounds } from './terrain';
 import { ExecutedShot, ShotPlan, executeShot, isValidLie, lieAt, nearestValid, planShot, puttLeave, puttProbability } from './physics';
 
+/** A golfer who has taken a cart out of the barn: from the first tee until the round is over. */
+export const cartOut = (g: { cart?: number; phase: string }) => g.cart !== undefined && g.cart >= 0 && g.phase !== 'arrive' && g.phase !== 'leave';
+/** Golfers who rode in this one: driving between shots (the cart rolls with them). */
+export const cartDriving = (g: { cart?: number; phase: string }) => g.cart !== undefined && g.cart >= 0 && (g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit');
+
 export type Phase = 'arrive' | 'toTee' | 'queue' | 'toBall' | 'address' | 'swing' | 'flight' | 'holed' | 'toExit' | 'leave';
 
 export interface Flight {
@@ -62,6 +67,10 @@ export interface Golfer {
   y: number;
   dir: number;
   walkT: number;
+  /** Riding a rented cart (its trim colour), or absent. */
+  cart?: number;
+  /** Which way the golfer last moved on the ground, in radians; the cart points the same way. */
+  heading?: number;
   phase: Phase;
   phaseTime: number;
   timer: number;
@@ -343,6 +352,7 @@ export class CourseSim {
     g.x += (dx / d) * step;
     g.y += (dy / d) * step;
     if (Math.abs(dx) > 0.01) g.dir = dx > 0 ? 1 : -1;
+    g.heading = Math.atan2(dy, dx);
     g.walkT += dt * 9;
     return false;
   }

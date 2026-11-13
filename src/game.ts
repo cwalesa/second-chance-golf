@@ -4,11 +4,11 @@ import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from 
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
-import { CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, beautyNear, buildingUpkeep, countOf } from './items';
+import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNear, buildingProblem, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
-import { World, Hole, computeZones, holeCondition, validateHole, Validation } from './terrain';
+import { World, Hole, T, computeZones, holeCondition, idx, inBounds, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
@@ -230,6 +230,35 @@ export class Game {
     this.notify('good', `Clubhouse built. Golfers arrive by the entrance road.`);
     this.dirtySave = true;
     return true;
+  }
+
+  /**
+   * Improvements that used to be bought without being placed (the putting green and the driving range) now stand on the
+   * property. A save that owns one with nothing standing gets it placed beside the clubhouse, free of charge.
+   */
+  placeOwnedAmenities(): void {
+    const w = this.world, c = w.clubhouse;
+    if (!c) return;
+    w.items ??= [];
+    for (const kind of AMENITY_KINDS) {
+      if (!this.upgrades[kind] || countOf(w, kind) > 0) continue;
+      const d = ITEMS[kind], fw = d.w ?? 1, fh = d.h ?? 1;
+      const spots: { x: number; y: number; d: number }[] = [];
+      for (let y = c.y - 10; y <= c.y + 22; y++)
+        for (let x = c.x - 10; x <= c.x + 26; x++) spots.push({ x, y, d: Math.hypot(x + fw / 2 - (c.x + 3.5), y + fh / 2 - (c.y + 2.5)) });
+      spots.sort((a, b) => a.d - b.d);
+      const ground = (x: number, y: number) => w.terrain[idx(w, x, y)] === T.ROUGH;
+      const found = spots.find((s) => {
+        if (s.d < 6) return false;
+        for (let yy = s.y; yy < s.y + fh; yy++) for (let xx = s.x; xx < s.x + fw; xx++) if (!inBounds(w, xx, yy) || !ground(xx, yy)) return false;
+        return !buildingProblem(w, s.x, s.y, kind);
+      });
+      if (!found) continue;
+      for (let yy = found.y; yy < found.y + fh; yy++) for (let xx = found.x; xx < found.x + fw; xx++) { w.tree[idx(w, xx, yy)] = 0; w.dirty.add(idx(w, xx, yy)); }
+      w.items.push({ x: found.x, y: found.y, k: kind });
+      w.version++;
+      this.dirtySave = true;
+    }
   }
 
   /** First-course designer: all of Willow Creek is yours to build on from the start. */
@@ -529,7 +558,11 @@ export class Game {
       this.earn('fees', fee, `${band.name} tee time, ${g.name}`);
       const door = this.world.clubhouse;
       if (door) this.sim.pop('coin', door.x + 3.5, door.y + 1, `+$${Math.round(fee)}`);
-      if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee) * this.fleetFactor) this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
+      if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee) * this.fleetFactor) {
+        this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
+        // the renter drives a cart from the barn, if one is free (the rental is the same either way)
+        if (this.sim.golfers.filter((x) => x.cart !== undefined && x.cart >= 0 && x.phase !== 'leave').length < this.fleet) g.cart = g.id % 4;
+      }
     }
   }
 

@@ -182,6 +182,8 @@ export function deserialize(text: string): LoadedSave | null {
     g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
+    // a putting green or range owned before they could be placed now stands beside the clubhouse
+    g.placeOwnedAmenities();
     return { game: g, savedAt: d.savedAt ?? Date.now() };
   } catch {
     return null;

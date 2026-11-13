@@ -4,6 +4,8 @@ import type { Game } from '../game';
 import { hash2, Pt } from '../terrain';
 import { ISO_X, ISO_Y } from '../isometric';
 import { drawCart } from './facilities';
+import { countOf } from '../items';
+import { cartOut } from '../sim';
 
 export interface Painter {
   ctx: CanvasRenderingContext2D;
@@ -547,26 +549,6 @@ export function drawVillageAmenities(p: Painter, g: Game) {
   if (g.upgrades.snackBar) house(p, 11.3, 38.5, 1.8, 1.5, 1.1, 0.7, { wall: '#efe0b8', side: '#bfae88', roof: '#b0623e', near: '#cf7c4a' }, { shutters: true, dormers: 0 });
   if (g.upgrades.proShop) house(p, 14.4, 39.7, 2.4, 1.8, 1.5, 0.9, colors, { shutters: true, dormers: 0, sign: 'PRO SHOP' });
   if (g.upgrades.crew) house(p, 18.5, 44.1, 2.8, 2.2, 1.2, 0.7, { ...colors, wall: '#a9a883', side: '#7a8760' }, { dormers: 0 });
-  if (g.upgrades.puttingGreen) {
-    const pts = Array.from({ length: 20 }, (_, i) => pt(p, 17 + Math.cos((i * Math.PI) / 10) * 2.05, 37.5 + Math.sin((i * Math.PI) / 10) * 1.25));
-    const edge = Array.from({ length: 20 }, (_, i) => pt(p, 17 + Math.cos((i * Math.PI) / 10) * 2.3, 37.5 + Math.sin((i * Math.PI) / 10) * 1.5));
-    poly(c, edge, '#8fcf74');
-    poly(c, pts, '#aee07e', '#5f9e55');
-    const a = pt(p, 17, 37.5);
-    c.fillStyle = '#1b2a1b';
-    c.beginPath();
-    c.ellipse(a.x, a.y, u * 0.08, u * 0.04, 0, 0, Math.PI * 2);
-    c.fill();
-    line(c, a, { x: a.x, y: a.y - u * 0.95 }, '#f1e8c8', Math.max(1, u * 0.04));
-    poly(c, [{ x: a.x, y: a.y - u * 0.95 }, { x: a.x + u * 0.38, y: a.y - u * 0.8 }, { x: a.x, y: a.y - u * 0.65 }], '#d2432f');
-  }
-  if (g.upgrades.range) {
-    flat(p, 12, 34, 4, 1.2, 0, '#9bb27c', 'rgba(90,110,70,0.6)');
-    for (let i = 0; i < 4; i++) {
-      flat(p, 12.08 + i, 34.08, 0.84, 0.84, 0.01, '#3f7a4a', 'rgba(210,214,170,0.7)');
-      flat(p, 12.38 + i, 34.38, 0.22, 0.22, 0.02, '#f4efd8');
-    }
-  }
   if (g.experience.site.terrace) {
     castShadow(p, 11.5, 42, 4, 3, 0.1, 0.1);
     flat(p, 11.5, 42, 4, 3, 0.1, '#d4c8a6', 'rgba(140,134,104,0.7)');
@@ -612,5 +594,9 @@ export function drawVillageAmenities(p: Painter, g: Game) {
     bench(p, 8.8, 38.8);
   }
   // parked buggies with roofs, seats and wheels
-  if (g.upgrades.carts) for (let k = 0; k < 3; k++) golfCart(p, 12 + k * 1.8, 47, k);
+  // with a cart barn the fleet lives there; without one a few buggies wait by the clubhouse. Carts out on the course are not parked.
+  if (g.upgrades.carts && !countOf(g.world, 'barn')) {
+    const out = g.sim.golfers.filter(cartOut).length;
+    for (let k = 0; k < Math.min(3, Math.max(0, g.fleet - out)); k++) golfCart(p, 12 + k * 1.8, 47, k);
+  }
 }
