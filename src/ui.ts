@@ -5,6 +5,8 @@ import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { panelControl } from './panel-click';
+import { nextStep, scoreText } from './first-round';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb, isFacilityKind } from './art/facilities';
@@ -90,9 +92,14 @@ export class UI {
       if (this.menuOpen && !(e.target as HTMLElement).closest('#nav, #fab, #modal')) { this.menuOpen = false; this.refresh(true); }
       if ((e.target as HTMLElement).closest('#side, #top, #tools')) this.busy = true;
     });
-    const release = () => (this.busy = false);
+    // A press on a panel holds back its rebuilds until the click that follows has been delivered (on touch screens the click can land a moment after
+    // the finger lifts), so the control that was pressed is still the one that receives it.
+    let releaseT = 0;
+    const release = () => { window.clearTimeout(releaseT); releaseT = window.setTimeout(() => (this.busy = false), 350); };
     document.addEventListener('pointerup', release);
     document.addEventListener('pointercancel', release);
+    document.addEventListener('pointerdown', () => window.clearTimeout(releaseT), true);
+    this.buildRoundCard();
     this.buildTools();
     this.buildTop();
     this.buildSide();
@@ -238,7 +245,8 @@ export class UI {
     this.$('sheetSize').onclick = (e) => { e.stopPropagation(); this.setSheet(this.sheet === 'full' ? 'half' : 'full'); };
     this.bindSheetDrag();
     this.$('side').addEventListener('click', (e) => {
-      const el = (e.target as HTMLElement).closest('[data-tab],[data-act],[data-hole]') as HTMLElement | null;
+      // see panel-click.ts: a click on a section header or plain text is not a control, and must not rebuild the panel
+      const el = panelControl<HTMLElement>(e.target as HTMLElement, this.$('side'));
       if (!el) return;
       if (el.dataset.tab) {
         this.tab = el.dataset.tab as Tab;
@@ -601,13 +609,14 @@ export class UI {
     const problem = ui?.drag?.problem;
     const dragHint = shaping && !problem && !(sel >= 0 && sel < bends.length) ? `<span class="cf-hint">${bends.length ? (coarse ? 'Press and hold a bend, then drag it.' : 'Drag a bend to shape the hole.') : 'Add a bend, then drag it where the turn should be.'}${this.editor.tool === 'bend' ? ' Tap empty ground to add one.' : ''}</span>` : '';
     const badLine = problem ? `<span class="cf-sub bad">${escapeHtml(problem)}</span>` : '';
-    const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
+    // every caution is shown in full, one under another: they wrap instead of being cut off
+    const noteLine = p?.notes?.length ? p.notes.map((n) => `<span class="cf-note">${escapeHtml(n)}</span>`).join('') : '';
     const costText = p ? `<span class="cf-cost">${fmtMoney(p.cost)}</span>` : '<span class="dim">No change yet</span>';
     const html = p || bendTool ? `<span class="cf-text"><b>${escapeHtml(p ? p.label : `Shape hole ${hn}`)}</b><span class="cf-sub">${route}${bendTool ? '' : `${what} · `}${costText}${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${badLine}${dragHint}${noteLine}${parBar}</span><button class="btn" id="${p ? 'cfNo' : 'cfStop'}" ${p ? '' : 'aria-label="Stop shaping"'}>Cancel</button><button class="btn primary" id="cfOk" ${!p || short > 0 ? 'disabled' : ''}>Build</button>`
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     // while a hole is being placed or shaped the toolbox steps aside, so the one panel at the bottom is all there is
     const showing = !!(p || placing || bendTool);
-    document.body.classList.toggle('confirming-plan', showing && this.editor.isPlacement);
+    document.body.classList.toggle('confirming-plan', showing && !this.editor.bGhost);
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
@@ -821,7 +830,95 @@ export class UI {
   }
   private sideKey = '';
   /** Expandable panel sections the player has opened, kept open across refreshes. */
+  // ---- the first paying round: a short, non-blocking result card ----
+  private roundCard: HTMLElement | null = null;
+  private roundCardT = 0;
+  private buildRoundCard() {
+    const el = document.createElement('div');
+    el.id = 'roundcard';
+    el.hidden = true;
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.getElementById('app')!.append(el);
+    this.roundCard = el;
+    el.addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-rc]');
+      if (!b) return;
+      const step = nextStep(this.game.world.holes);
+      this.markRoundSeen(); // answering the card means it has been seen
+      this.hideRoundCard();
+      if (b.dataset.rc !== 'go') return;
+      if (step.id === 'secondHole') { this.editor.setTool('build'); this.tab = 'build'; }
+      else if (step.id === 'openHole') { if (step.holeId) this.editor.selectHole(step.holeId); this.tab = 'course'; }
+      else this.tab = 'guests';
+      this.refresh(true);
+      this.onInsets();
+    });
+  }
+  private roundCardAt = 0;
+  private markRoundSeen() {
+    const fr = this.game.firstRound;
+    if (fr.shown) return;
+    fr.shown = true; // from here on a reload never shows it again
+    this.game.dirtySave = true;
+  }
+  private hideRoundCard() {
+    window.clearTimeout(this.roundCardT);
+    if (this.roundCard) this.roundCard.hidden = true;
+    document.body.classList.remove('has-roundcard');
+  }
+  /** Only when nothing else has the player's attention: no panel, menu, dialog, edit or practice round. Until then it waits. */
+  private roundCardMoment(): boolean {
+    const e = this.editor;
+    return this.tab === 'none' && !this.menuOpen && !this.modalOpen && !this.introOpen && !this.game.owner.active && !this.game.pendingRecap
+      && !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost && !document.getElementById('goalpop');
+  }
+  private renderRoundCard() {
+    const el = this.roundCard, fr = this.game.firstRound;
+    if (!el) return;
+    if (!el.hidden) {
+      // Something else needs the player (a dialog, an edit): step aside. A card that was not on screen long enough to be read stays queued.
+      if (!this.roundCardMoment()) { this.hideRoundCard(); return; }
+      if (!fr.shown && performance.now() - this.roundCardAt >= 1500) this.markRoundSeen();
+      return;
+    }
+    if (!fr.done || fr.shown || !fr.result || !this.roundCardMoment()) return;
+    const r = fr.result, over = r.strokes - r.par, step = nextStep(this.game.world.holes);
+    el.innerHTML = `<div class="rc-head"><span class="rc-k">First round complete</span><button class="rc-x" data-rc="x" aria-label="Dismiss">&times;</button></div>
+      <div class="rc-name">${escapeHtml(r.name)} finished</div>
+      <div class="rc-score"><b>${scoreText(over)}</b> <span>over ${r.holes} hole${r.holes === 1 ? '' : 's'} · ${r.strokes} strokes</span></div>
+      <div class="rc-fee">Green fee ${fmtMoney(r.fee)} <span>already collected</span></div>
+      <p class="rc-say">${escapeHtml(r.reaction)}</p>
+      <div class="rc-actions"><button class="btn primary" data-rc="go">${escapeHtml(step.label)}</button><button class="btn" data-rc="x">Not now</button></div>`;
+    el.hidden = false;
+    document.body.classList.add('has-roundcard');
+    this.roundCardAt = performance.now();
+    this.game.onFeedback('reward');
+    window.clearTimeout(this.roundCardT);
+    this.roundCardT = window.setTimeout(() => this.hideRoundCard(), 30000);
+  }
   private openSecs = new Set<string>();
+  private sideAt = 0;
+  /** Which control inside the panel has focus, described by what it is rather than where it sits, so it can be found again after a rebuild. */
+  private focusKey(body: HTMLElement): { sel: string; n: number; caret: [number, number] | null } | null {
+    const a = document.activeElement as HTMLElement | null;
+    if (!a || a === body || !body.contains(a)) return null;
+    const d = a.dataset;
+    const sel = a.id ? `#${CSS.escape(a.id)}` : a.matches('summary') ? `details[data-sec="${a.parentElement?.getAttribute('data-sec')}"] > summary` : d.act ? `${a.tagName.toLowerCase()}[data-act="${d.act}"]${d.id ? `[data-id="${d.id}"]` : ''}` : d.hole ? `[data-hole="${d.hole}"]` : '';
+    if (!sel) return null;
+    const same = [...body.querySelectorAll(sel)];
+    const input = a as HTMLInputElement;
+    return { sel, n: Math.max(0, same.indexOf(a)), caret: typeof input.selectionStart === 'number' ? [input.selectionStart, input.selectionEnd ?? input.selectionStart] : null };
+  }
+  private restoreFocus(body: HTMLElement, f: { sel: string; n: number; caret: [number, number] | null } | null) {
+    if (!f) return;
+    const el = body.querySelectorAll<HTMLElement>(f.sel)[f.n] ?? body.querySelector<HTMLElement>(f.sel);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const input = el as HTMLInputElement;
+    if (f.caret && typeof input.setSelectionRange === 'function') { try { input.setSelectionRange(f.caret[0], f.caret[1]); } catch { /* not a text field */ } }
+  }
   /**
    * Show or hide a panel with a short slide and fade. The state changes at once (so nothing waits on the animation);
    * only the hiding is deferred, and showing again mid-way simply cancels it.
@@ -980,6 +1077,7 @@ export class UI {
     document.body.dataset.sheet = sideOpen && this.portraitSheet ? this.sheet : '';
     this.reveal(this.$('tools'), !this.mobile || this.tab === 'build');
     this.updateConfirm();
+    this.renderRoundCard();
     (this.$('view') as HTMLElement).classList.toggle('pan', this.editor.tool === 'pan');
 
     this.renderPill();
@@ -989,16 +1087,26 @@ export class UI {
     if (this.panelTip && this.panelTip !== this.tab) this.panelTip = null;
     const ptip = this.panelTip && TAB_TIPS[this.panelTip] ? `<div class="ptip"><span aria-hidden="true"></span><p>${TAB_TIPS[this.panelTip]}</p><button data-act="tipok">Got it</button></div>` : '';
     const html = ptip + this.sideHtml();
+    // While the simulation runs, the panel's figures change all the time: rebuild the panel at most twice a second unless the player just did something.
+    const now = performance.now();
+    if (!force && this.cache.get('side') !== html && now - this.sideAt < 500) return;
     if (force || this.cache.get('side') !== html) {
+      this.sideAt = now;
       const body = this.$('sidebody');
       const top = body.scrollTop;
+      // Remember what the player has expanded and what has focus, straight from the page as it is now, so a rebuild can put both back.
+      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (d.open) this.openSecs.add(d.dataset.sec!); else this.openSecs.delete(d.dataset.sec!); });
+      const focus = this.focusKey(body);
       body.innerHTML = html;
+      // Put the expanded sections back first: with them collapsed the panel is shorter, and restoring the scroll position into a shorter
+      // panel clamps it, so the content would jump and a tap meant for one header would land on another.
+      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (this.openSecs.has(d.dataset.sec!)) d.open = true; });
       // a different panel (or a different hole) eases in; a refresh of the same one changes in place
       const key = `${this.tab}:${this.tab === 'course' ? g.selectedHole : ''}:${this.tab === 'journey' ? this.journalView : ''}`;
       if (key !== this.sideKey) { this.sideKey = key; body.scrollTop = 0; if (!UI.reduced) body.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.7,.3,1)' }); }
       else body.scrollTop = top;
       this.cache.set('side', html);
-      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (this.openSecs.has(d.dataset.sec!)) d.open = true; });
+      this.restoreFocus(body, focus);
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }
