@@ -8,7 +8,8 @@ import { lotFor, lotKindAt, reserveLots } from './lots';
  * ball washers, fountains and statues. They make the course prettier; golfers who play a hole
  * with a few of them around the tee or green enjoy it more.
  */
-export type ItemKind = 'flowers' | 'shrub' | 'bench' | 'lamp' | 'washer' | 'fountain' | 'statue' | 'halfway' | 'barn' | 'shed' | 'puttingGreen' | 'range';
+export type ItemKind = 'flowers' | 'shrub' | 'bench' | 'lamp' | 'washer' | 'fountain' | 'statue' | 'birdbath' | 'picnic' | 'flagpole' | 'rockgarden' | 'planter' | 'arch' | 'hedge'
+  | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'barn' | 'shed' | 'puttingGreen' | 'range';
 export interface Item { x: number; y: number; k: ItemKind }
 
 export interface ItemDef { label: string; cost: number; beauty: number; hint: string; /** footprint in tiles, for buildings */ w?: number; h?: number; max?: number; /** dollars per day */ upkeep?: number }
@@ -20,13 +21,25 @@ export const ITEMS: Record<ItemKind, ItemDef> = {
   washer: { label: 'Ball wash', cost: 80, beauty: 1, hint: 'Golfers like a clean ball. Best beside a tee.' },
   fountain: { label: 'Fountain', cost: 600, beauty: 4, hint: 'A stone fountain. A centrepiece by the clubhouse or a green.' },
   statue: { label: 'Statue', cost: 450, beauty: 3, hint: 'A bronze golfer on a plinth. Everyone wants a photo.' },
+  birdbath: { label: 'Bird bath', cost: 220, beauty: 2, hint: 'A stone bird bath. Quiet and pretty beside a path or a bench.' },
+  picnic: { label: 'Picnic table', cost: 260, beauty: 1, hint: 'A checked cloth and two benches for a long lunch.' },
+  flagpole: { label: 'Flagpole', cost: 180, beauty: 1, hint: 'The club colours flying over the first tee or the clubhouse.' },
+  rockgarden: { label: 'Rock garden', cost: 160, beauty: 1, hint: 'Raked gravel, boulders and tufts of grass. Needs no mowing.' },
+  planter: { label: 'Planter', cost: 70, beauty: 1, hint: 'A half barrel of flowers. Good beside doors and tees.' },
+  arch: { label: 'Rose arch', cost: 380, beauty: 2, hint: 'A white arch wound with roses. Lovely over a path or beside a green.' },
+  hedge: { label: 'Hedge', cost: 50, beauty: 1, hint: 'A neat trimmed hedge to edge a tee or hide the shed.' },
   halfway: { label: 'Halfway house', cost: 3200, beauty: 2, w: 3, h: 2, max: 2, upkeep: 6, hint: 'A snack hut between nines. Golfers spend about 18% more at the clubhouse and shop. A second one adds more.' },
+  proShop: { label: 'Pro shop', cost: 5400, beauty: 1, w: 4, h: 2, max: 1, upkeep: 8, hint: 'Clubs, gloves and sweaters in the window. Golfers spend about 15% more at the clubhouse and shop.' },
+  grill: { label: 'Grill room', cost: 7800, beauty: 2, w: 4, h: 3, max: 1, upkeep: 12, hint: 'A proper lunch with a porch. Golfers spend about 22% more at the clubhouse and shop, on top of other buildings.' },
+  pavilion: { label: 'Garden pavilion', cost: 4200, beauty: 4, w: 3, h: 3, max: 2, upkeep: 4, hint: 'An open pavilion with a pointed roof. Very pretty; holes close to one are far more enjoyable.' },
+  nursery: { label: 'Greenhouse', cost: 3400, beauty: 3, w: 3, h: 2, max: 1, upkeep: 4, hint: 'Seedlings and flower beds raised on site. Turf wears about 8% more slowly, and it is lovely to look at.' },
+  shelter: { label: 'Rain shelter', cost: 900, beauty: 1, w: 2, h: 2, max: 6, upkeep: 0, hint: 'A little roofed hut by a tee or a green. Golfers like having somewhere dry.' },
   barn: { label: 'Cart barn', cost: 4500, beauty: 1, w: 4, h: 2, max: 1, upkeep: 5, hint: 'Shelter for the cart fleet. Raises the most carts you can own from 6 to 16 and parks them in view.' },
   puttingGreen: { label: 'Putting green', cost: CFG.upgrades.puttingGreen.cost, beauty: 1, w: 4, h: 3, max: 1, hint: 'A practice green for warm-ups. Guests rate their day higher. Its upkeep is part of your hourly costs.' },
   range: { label: 'Driving range', cost: CFG.upgrades.range.cost, beauty: 0, w: 7, h: 3, max: 1, hint: 'Hitting mats and target greens. Draws about 15% more golfers. Its upkeep is part of your hourly costs.' },
   shed: { label: 'Maintenance shed', cost: 3800, beauty: 0, w: 3, h: 2, max: 1, upkeep: 8, hint: 'Mowers and tools kept close. Turf wears about 15% more slowly across the course.' },
 };
-export const BUILDING_KINDS: ItemKind[] = ['halfway', 'barn', 'shed', 'puttingGreen', 'range'];
+export const BUILDING_KINDS: ItemKind[] = ['halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'barn', 'shed', 'puttingGreen', 'range'];
 /** Improvements that used to be bought from the Finances panel and are now placed on the property. Owning one means it stands somewhere. */
 export const AMENITY_KINDS = ['puttingGreen', 'range'] as const;
 export const isAmenity = (k: ItemKind): k is (typeof AMENITY_KINDS)[number] => (AMENITY_KINDS as readonly string[]).includes(k);

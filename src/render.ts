@@ -1,8 +1,8 @@
 import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
-import { paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, makeLamp, makeFountain, makeStatue, Sprite } from './art/props';
-import { drawCart, drawFacility } from './art/facilities';
+import { placedSprites, paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
+import { drawCart, drawFacility, isFacilityKind } from './art/facilities';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
@@ -1795,15 +1795,15 @@ export class Renderer {
       drawAmenity(this.facilityPainter(), k, x, y, alpha);
       return;
     }
-    if (k === 'barn' || k === 'shed' || k === 'halfway') {
+    if (isFacilityKind(k)) {
       drawFacility(this.facilityPainter(), k, x, y, alpha, inside);
       return;
     }
-    this.placed ??= { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+    this.placed ??= placedSprites();
     const sp = this.placed[k];
     if (!sp) return;
     const p = this.toScreen(x + 0.5, y + 0.5);
-    const big = k === 'fountain' || k === 'statue';
+    const big = k === 'fountain' || k === 'statue' || k === 'arch' || k === 'flagpole';
     this.drawSprite(sp, p.x, p.y, (this.ts / 52) * (big ? 1.25 : k === 'flowers' ? 1.3 : 1), alpha);
   }
   private facilityPainter(): Painter {

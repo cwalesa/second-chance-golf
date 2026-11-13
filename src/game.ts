@@ -273,7 +273,7 @@ export class Game {
   }
   private updateWear() {
     const r = REGIONS[this.region];
-    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1);
+    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1);
   }
 
   get designRating(): number {
@@ -585,7 +585,7 @@ export class Game {
       this.activeEvent.rounds++;
       this.activeEvent.satSum += sc.total;
     }
-    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (1 + 0.18 * countOf(this.world, 'halfway')) * (this.experience.site.terrace ? 1.15 : 1));
+    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (1 + 0.18 * countOf(this.world, 'halfway') + 0.15 * countOf(this.world, 'proShop') + 0.22 * countOf(this.world, 'grill')) * (this.experience.site.terrace ? 1.15 : 1));
     this.stats.rounds++;
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
