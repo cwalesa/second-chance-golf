@@ -167,7 +167,7 @@ export class UI {
       if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
       if (b.dataset.moveclub) { this.editor.setTool('decor'); this.editor.startMoveClub(); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
-      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
+      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.designPause = this.game.designMode; this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
       else if (b.dataset.cat) {
         const order: ToolCat[] = ['terrain', 'nature', 'holes'];
@@ -344,6 +344,7 @@ export class UI {
       if (act) {
         // the closed-hole reminder: open what is ready, or show why the first one cannot open
         const { waiting, ready } = this.closedHoles();
+        if (act === 'resume') { this.chipAction(); this.refresh(true); return; }
         if (act === 'open') for (const h of ready) this.game.openHole(h.id);
         else if (waiting[0]) { this.editor.selectHole(waiting[0].id); this.editor.focusHole(); this.tab = 'course'; this.sheet = 'half'; this.cache.delete('side'); }
         this.refresh(true);
@@ -404,7 +405,7 @@ export class UI {
     fab.setAttribute('aria-label', 'Menu');
     document.getElementById('app')!.append(fab);
     fab.onclick = () => {
-      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); this.game.exitDesign(); }
+      if (this.tab === 'build') { this.tab = 'none'; this.editor.setTool('inspect'); this.designPause = this.game.designMode; this.game.exitDesign(); }
       else this.menuOpen = !this.menuOpen;
       this.refresh(true);
       this.onInsets();
@@ -810,7 +811,7 @@ export class UI {
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
       // planning holds the clock (the chip offers Resume) and opens Goals, where the next job has a Show me button
-      finish(); g.pause(); this.tab = 'journey'; this.sheet = 'half'; this.cache.delete('side'); this.refresh(true); this.onInsets();
+      finish(); g.pause(); this.designPause = true; this.tab = 'journey'; this.sheet = 'half'; this.cache.delete('side'); this.refresh(true); this.onInsets();
     };
   }
 
@@ -1216,13 +1217,20 @@ export class UI {
     const g = this.game;
     if (g.businessRunning && g.world.holes.length && !g.openHoles.length) this.toast('No holes are open, so no golfers will come. Open a hole first.', 'bad');
   }
+  /** Time is held because the player was designing (not because they pressed Pause). */
+  private designPause = false;
   private renderGoalBar() {
     const g = this.game;
     const goal = currentGoal(g);
     const { waiting, ready } = this.closedHoles();
     const what = waiting.length === 1 ? `Hole ${waiting[0]?.id} is closed` : `${waiting.length} holes are closed`;
+    // Leaving Design keeps time paused on purpose. Once the tools are down, say so where the eye is, with the button that restarts it.
+    // (A pause the player chose with the Pause button is theirs: the bar stays on the next job.)
+    if (g.timeHold !== 'paused') this.designPause = false;
+    const held = g.settings.open && (g.timeHold === 'design' || (g.timeHold === 'paused' && this.designPause));
     const html = waiting.length && !g.practice
       ? `<div class="k closed"><span>Closed</span></div><div class="gt">${what}</div><button class="btn primary gb-act" data-gb="${ready.length ? 'open' : 'why'}">${ready.length ? (ready.length > 1 ? `Open ${ready.length}` : 'Open it') : 'See why'}</button>`
+      : held ? `<div class="k held"><span>Paused</span></div><div class="gt">Time is paused</div><button class="btn primary gb-act" data-gb="resume">Resume</button>`
       : goal
       ? `<div class="k">${flagMark()}<span>Next job</span></div><div class="gt">${goal.title}</div><div class="p"><i class="box"></i>${goalProgressText(goal, g)}</div>`
       : `<div class="k">${flagMark()}<span>All done</span></div><div class="gt">Build freely</div>`;

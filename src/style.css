@@ -1056,3 +1056,7 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
 }
 #map-controls button:active { transform: translateY(2px); box-shadow: none; }
 #map-controls button svg { width: 24px; height: 24px; }
+#goalbar .k.held { background: var(--yellow); }
+
+/* reward pop-ups sit below the Next job bar instead of on top of it */
+#goalpop { top: calc(134px + var(--sat)); }
