@@ -2,7 +2,7 @@ import type { Game } from './game';
 import type { Editor } from './input';
 import type { Renderer } from './render';
 import type { UI } from './ui';
-import { CLUB_H, CLUB_W, Pt } from './terrain';
+import { CLUB_H, CLUB_W, Pt, T } from './terrain';
 import { suggestClubhouse, suggestFirstHole } from './wilderness';
 import { testObservation, testResultLine } from './tutorial-state';
 
@@ -74,10 +74,20 @@ const holeTarget = (c: Ctx) => {
 };
 /** The tray must be up while the hole is being placed, including after a reload or a tap on Done. */
 const holeEnsure = (c: Ctx) => {
-  if (holeStage(c) >= 4 || c.ui.tab === 'build') return;
+  const st = holeStage(c);
+  if (st >= 4) return;
   const s = holeSuggestion(c);
-  trayOpen(c, !c.mark.framed && s ? [s.tee, s.cup] : undefined);
-  c.mark.framed = true;
+  if (c.ui.tab !== 'build') {
+    trayOpen(c, !c.mark.framed && s ? [s.tee, s.cup] : undefined);
+    c.mark.framed = true;
+  } else if (s && st >= 1 && st <= 2 && !c.e.proposal) {
+    // a glowing spot that has slid off screen (the player panned or zoomed) is brought back, once for each stage, before they need it
+    const key = `seen${st}`;
+    const spot = st === 1 ? s.tee : s.cup;
+    const p = c.r.toScreen(spot.x + 0.5, spot.y + 0.5), ins = c.r.insets;
+    const inside = p.x > ins.l + 24 && p.x < c.r.cw - ins.r - 24 && p.y > ins.t + 24 && p.y < c.r.ch - ins.b - 24;
+    if (!inside && !c.mark[key] && !c.r.cameraMoving) { c.mark[key] = true; c.e.focusPoints([s.tee, s.cup]); }
+  }
 };
 const holeHint = (c: Ctx) => {
   const s = holeSuggestion(c), st = holeStage(c);
@@ -85,14 +95,6 @@ const holeHint = (c: Ctx) => {
   return st === 1 ? { tee: s.tee } : { cup: s.cup };
 };
 
-/** Tiles of one kind within a radius of a point. */
-const near = (c: Ctx, p: Pt, r: number, kind: number) => {
-  const w = c.g.world;
-  let n = 0;
-  for (let y = Math.floor(p.y - r); y <= p.y + r; y++)
-    for (let x = Math.floor(p.x - r); x <= p.x + r; x++) if (x >= 0 && y >= 0 && x < w.w && y < w.h && w.terrain[y * w.w + x] === kind) n++;
-  return n;
-};
 const first = (c: Ctx) => c.g.world.holes[0];
 const closedHole = (c: Ctx) => c.g.world.holes.find((h) => !h.open);
 const trayOpen = (c: Ctx, focus?: Pt[]) => {
@@ -121,7 +123,7 @@ const lastResult = (c: Ctx) => [...c.g.testResults].reverse().find((r) => r.hole
  * The first-course tutorial: the player's own course, in the region they chose. Everything built here stays.
  * Time is held throughout (a new course is paused and closed until "Open for business"), and test golfers play regardless.
  */
-const STEPS: Step[] = [
+export const STEPS: Step[] = [
   {
     id: 'club',
     more: 'The suggested spot is flat, dry and next to the road. To choose your own, tap any open ground, then tap Build here. Drag with one finger to look around and pinch to zoom.',
@@ -149,9 +151,10 @@ const STEPS: Step[] = [
     short: holeText,
     enter: (c) => {
       c.e.setNewPar(3);
-      const s = holeSuggestion(c), k = c.g.world.clubhouse;
-      // frame the new clubhouse together with where the first hole could go, so the camera does not leave it behind
-      trayOpen(c, s ? [s.tee, s.cup, ...(k ? [{ x: k.x + 3, y: k.y + 2 }] : [])] : undefined);
+      // Frame the tee and the green, and only those: both glowing spots must be on screen before the player taps either, so the camera
+      // never has to move between the two taps. (Framing the clubhouse as well could push the green off the edge.)
+      const s = holeSuggestion(c);
+      trayOpen(c, s ? [s.tee, s.cup] : undefined);
     },
     ensure: holeEnsure,
     target: holeTarget,
@@ -166,15 +169,11 @@ const STEPS: Step[] = [
     short: holeText,
     ensure: holeEnsure,
     target: holeTarget,
-    hint: (c) => {
-      const s = holeSuggestion(c);
-      // once the tee is down, frame the tee and the glowing green together
-      if (s && c.e.overlay.buildTee && !c.mark.cupShown) { c.mark.cupShown = true; c.e.focusPoints([s.tee, s.cup]); }
-      return holeHint(c);
-    },
+    // The camera already framed the tee and the green when this part began; moving it again now would slide the target out from under the player's finger.
+    hint: holeHint,
     check: (c) => holeStage(c) >= 3,
   },
-  { id: 'build', phase: 2, more: HOLE_MORE, short: holeText, ensure: holeEnsure, target: holeTarget, check: (c) => holeStage(c) >= 4 && !c.e.proposal },
+  { id: 'build', phase: 2, more: HOLE_MORE, short: holeText, ensure: holeEnsure, target: holeTarget, hint: holeHint, check: (c) => holeStage(c) >= 4 && !c.e.proposal },
   {
     id: 'open',
     more: 'An open hole is ready for golfers. The business clock stays paused until you choose Open for business.',
@@ -229,18 +228,24 @@ const STEPS: Step[] = [
   },
   {
     id: 'improve',
-    more: 'Press and hold on the grass beside the green until the ring fills, then drag to paint sand. Lift your finger and tap Build. You can paint several strokes before paying.',
+    more: 'Press and hold on the grass beside the green until the ring fills, then drag to paint sand. Lift your finger and tap Build. Sand goes on rough or fairway, not on greens, tees, water or paths. You can paint several strokes before paying. Tap Done to carry on without one.',
     phase: 5,
-    short: (c) => (c.e.proposal ? 'Tap Build to dig the bunker.' : 'Optional: press and hold beside the green, then drag to paint a bunker.'),
+    short: (c) => (c.e.proposal ? 'Tap Build to dig the bunker.' : 'Optional: press and hold beside the green, then drag to paint a bunker. Tap Done to skip it.'),
     enter: (c) => {
       const h = first(c);
-      c.mark.sand = h ? near(c, h.cup, 6, 4) : 0;
+      // what has already been built is not counted: the step finishes when a bunker is built from here on
+      c.mark.undoBase = new Set(c.g.undoStack);
+      c.mark.left = false;
       c.e.setTool('bunker');
       trayOpen(c, h ? [{ x: h.cup.x - 3, y: h.cup.y - 3 }, { x: h.cup.x + 3, y: h.cup.y + 3 }] : undefined);
     },
-    ensure: (c) => { if (c.ui.tab !== 'build') trayOpen(c); },
+    ensure: (c) => {
+      // Done (or any route out of the tray with nothing staged) means the player is moving on; do not drag them back into the tray.
+      if (c.ui.tab !== 'build' && !c.e.proposal) c.mark.left = true;
+    },
     target: (c) => (c.e.proposal ? ['#cfOk'] : []),
-    check: (c) => { const h = first(c); return !!h && near(c, h.cup, 6, 4) >= (c.mark.sand as number) + 3 && !c.e.proposal; },
+    // read from the committed game: a bunker edit that is built and has not been undone
+    check: (c) => !!c.mark.left || c.g.undoStack.some((e) => !(c.mark.undoBase as Set<unknown>)?.has(e) && e.plan.tiles.some((t) => t.after.t === T.BUNKER)),
     leave: (c) => {
       // moving on from the optional step: put the bunker tool down but keep anything the player built
       if (!c.e.proposal) { c.e.setTool('inspect'); hideSheet(c); c.g.exitDesign(); }
@@ -304,6 +309,13 @@ export class Tutorial {
     window.addEventListener('resize', () => this.update(true));
   }
 
+  private poked = false;
+  /** Bring the guidance up to date on the very next frame: called whenever the game or the editor changes, so an instruction never lags the action. */
+  poke() {
+    if (this.poked || !this.active) return;
+    this.poked = true;
+    requestAnimationFrame(() => { this.poked = false; this.update(); });
+  }
   static reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   get active() {
     return !this.g.tutorial.done;
@@ -345,6 +357,7 @@ export class Tutorial {
     this.ctx.e.overlay.hint = null;
     this.card.hidden = true;
     document.body.classList.remove('coaching');
+    document.documentElement.style.setProperty('--coach-h', '0px');
     this.ui.onInsets();
   }
 
@@ -403,6 +416,7 @@ export class Tutorial {
     }
     this.shownStep = t.step;
     this.dock();
+    document.documentElement.style.setProperty('--coach-h', `${Math.round(this.card.getBoundingClientRect().height)}px`);
     this.ctx.e.overlay.hint = step.hint?.(this.ctx) ?? null;
     this.pointAt(step.target?.(this.ctx) ?? []);
   }

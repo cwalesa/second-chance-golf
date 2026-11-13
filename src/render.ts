@@ -867,18 +867,31 @@ export class Renderer {
   }
 
   /** Pages the screen can see, as keys. */
-  private visiblePages(w: World): number[] {
+  private visiblePages(w: World, margin = Renderer.BUILD_MARGIN): number[] {
     const P = Renderer.PAGE;
     const corners = [[0, 0], [this.cw, 0], [0, this.ch], [this.cw, this.ch]].map(([x, y]) => this.toWorld(x, y));
-    const px0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)) / P));
-    const py0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)) / P));
-    const px1 = Math.min(Math.ceil(w.w / P) - 1, Math.floor(Math.max(...corners.map((p) => p.x)) / P));
-    const py1 = Math.min(Math.ceil(w.h / P) - 1, Math.floor(Math.max(...corners.map((p) => p.y)) / P));
+    // a margin of tiles around the screen, so ground just beyond the edge is already built when the camera drifts or follows a golfer
+    const px0 = Math.max(0, Math.floor((Math.min(...corners.map((p) => p.x)) - margin) / P));
+    const py0 = Math.max(0, Math.floor((Math.min(...corners.map((p) => p.y)) - margin) / P));
+    const px1 = Math.min(Math.ceil(w.w / P) - 1, Math.floor((Math.max(...corners.map((p) => p.x)) + margin) / P));
+    const py1 = Math.min(Math.ceil(w.h / P) - 1, Math.floor((Math.max(...corners.map((p) => p.y)) + margin) / P));
     const out: number[] = [];
     for (let py = py0; py <= py1; py++) for (let px = px0; px <= px1; px++) out.push(py * 1000 + px);
     return out;
   }
+  /** Tiles of ground built beyond each screen edge. */
+  private static readonly BUILD_MARGIN = 8;
+  /** Pages around where a camera move is heading, so they are built while the camera travels. */
+  private pagesNear(w: World, tx: number, ty: number, r: number): number[] {
+    const P = Renderer.PAGE;
+    const out: number[] = [];
+    for (let py = Math.max(0, Math.floor((ty - r) / P)); py <= Math.min(Math.ceil(w.h / P) - 1, Math.floor((ty + r) / P)); py++)
+      for (let px = Math.max(0, Math.floor((tx - r) / P)); px <= Math.min(Math.ceil(w.w / P) - 1, Math.floor((tx + r) / P)); px++) out.push(py * 1000 + px);
+    return out;
+  }
 
+  /** Milliseconds a frame may spend building ground that is on screen right now. */
+  private static readonly CATCH_UP_MS = 28;
   /** Queue the unbuilt chunks of visible pages, then build the ones nearest the screen centre within a time budget. */
   private pumpChunks(w: World, visible: number[], budgetMs: number) {
     this.frameNo++;
@@ -901,7 +914,13 @@ export class Renderer {
     const mid = (ci: number) => Math.hypot(((ci % cxN) + 0.5) * Renderer.CH - c.x, (Math.floor(ci / cxN) + 0.5) * Renderer.CH - c.y);
     const t0 = performance.now();
     let did = false;
-    while (this.queue.length && (performance.now() - t0 < budgetMs || !did)) {
+    // Ground on the screen itself must not stay missing for long: when the nearest unbuilt chunk is within sight, spend more of the frame on it.
+    const corner = this.toWorld(0, 0);
+    const sight = Math.hypot(corner.x - c.x, corner.y - c.y) + Renderer.CH;
+    let nearest = Infinity;
+    for (const q of this.queue) nearest = Math.min(nearest, mid(q));
+    const limit = nearest < sight ? Math.max(budgetMs, Renderer.CATCH_UP_MS) : budgetMs;
+    while (this.queue.length && (performance.now() - t0 < limit || !did)) {
       let bi = 0;
       for (let k = 1; k < this.queue.length; k++) if (mid(this.queue[k]) < mid(this.queue[bi])) bi = k;
       const ci = this.queue.splice(bi, 1)[0];
@@ -935,9 +954,10 @@ export class Renderer {
   private ovVersion = -1;
   private ovFor: World | null = null;
   private ovAt = 0;
-  private drawOverview(w: World) {
+  private drawOverview(w: World, underlay = false) {
     const now = performance.now();
-    if (this.ovFor !== w || (this.ovVersion !== w.version && now - this.ovAt > 400)) {
+    // as an underlay it only has to be roughly right, so it is rebuilt less often
+    if (this.ovFor !== w || (this.ovVersion !== w.version && now - this.ovAt > (underlay ? 4000 : 400))) {
       this.ovFor = w;
       this.ovVersion = w.version;
       this.ovAt = now;
@@ -1595,8 +1615,15 @@ export class Renderer {
     ctx.transform(ISO_X * z, ISO_Y * z, -ISO_X * z, ISO_Y * z, o.x, o.y);
     if (far) this.drawOverview(w);
     else {
+      // The flat map of the whole property always sits under the detailed ground, so a chunk that is still being built (a fast camera move,
+      // a new world, a slow phone) shows plain ground colour for a moment and never a hole in the map.
+      this.drawOverview(w, true);
+      ctx.imageSmoothingQuality = 'low';
       const visible = this.visiblePages(w);
-      this.pumpChunks(w, visible, this.frameBudget);
+      // while the camera travels, also build around where it is going
+      const a = this.camAnim;
+      const ahead = a ? this.pagesNear(w, a.tx, a.ty, 22).filter((k) => !visible.includes(k)) : [];
+      this.pumpChunks(w, [...visible, ...ahead], this.frameBudget);
       this.drawPages(visible);
     }
     ctx.restore();

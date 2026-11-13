@@ -157,7 +157,12 @@ export class Game {
   lastHour = 0;
   notices: Notice[] = [];
   onNotice: (n: Notice) => void = () => {};
-  dirtySave = false;
+  /** True when something worth saving changed. Setting it also tells the interface at once, so guidance never waits for a timer. */
+  get dirtySave() { return this._dirtySave; }
+  set dirtySave(v: boolean) { this._dirtySave = v; if (v) this.onStateChanged?.(); }
+  private _dirtySave = false;
+  /** Called whenever the committed game state changes (an edit built, undone, a hole opened, the clubhouse placed). */
+  onStateChanged: (() => void) | null = null;
   bookings: Booking[] = [];
   eventFees = Object.fromEntries(EVENT_IDS.map((id) => [id, EVENTS[id].fair])) as Record<EventId, number>;
   activeEvent: ActiveEvent | null = null;
@@ -891,6 +896,7 @@ export class Game {
     if (this.undoStack.length > 60) this.undoStack.shift();
     if (!redo) this.redoStack = [];
     this.afterTerrainChange(touched, before);
+    this.dirtySave = true;
     if (plan.newHole) {
       this.selectedHole = plan.newHole.id;
       this.notify('good', `Hole ${plan.newHole.id} built. Open it from the Course tab.`);
@@ -918,6 +924,7 @@ export class Game {
       if (holeCondition(this.world, h).green < 50) h.fixedGreenAt = -1;
     }
     this.notify('info', `Undid ${e.plan.label}.${e.cost ? ` ${fmtMoney(e.cost)} refunded.` : ''}`);
+    this.dirtySave = true;
     return true;
   }
 

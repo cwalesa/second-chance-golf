@@ -770,6 +770,8 @@ details.xp > summary:active { background: var(--panel-3); }
   --raise-hi: #ffffff;
   --shadow-win: 0 4px 0 #1c1a2e;
   --hard: 0 3px 0 #1c1a2e;
+  /* height of the tutorial strip, published by script so notifications can sit below it */
+  --coach-h: 0px;
 }
 html, body { background: #2f7a28; font-weight: 700; }
 
@@ -932,3 +934,32 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.owner-playing) #goalba
 .rule-head h2 { font-family: var(--label); font-size: 10px; letter-spacing: .04em; }
 .place { border: 3px solid var(--edge); border-radius: 12px; background: var(--sky-soft); box-shadow: var(--hard); }
 .place.on { background: #dcf7d2; box-shadow: var(--hard); border-color: var(--edge); }
+
+/* =====================================================================================================
+   More visible course while building: one compact panel, quiet notifications, a short tutorial strip.
+   ===================================================================================================== */
+/* placing or shaping a hole: the toolbox steps aside and the confirm panel takes the bottom edge */
+body.confirming-plan #tools { display: none; }
+body.confirming-plan #confirm, body.confirming-plan[data-tab="build"] #confirm { bottom: calc(8px + var(--sab)); left: calc(8px + var(--sal)); right: calc(8px + var(--sar)); border-radius: 16px; border-width: 4px; }
+body.confirming-plan #brushbar { display: none; }
+/* painting strokes waiting to be built: keep the tools but fold away the tab row */
+body.has-proposal:not(.confirming-plan) #tools .ph-mode { display: none; }
+/* the panel itself: tighter, and the tutorial supplies the instructions */
+#confirm { min-height: 52px; padding: 6px 8px 6px 12px; gap: 8px; }
+#confirm .cf-pars { margin-top: 2px; }
+body.coaching #confirm .cf-hint { display: none; }
+/* the tutorial strip stays one or two lines while something is being built; the extra help waits for the "more" button */
+body.has-proposal #coach .coach-more { display: none; }
+body.has-proposal #coach .coach-strip { min-height: 40px; padding-top: 2px; padding-bottom: 2px; }
+body.has-proposal #coach .coach-short { font-size: 13px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* notifications: out of the way of the ground being edited, and never in the way of a finger */
+body[data-tab].has-proposal #toasts, body.has-proposal #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; right: calc(8px + var(--sar)); flex-direction: column; pointer-events: none; }
+body.has-proposal .toast { padding: 5px 10px; font-size: 12.5px; opacity: .96; pointer-events: none; }
+body.has-proposal .toast.undo, body.has-proposal .toast.undo button { pointer-events: auto; }
+/* first-use tips: short while something is being built or the tutorial is talking, and never on top of the tutorial strip */
+body.has-proposal #tip, body.coaching #tip { top: calc(var(--hdr) + var(--coach-h, 0px) + 14px); padding: 6px 8px 6px 10px; gap: 8px; }
+body.has-proposal #tip b, body.coaching #tip b { display: none; }
+body.has-proposal #tip p, body.coaching #tip p { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; }
+body.has-proposal #tip button, body.coaching #tip button { min-height: 40px; }
+/* a practice round keeps its notifications at the top as well, clear of the swing controls */
+body.owner-playing #toasts { top: calc(var(--hdr) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
