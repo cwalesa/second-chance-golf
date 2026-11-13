@@ -1037,3 +1037,8 @@ body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px);
 
 /* a toast never sits on top of the open menu */
 body.menu-open #toasts { z-index: 19; }
+
+/* ---- undo and redo in the build tray ---- */
+#tools .ph-undo[hidden] { display: none; }
+#tools .ph-undo:disabled { opacity: .4; }
+#tools .ph-redo { width: 46px; }

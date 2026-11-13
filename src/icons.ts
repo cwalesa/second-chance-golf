@@ -18,6 +18,7 @@ const P: Record<string, string> = {
   pan: 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3',
   bend: 'M4 20l6.5-9L20 13M20 13l-3-3.2M20 13l-3.4 2.6',
   undo: 'M8.5 5.5L3.5 10l5 4.5M3.5 10h10a5 5 0 010 10h-4',
+  redo: 'M15.5 5.5l5 4.5-5 4.5M20.5 10h-10a5 5 0 000 10h4',
   // menu
   menu: 'M4 7h16M4 12h16M4 17h16',
   close: 'M6 6l12 12M18 6L6 18',

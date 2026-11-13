@@ -43,6 +43,7 @@ const TOOL_TIPS: Partial<Record<string, string>> = {
   treeAdd: 'Hold and drag to plant trees. Trees frame holes and punish wild shots.',
   treeDel: 'Hold and drag to clear trees out of the way of a hole.',
   rough: 'Hold and drag to turn anything back into rough grass.',
+  repair: 'Hold and drag over worn fairway, green or tee to reseed it. Worn turf shows as brown patches and makes golfers unhappy.',
 };
 /** What each panel is for, the first time it opens. */
 const TAB_TIPS: Partial<Record<string, string>> = {
@@ -128,7 +129,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">&#8962;</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">&#8962;</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -161,6 +162,7 @@ export class UI {
       const b = (e.target as HTMLElement).closest('button');
       if (!b) return;
       if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
+      if (b.dataset.redo) { this.editor.redo(); this.refresh(true); return; }
       if (b.dataset.buycart) { if (!this.game.upgrades.carts) this.game.buyUpgrade('carts'); else this.game.buyCart(); this.refresh(true); return; }
       if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
       if (b.dataset.moveclub) { this.editor.setTool('decor'); this.editor.startMoveClub(); this.refresh(true); return; }
@@ -1084,6 +1086,12 @@ export class UI {
     if (this.editor.tool === 'decor') this.traySet = isBuilding(this.editor.decorKind) ? 'buildings' : 'decor';
     else if (this.editor.tool !== 'inspect' && this.editor.tool !== 'pan') this.traySet = 'course';
     this.$('tools').dataset.set = this.traySet;
+    {
+      // Redo takes room in the tray only while there is something to redo; Undo greys out when there is nothing to take back.
+      const redo = this.$('tools').querySelector<HTMLButtonElement>('.ph-redo')!, undo = this.$('tools').querySelector<HTMLButtonElement>('.ph-undo:not(.ph-redo)')!;
+      redo.hidden = !!this.editor.proposal || !g.redoStack.length;
+      undo.disabled = !this.editor.proposal && !g.undoStack.length;
+    }
     {
       const ct = document.getElementById('cartTile');
       if (ct) ct.textContent = !g.upgrades.carts ? `$${CFG.upgrades.carts.cost}` : g.fleet >= g.maxFleet ? `${g.fleet}/${g.maxFleet} full` : `$${CART_PRICE} · ${g.fleet}/${g.maxFleet}`;
