@@ -2,6 +2,8 @@
 // and the water glint. Each sprite is drawn once; `anchor` is the ground contact point inside the canvas.
 import { hash2 } from '../terrain';
 
+import { inkOutline } from './ink';
+
 export interface Sprite {
   cv: HTMLCanvasElement;
   ax: number;
@@ -13,6 +15,7 @@ function sprite(w: number, h: number, ax: number, ay: number, paint: (c: CanvasR
   cv.width = w;
   cv.height = h;
   paint(cv.getContext('2d')!);
+  inkOutline(cv, 2.2);
   return { cv, ax, ay };
 }
 

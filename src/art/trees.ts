@@ -2,6 +2,7 @@
 // terrain and golfer shadows toward the lower right), built from overlapping foliage lobes with a bright
 // crown, a shaded underside and leaf dabs along the silhouette.
 import { hash2 } from '../terrain';
+import { chunky, inkOutline } from './ink';
 
 export const TREE_W = 144;
 export const TREE_H = 224;
@@ -30,6 +31,9 @@ const LOOKS: Record<number, Look> = {
   8: { light: [196, 214, 112], mid: [138, 176, 84], dark: [78, 118, 62], bark: [226, 222, 208], barkLight: [250, 248, 238] },
   9: { light: [226, 120, 104], mid: [158, 66, 76], dark: [94, 40, 60], bark: [88, 64, 48], barkLight: [144, 116, 86] },
 };
+
+// brighter, cleaner cartoon greens, with the outline added at the end of makeTree
+for (const look of Object.values(LOOKS)) for (const key of Object.keys(look) as (keyof Look)[]) if (key !== 'bark' && key !== 'barkLight') look[key] = chunky(look[key], 1.25, 5);
 
 function makeCanvas(): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const cv = document.createElement('canvas');
@@ -290,7 +294,11 @@ function blossomFlecks(c: CanvasRenderingContext2D, lobes: Lobe[]) {
 }
 
 /** Build one cached tree sprite. Variants: 0 oak, 1 dark broadleaf, 2 pine, 3 dead, 4 dry, 5 palm, 6 scrub, 7 blossom, 8 birch, 9 maple. */
+/** One cached tree sprite with its chunky ink outline. */
 export function makeTree(v: number): HTMLCanvasElement {
+  return inkOutline(makeTreeRaw(v), 3.4);
+}
+function makeTreeRaw(v: number): HTMLCanvasElement {
   const [cv, c] = makeCanvas();
   if (v === 3) {
     dead(c);

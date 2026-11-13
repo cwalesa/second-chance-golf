@@ -15,6 +15,7 @@ import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
 import { Palette, REGIONS, RGB } from './progression';
+import { chunky, INK_RGB } from './art/ink';
 
 interface Decor { x: number; y: number; kind: 'shrub' | 'rock' | 'flowers' | 'reeds'; v: number; i: number }
 type Tex = { w: number; h: number; d: Uint8ClampedArray };
@@ -37,7 +38,8 @@ const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
 const aa = (d: number, o: number) => clamp01((d - o) * (TS / 1.5) + 0.5);
 const css = (c: RGB, j = 0) => `rgb(${Math.max(0, Math.min(255, Math.round(c[0] + j)))},${Math.max(0, Math.min(255, Math.round(c[1] + j)))},${Math.max(0, Math.min(255, Math.round(c[2] + j)))})`;
 
-const COL: Palette = { ...REGIONS.parkland.palette };
+const chunkyPalette = (p: Palette): Palette => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, k === 'sandRim' || k === 'dirt' ? v : chunky(v as RGB, 1.2, 4)])) as unknown as Palette;
+const COL: Palette = chunkyPalette(REGIONS.parkland.palette);
 
 /** Everything the map needs to draw the bend handles, route, yardage and cost while a hole is being shaped. */
 export interface BendUi {
@@ -334,7 +336,7 @@ export class Renderer {
     if (this.builtFor !== w || this.regionKey !== w.region) {
       this.builtFor = w;
       this.regionKey = w.region;
-      Object.assign(COL, REGIONS[w.region].palette);
+      Object.assign(COL, chunkyPalette(REGIONS[w.region].palette));
       this.fields.clear();
       this.patterns.clear();
       this.pages.clear();
@@ -1294,7 +1296,9 @@ export class Renderer {
     t.rect(X, Y, CW, CHH);
     t.clip();
     t.fillStyle = this.turfPattern(t, 'rough');
+    t.globalAlpha = 0.5; // flatter ground: the cartoon look keeps the texture quiet
     t.fillRect(X, Y, CW, CHH);
+    t.globalAlpha = 1;
     for (let y = ty0; y < ty1; y++) for (let x = tx0; x < tx1; x++) if (w.terrain[y * w.w + x] === T.ROUGH) this.roughTufts(t, w, x, y);
     t.restore();
     const buf = t.getImageData(0, 0, CW, CHH);
@@ -1343,17 +1347,18 @@ export class Renderer {
     // ---- fairway family (fairway, plus the ground under greens and tees)
     const grass = dist('grass');
     flatStamp(grass, falloff(0.1), [14, 50, 26], 0.17);
-    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway'), tex('stripe-fw', () => makeStripeTexture(64, 0.09, 'x'))]);
+    shadeStamp(grass, inside, [{ rgb: COL.fairGood }, { cmap: 'grass' }, turf('fairway', 0.5), tex('stripe-fw', () => makeStripeTexture(64, 0.13, 'x'))]);
     // a fine pale cut line just inside the edge of the mown area
     flatStamp(grass, band(0, 0.045), [216, 242, 156], 0.2);
+    flatStamp(grass, band(-0.1, 0), INK_RGB, 0.85);
 
     // ---- green: fringe collar with its own cut line, crisp perimeter, finest turf
     const green = dist('green');
     if (green) {
       const collar = mix(COL.fairGood, COL.greenGood, 0.45);
       shadeStamp(green, band(-0.24, 0), [{ rgb: collar }, turf('green')]);
-      shadeStamp(green, inside, [{ rgb: COL.greenGood }, { cmap: 'green' }, turf('green'), tex('stripe-green', () => makeStripeTexture(32, 0.05, 'y'))]);
-      flatStamp(green, band(-0.02, 0.025), [22, 82, 38], 0.3);
+      shadeStamp(green, inside, [{ rgb: COL.greenGood }, { cmap: 'green' }, turf('green', 0.5), tex('stripe-green', () => makeStripeTexture(32, 0.08, 'y'))]);
+      flatStamp(green, band(-0.085, 0.0), INK_RGB, 0.85);
     }
 
     // ---- tee box: geometric, tight, with a lit rim
@@ -1364,6 +1369,7 @@ export class Renderer {
       // then the grain and mowing stripes on top, so a failed texture can never leave a blank white box
       shadeStamp(tee, inside, [{ rgb: COL.teeGood }, turf('tee', 0.9), tex('stripe-tee', () => makeStripeTexture(16, 0.05, 'y'))]);
       flatStamp(tee, band(0, 0.04), [228, 248, 176], 0.3);
+      flatStamp(tee, band(-0.08, 0), INK_RGB, 0.85);
     }
 
     // ---- worn turf: crisp patches that grow from where condition is lowest
@@ -1376,14 +1382,14 @@ export class Renderer {
       shadeStamp(bunker, inside, [{ rgb: COL.sand }, tex('sand-' + css(COL.sand), () => makeSandTexture(128, COL.sand))]);
       flatStamp(bunker, innerShade(10, 4, 0.32, 1.15), [150, 108, 60], 0.62);
       flatStamp(bunker, innerShade(-6, -2, 0.18, 1), [255, 251, 234], 0.45);
-      flatStamp(bunker, band(-0.005, 0.03), [122, 88, 46], 0.55);
+      flatStamp(bunker, band(-0.09, 0.0), INK_RGB, 0.85);
     }
 
     // ---- water: wet bank, a thin pale shoreline, depth from the colour map, bank shadow on the sun side
     const water = dist('water');
     if (water) {
       flatStamp(water, falloff(0.18), [58, 74, 38], 0.22);
-      flatStamp(water, band(-0.06, 0.015), [196, 192, 150], 0.3);
+      flatStamp(water, band(-0.1, 0.0), INK_RGB, 0.85);
       shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
       flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.34), [150, 210, 196], 0.24);
       // a thin lighter line just inside the water's edge: the shore catching the light
@@ -1396,8 +1402,8 @@ export class Renderer {
     if (path) {
       flatStamp(path, falloff(0.06), [24, 40, 22], 0.2);
       shadeStamp(path, inside, [{ rgb: COL.path }, tex('paving', () => makePavingTexture(COL.path))]);
-      flatStamp(path, band(0, 0.07), mix(COL.path, [70, 62, 50], 0.38), 0.9);
-      flatStamp(path, band(0.07, 0.095), [255, 250, 236], 0.28);
+      flatStamp(path, band(-0.07, 0.0), INK_RGB, 0.85);
+      flatStamp(path, band(0, 0.05), mix(COL.path, [70, 62, 50], 0.3), 0.7);
     }
 
     // ---- bridges: a plank deck over the water with a shadow below and a rail along each edge
@@ -1405,7 +1411,7 @@ export class Renderer {
     if (bridge) {
       flatStamp(bridge, falloff(0.1), [10, 30, 44], 0.45);
       shadeStamp(bridge, inside, [{ rgb: [150, 112, 72] }, tex('deck', () => makeDeckTexture())]);
-      flatStamp(bridge, band(0, 0.12), [58, 38, 18], 0.95);
+      flatStamp(bridge, band(-0.08, 0.12), INK_RGB, 0.95);
       flatStamp(bridge, band(0.12, 0.17), [236, 208, 160], 0.35);
     }
 
