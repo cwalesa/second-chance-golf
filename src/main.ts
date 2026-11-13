@@ -1,6 +1,11 @@
 import { FeedbackPlayer } from './feedback';
 import { Studio } from './studio';
 import { Tutorial } from './tutorial';
+import '@fontsource/nunito/latin-700.css';
+import '@fontsource/nunito/latin-800.css';
+import '@fontsource/nunito/latin-900.css';
+import '@fontsource/silkscreen/latin-400.css';
+import '@fontsource/silkscreen/latin-700.css';
 import './style.css';
 import { CFG } from './config';
 import { Game } from './game';

@@ -733,3 +733,202 @@ details.xp > summary:active { background: var(--panel-3); }
 #coach .coach-more p { margin: 8px 0 2px; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
 #coach .coach-foot { padding: 0; justify-content: flex-start; gap: 8px; }
 #coach .coach-x { min-height: 44px; }
+
+/* =====================================================================================================
+   Chunky tycoon theme (chosen from the moodboard, direction F).
+   Thick ink outlines, hard offset shadows instead of soft bevels, white panels, yellow for the active
+   thing, green for Build/Resume, red only for removing. Nunito for text, Silkscreen for small caps labels.
+   It sits last so it overrides the earlier tokens and component rules without touching their layout.
+   ===================================================================================================== */
+:root {
+  --ink: #1c1a2e;
+  --ink-2: #4a4670;
+  --yellow: #ffd23f;
+  --yellow-soft: #fff5cc;
+  --sky-soft: #e8f7ff;
+  --green: #3ecf5a;
+  --title: #ffd23f;
+  --title-2: #ffd23f;
+  --title-hi: #ffd23f;
+  --panel: #ffffff;
+  --panel-2: #ffffff;
+  --panel-3: #fff0b0;
+  --well: #e8f7ff;
+  --edge: #1c1a2e;
+  --line: #cfcce2;
+  --bevel-hi: transparent;
+  --bevel-lo: transparent;
+  --accent: #1f9d3d;
+  --accent-2: #17802f;
+  --target: #ff5d73;
+  --good: #14702b;
+  --bad: #c2203a;
+  --r: 12px;
+  --font: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --label: 'Silkscreen', 'Courier New', monospace;
+  --raise: #ffffff;
+  --raise-hi: #ffffff;
+  --shadow-win: 0 4px 0 #1c1a2e;
+  --hard: 0 3px 0 #1c1a2e;
+}
+html, body { background: #2f7a28; font-weight: 700; }
+
+/* buttons: thick outline, hard shadow, they sink onto it when pressed */
+.btn, .mini, .seg button, .tray-done, .sheet-btn, .tool, .edit-act, .cat, #tstate button, #tools .ph-undo, #nav button[data-nav], #nav .mset, #nav .mspeed button, #brushbar button {
+  border: 3px solid var(--edge); border-radius: 10px; background: #fff; color: var(--ink); font-family: var(--font); font-weight: 800;
+  box-shadow: var(--hard); text-shadow: none; transition: transform var(--t-press), box-shadow var(--t-press), background var(--t-press);
+}
+.btn:active, .mini:active, .seg button:active, .tray-done:active, .sheet-btn:active, .tool:active, .edit-act:active, .cat:active, #tstate button:active, #tools .ph-undo:active,
+#nav button[data-nav]:active, #nav .mset:active, #nav .mspeed button:active, .btn.pressed {
+  background: var(--yellow-soft); box-shadow: 0 0 0 #1c1a2e; transform: translateY(3px);
+}
+.mini.on, .seg button.on, #nav .mspeed button.on, #tools .ph-mode button.on { background: var(--yellow); box-shadow: 0 0 0 #1c1a2e; transform: translateY(3px); color: var(--ink); }
+.btn.primary, #tools .tray-done { background: var(--green); color: var(--ink); border-color: var(--edge); box-shadow: var(--hard); text-shadow: none; font-weight: 900; }
+.btn.primary:active, #tools .tray-done:active { background: #35b64e; box-shadow: 0 0 0 #1c1a2e; transform: translateY(3px); }
+.btn.danger { color: var(--bad); }
+.btn:disabled, .mini:disabled, .tool:disabled, .edit-act:disabled { opacity: .5; box-shadow: none; transform: translateY(3px); }
+.seg button { margin-left: -3px; }
+input[type="text"], input:not([type]), input[type="search"] { border: 3px solid var(--edge); border-radius: 10px; background: #fff; box-shadow: none; font-weight: 800; }
+:focus-visible { outline: 4px solid var(--target); outline-offset: 2px; }
+
+/* readouts: white tiles with a thick outline and tiny pixel labels */
+.readout, .stat { background: #fff; border: 3px solid var(--edge); border-radius: 10px; box-shadow: none; }
+.stat .k, .readout .k, .eyebrow, .k, #tstate .ts-cap, #top .lvl .k, #goalbar .k {
+  font-family: var(--label); font-weight: 700; font-size: 9px; letter-spacing: .04em; color: var(--ink-2);
+}
+.stat .v { font: 900 18px/1.1 var(--font); }
+.daybar, .bar, .meter, .rating-track, .chain-bar { background: #fff; border: 3px solid var(--edge); border-radius: 8px; box-shadow: none; height: 14px; }
+.daybar i, .bar i, .meter i, .rating-track i, .chain-bar i { background: var(--green); }
+.daybar { height: 8px; border-width: 2px; border-radius: 4px; }
+
+/* windows: white, thick, hard shadow; the title bar is yellow with pixel type */
+.win, #side, #nav, #modal .box, #coach, #tip, #goalpop, #owner-hud, #top, #tools, #confirm, #goalbar {
+  border: 4px solid var(--edge); border-radius: 16px; background: #fff; box-shadow: var(--shadow-win);
+}
+.titlebar, #side .sheet-head, #nav .mhead, #coach .coach-title, #modal .box > h2:first-child, #tools .ph-mode {
+  background: var(--yellow); color: var(--ink); border-bottom: 4px solid var(--edge); text-shadow: none; font-family: var(--label); font-weight: 700; letter-spacing: .02em;
+  border-radius: 11px 11px 0 0;
+}
+#side .sheet-title b { color: var(--ink); font-family: var(--label); font-size: 14px; font-weight: 700; }
+#side .sheet-title small { color: #5b4a00; font-weight: 800; }
+#side .sheet-grip { background: rgba(28, 26, 46, .35); }
+#side .sheet-btn { background: #fff; color: var(--ink); border-color: var(--edge); }
+#nav .mclose { color: var(--ink); }
+#side { border-radius: 16px 16px 0 0; }
+#side .body, #sidebody { background: #fff; }
+#side .sec h3, #side h3.sec-h, .sec > h3 { font-family: var(--label); font-weight: 700; font-size: 10px; letter-spacing: .04em; color: var(--ink-2); border-bottom: 3px solid var(--edge); box-shadow: none; }
+#side h2 { font-weight: 900; }
+
+/* status bar */
+#top { background: #fff; padding: 4px; gap: 6px; height: 58px; }
+#top > .lvl { background: var(--yellow); color: var(--ink); border: 3px solid var(--edge); border-radius: 10px; box-shadow: none; width: 42px; }
+#top .lvl b { font: 900 20px/1.05 var(--font); }
+#top .lvl .k { color: var(--ink); }
+#top .lvl i { background: rgba(28, 26, 46, .25); }
+#top .lvl em { background: var(--ink); }
+#tstate button { box-shadow: none; }
+#tstate .ts-act { font: 900 15px/1.1 var(--font); }
+#tstate[data-hold] button { background: var(--green); border-color: var(--edge); color: var(--ink); box-shadow: none; }
+#tstate[data-hold] .ts-cap { color: var(--ink); }
+#tstate[data-hold="design"] button, #tstate[data-hold="unopened"] button { background: var(--yellow); box-shadow: none; }
+#tstate[data-hold="design"] .ts-cap, #tstate[data-hold="unopened"] .ts-cap { color: #4a3a00; }
+
+/* goal strip and badges */
+body[data-tab="none"]:not(.coaching):not(.menu-open):not(.owner-playing) #goalbar { background: #fff; border-top: 0; border-radius: 0 0 12px 12px; box-shadow: var(--shadow-win); }
+#goalbar .k { background: var(--green); color: var(--ink); border: 2px solid var(--edge); border-radius: 6px; padding: 3px 5px; }
+#goalbar .gt { font-weight: 900; }
+#goalbar[data-badge]:not([data-badge=""])::after, #fab[data-badge]:not([data-badge=""])::after { background: var(--target); color: #fff; border: 3px solid var(--edge); font-weight: 900; }
+
+/* menu button and menu */
+#fab { background: var(--yellow); color: var(--ink); border: 4px solid var(--edge); border-radius: 14px; box-shadow: var(--shadow-win); }
+#fab:active { background: #ffe88a; box-shadow: none; transform: translateY(4px); }
+body.menu-open #nav, body.menu-closing #nav { box-shadow: 0 0 0 100vmax rgba(28, 26, 46, .5), var(--shadow-win); }
+#nav .mhead b { font-family: var(--label); font-size: 14px; }
+
+/* toolbox and Build bar */
+#tools { border-radius: 16px 16px 0 0; box-shadow: 0 -4px 0 #1c1a2e; }
+#tools .ph-mode { background: #fff; border-bottom: 4px solid var(--edge); }
+#tools .ph-mode button { background: #fff; color: var(--ink); border: 3px solid var(--edge); border-bottom: 0; border-radius: 10px 10px 0 0; box-shadow: none; font: 700 11px var(--label); text-transform: uppercase; }
+#tools .ph-mode button.on { background: var(--yellow); transform: none; min-height: 45px; }
+#tools .ph-tools .tool { font: 800 11px/1.1 var(--font); }
+#tools .ph-tools .tool em { color: var(--ink-2); font-weight: 800; }
+#tools .ph-tools .tool.on { background: var(--yellow); border-color: var(--edge); box-shadow: 0 0 0 #1c1a2e; transform: translateY(3px); color: var(--ink); }
+#brushbar button i { background: var(--ink); }
+#confirm, body[data-tab="build"] #confirm { background: #fff; border-radius: 16px; box-shadow: var(--shadow-win); }
+body[data-tab="build"] #confirm { border-radius: 0; border-width: 4px 0; box-shadow: none; }
+#confirm .cf-text b { font: 900 16px/1.2 var(--font); }
+#confirm .cf-sub { color: #2b2850; font-weight: 800; }
+#confirm .cf-cost { color: var(--good); font-weight: 900; }
+#confirm .cf-note { color: #6b4e00; font-weight: 800; }
+#confirm .cf-hint { color: var(--ink-2); font-weight: 800; }
+#confirm .cf-pars b { font: 700 9px var(--label); color: var(--ink-2); }
+#confirm .cf-pars .mini.warn { color: var(--bad); border-color: var(--edge); background: #ffe3e6; }
+#confirm .cf-pars .mini.wide { font-weight: 900; }
+
+/* panel content */
+.card, .design-report, .hole-detail, .golfer-row, .member-row, .hole-list > button {
+  background: #fff; border: 3px solid var(--edge); border-radius: 12px; box-shadow: var(--hard); margin: 0 0 12px; color: var(--ink);
+}
+.hole-detail.hole-summary { background: var(--yellow-soft); box-shadow: var(--shadow-win); border-width: 4px; }
+button.golfer-row:active, .hole-list > button:active { background: var(--yellow-soft); box-shadow: none; transform: translateY(3px); }
+.card .t, .t { font-weight: 900; }
+.big, .big-name { font-weight: 900; }
+.row { border-bottom: 2px solid #e1dff0; }
+.row .k { font-weight: 700; }
+.row.total { border-top: 3px solid var(--edge); }
+.note { border: 3px solid var(--edge); border-left-width: 3px; border-radius: 10px; background: var(--sky-soft); font-weight: 700; }
+.note.good { background: #dcf7d2; }
+.note.warn { background: var(--yellow-soft); }
+.note.bad, .why-closed, .issue { background: #ffe3e6; color: var(--ink); border: 3px solid var(--edge); border-radius: 10px; }
+.badge { border: 2px solid var(--edge); border-radius: 8px; background: #fff; color: var(--ink); font: 700 10px var(--label); }
+.badge.open { background: var(--green); color: var(--ink); border-color: var(--edge); }
+.badge.closed { background: #ffe3e6; color: var(--ink); border-color: var(--edge); }
+.stars { color: #e5a800; text-shadow: 0 0 0 var(--ink); }
+.small, small { color: var(--ink-2); font-weight: 700; }
+.warn { color: #8a5a00; }
+.avatar { border: 3px solid var(--edge); font-weight: 900; }
+.golfer-row > span:last-child { color: var(--accent-2); font-weight: 900; }
+.hole-list > button.on { background: var(--yellow); border-color: var(--edge); box-shadow: var(--hard); }
+.hole-num { background: #fff; color: var(--ink); border: 3px solid var(--edge); font-weight: 900; }
+.hole-stats { background: var(--sky-soft); border: 3px solid var(--edge); border-radius: 12px; box-shadow: none; }
+.hole-stats > div { border-left: 3px solid var(--edge); }
+.hole-stats small { font: 700 9px var(--label); letter-spacing: .04em; }
+.edit-act svg { color: var(--ink); }
+.design-score > strong { color: var(--ink); font-weight: 900; }
+.chain-now { background: var(--yellow-soft); border: 3px solid var(--edge); border-left-width: 3px; border-radius: 12px; box-shadow: var(--hard); }
+.chain-k, .lbl { font-family: var(--label); font-size: 9px; letter-spacing: .04em; color: var(--ink-2); }
+.chain-list li { border-bottom: 2px solid #e1dff0; font-weight: 800; }
+.chain-list li.now { background: var(--yellow-soft); box-shadow: inset 4px 0 0 var(--ink); }
+.preference-list label, .feed div { border-bottom: 2px solid #e1dff0; }
+
+/* menus, hints and pop-ups sit on the same chunky white */
+#tip, #goalpop, #coach { background: #fff; }
+#coach .coach-title, #tip b { font-family: var(--label); }
+#modal .box > h2:first-child { font-size: 14px; }
+
+/* the rest of the green buttons, hints and the guide */
+#tip button, .ptip button, .toast.undo button, #goalpop .gp-go, .guide-foot .start-play {
+  border: 3px solid var(--edge); border-radius: 10px; background: var(--green); color: var(--ink); font-family: var(--font); font-weight: 900; box-shadow: var(--hard); text-shadow: none;
+}
+#tip button:active, .ptip button:active, .toast.undo button:active, #goalpop .gp-go:active, .guide-foot .start-play:active { background: #35b64e; box-shadow: none; transform: translateY(3px); }
+.ptip, .toast { border: 3px solid var(--edge); border-radius: 12px; background: var(--yellow-soft); box-shadow: var(--hard); color: var(--ink); font-weight: 800; }
+.toast { background: #fff; border-width: 4px; box-shadow: var(--shadow-win); }
+.guide-head { background: var(--yellow); border-bottom: 4px solid var(--edge); color: var(--ink); }
+#splash .sp-flag { border: 4px solid var(--edge); border-radius: 14px; box-shadow: var(--hard); }
+#tstate .ts-cap { font-family: var(--font); font-weight: 900; font-size: 9px; letter-spacing: 0; }
+#top .stat .k { font-family: var(--label); }
+body[data-tab="none"]:not(.coaching):not(.menu-open):not(.owner-playing) #goalbar { top: calc(74px + var(--sat)); }
+.toast { border-left: 12px solid var(--yellow); }
+.toast.good { border-left-color: var(--green); }
+.toast.bad { border-left-color: var(--target); color: var(--ink); }
+.opt, .sw, .region, .reg { border: 3px solid var(--edge); border-radius: 10px; box-shadow: var(--hard); }
+.opt.on, .sw.on { background: var(--yellow); box-shadow: none; transform: translateY(3px); }
+.wordmark { background: var(--yellow); color: var(--ink); }
+.wordmark .wm-flag { color: var(--ink); }
+.wm-a { font-weight: 900; text-shadow: none; color: var(--ink); }
+.wm-b { font-family: var(--label); color: #4a3a00; letter-spacing: .06em; }
+.wm-b i { background: var(--ink); opacity: .4; }
+.rule-head { border-bottom: 3px solid var(--edge); box-shadow: none; }
+.rule-head h2 { font-family: var(--label); font-size: 10px; letter-spacing: .04em; }
+.place { border: 3px solid var(--edge); border-radius: 12px; background: var(--sky-soft); box-shadow: var(--hard); }
+.place.on { background: #dcf7d2; box-shadow: var(--hard); border-color: var(--edge); }
