@@ -57,4 +57,12 @@ describe('goal chain', () => {
     delete v1.campaign.goalId;
     expect(currentGoal(deserialize(JSON.stringify(v1))!.game)!.id).toBe('c-profit1500');
   });
+
+  it('moves a save that was on a removed goal to the goal that follows it', () => {
+    const g = new Game(createTestCourse(), 1);
+    const raw = JSON.parse(serialize(g));
+    raw.campaign.step = 5;
+    raw.campaign.goalId = 'c-play'; // "Play a hole yourself" is no longer part of the chain
+    expect(currentGoal(deserialize(JSON.stringify(raw))!.game)!.id).toBe('c-profit1500');
+  });
 });

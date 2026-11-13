@@ -54,16 +54,15 @@ function bunkersByGreens(g: Game) {
 const doglegs = (g: Game) => g.world.holes.filter((h) => h.open && (h.bends?.length ?? 0) > 0).length;
 /**
  * The tutorial covers the basics (clubhouse, one hole, opening it). The goals then teach one deeper
- * system at a time: game speed, hazards, doglegs, playing a hole, fees and profit, the clubhouse,
+ * system at a time: game speed, hazards, doglegs, fees and profit, the clubhouse,
  * staff, improvements, members, events and the rating, while the course grows to eighteen holes.
  */
 export const CHAIN: ChainGoal[] = [
   cg('c-hole1', 'Open your first hole', 'Build a hole (Design, then New hole), then open it in Course.', 400, 1, openHoles, { go: 'build', tool: 'build' }),
   cg('c-rounds10', 'Welcome 25 rounds', 'Golfers come on their own. Tap Fast in the menu to speed the day up.', 450, 25, (g) => g.stats.rounds, { guide: '#nav [data-mspeed="3"]' }),
-  cg('c-bunker', 'Guard a green with sand', 'Pick Bunker in Design and paint a few tiles beside a green. Hazards make holes more fun to play.', 450, 4, bunkersByGreens, { go: 'build', tool: 'bunker' }),
+  cg('c-bunker', 'Guard a green with sand', 'Pick Bunker in Design and paint a few tiles beside a green. Building closes the hole, so open it again when you are done.', 450, 4, bunkersByGreens, { go: 'build', tool: 'bunker' }),
   cg('c-hole3', 'Open 3 holes', 'More holes bring more golfers. Build two more and open them.', 600, 3, openHoles, { go: 'build', tool: 'build' }),
-  cg('c-dogleg', 'Build a dogleg', 'Start a New hole, then tap + Bend and tap where the fairway should turn. Open it when it is ready.', 600, 1, doglegs, { go: 'build', tool: 'build' }),
-  cg('c-play', 'Play a hole yourself', 'Open Course, pick a hole and tap Play it. Aim on the map, then time your swing.', 400, 1, (g) => g.ownerRecords.length, { go: 'course', guide: '[data-act="practice"]' }),
+  cg('c-dogleg', 'Build a dogleg', 'Start a New hole, tap + Bend, then drag the bend to where the fairway should turn. Build it and open it.', 600, 1, doglegs, { go: 'build', tool: 'build' }),
   cg('c-profit1500', 'Earn $3,500 profit', 'Profit is green fees and sales minus upkeep. In Finances, keep each fee close to what guests think is fair.', 700, 3500, (g) => g.campaign.profit, { go: 'money', guide: '[data-act="bandfee"]', unit: 'money' }),
   cg('c-club1', 'Upgrade to a real clubhouse', 'Needs a 1-star rating. Upgrade it in the Clubhouse panel.', 800, 1, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
   cg('c-staff', 'Hire your first staff member', 'A greenkeeper keeps turf healthy and a ranger keeps play moving. Hire one in Clubhouse.', 600, 1, (g) => Object.values(g.staff).filter(Boolean).length, { go: 'club', guide: '[data-act="hire"]' }),
@@ -81,6 +80,8 @@ export const CHAIN: ChainGoal[] = [
 ];
 /** The first version of the chain, by position, so saves that stored only a number land on the same goal. */
 export const CHAIN_V1 = ['c-hole1', 'c-rounds10', 'c-hole3', 'c-profit1500', 'c-club1', 'c-hole6', 'c-members3', 'c-event1', 'c-hole9', 'c-star25', 'c-club2', 'c-hole12', 'c-star35', 'c-club3', 'c-hole18'];
+/** Goals taken out of the chain, and the goal a save that was standing on one continues with. */
+export const CHAIN_MOVED: Record<string, string> = { 'c-play': 'c-profit1500' };
 export const chainStep = (g: Game) => Math.min(CHAIN.length, g.campaign.step ?? 0);
 export const currentGoal = (g: Game): ChainGoal | null => CHAIN[chainStep(g)] ?? null;
 export function goalProgressText(goal: ChainGoal, g: Game): string {
