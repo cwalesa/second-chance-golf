@@ -82,6 +82,8 @@ export interface Golfer {
   plan: ShotPlan | null;
   flight: Flight | null;
   swingT: number;
+  /** A small, purely visual reaction to the last shot (a fist pump, a head shake). Never read by the simulation. */
+  react?: { kind: 'good' | 'poor'; t0: number; v: number };
   trail: Pt[];
   bubble: { text: string; t: number } | null;
   lastSay: number;
@@ -594,6 +596,7 @@ export class CourseSim {
     if (t.occupant === g.id) t.occupant = 0;
     g.hs.strokes += 1 + f.penalty;
     const sh = f.shot;
+    this.reactTo(g, h, f);
     if (sh) this.hooks.onShot?.(h, sh);
     if (!f.putt) {
       const kind = lieAt(this.world, f.end.x, f.end.y).kind;
@@ -626,6 +629,27 @@ export class CourseSim {
     }
     if (g.hs.strokes >= h.par + CFG.holes.maxStrokesOverPar) return this.abandon(g, h, 'cap');
     this.setPhase(g, 'toBall');
+  }
+
+  /**
+   * Pick a small reaction to how the shot turned out. It only sets a cosmetic field: no random numbers are drawn and nothing
+   * the simulation uses is touched, so scoring and pacing are exactly as before. Varied by golfer and stroke, and only sometimes.
+   */
+  private reactTo(g: Golfer, h: Hole, f: NonNullable<Golfer['flight']>) {
+    const v = (Math.imul((g.id * 7919 + g.hs.strokes * 104729 + h.id * 31) | 0, 0x9e3779b1 | 0) >>> 0) / 4294967296;
+    const cup = center(h.cup);
+    const dc = Math.hypot(cup.x - f.end.x, cup.y - f.end.y);
+    const onGreen = lieAt(this.world, f.end.x, f.end.y).kind === 'green';
+    let kind: 'good' | 'poor' | null = null;
+    if (f.putt) {
+      if (!f.holed && dc < 0.3 && v < 0.7) kind = 'poor'; // lipped out or just missed
+    } else if (f.shot) {
+      const k = f.shot.kind;
+      if (k === 'water' || k === 'oob') kind = 'poor';
+      else if ((k === 'tree' || k === 'treeLand' || f.shot.mishit) && v < 0.75) kind = 'poor';
+      else if (onGreen && dc < 1.5 && v < 0.6) kind = 'good';
+    }
+    g.react = kind ? { kind, t0: this.now, v } : undefined;
   }
 
   private holeOut(g: Golfer) {

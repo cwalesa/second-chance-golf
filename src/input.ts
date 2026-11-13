@@ -1,11 +1,11 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
-import { Renderer, Overlay } from './render';
+import { Renderer, Overlay, BendUi } from './render';
 import { ITEMS, ItemKind, buildingProblem, isAmenity, isBuilding, itemAt, toggleItem } from './items';
 import { lotFor } from './lots';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, bendProblem, moveBendTo, removeBendAt, suggestBend, planBends, routeStats, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
-import { CLUB_H, CLUB_W, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
+import { CLUB_H, CLUB_W, Hole, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
 import { clubhouseProblem, suggestClubhouse } from './wilderness';
 
 export interface Preview {
@@ -25,11 +25,49 @@ type Mode = 'none' | 'pan' | 'inspect' | 'paint' | 'place' | 'pinch' | 'hold' | 
 const SLOP = 10;
 /** How long a finger rests before a drag paints instead of panning. */
 export const HOLD_MS = 320;
+/** A shorter hold picks up a bend handle: long enough to tell a grab from a pan, short enough to feel direct. */
+export const BEND_HOLD_MS = 170;
+/** How far above the fingertip a held pin rides on touch screens, in pixels. */
+const BEND_LIFT = 52;
+
+interface BendSnap { pending: EditPlan | null; newBends: Pt[]; tee: Pt | null; cup: Pt | null }
+interface BendDrag {
+  kind: 'tee' | 'cup' | 'bend';
+  i: number;
+  touch: boolean;
+  /** Touch: true once the hold finished. Mouse: immediately. */
+  engaged: boolean;
+  moved: boolean;
+  /** The layout changed during this drag, so aborting must restore it. */
+  dirty: boolean;
+  t0: number;
+  moveAt: number;
+  /** The pin tip in map coordinates, following the pointer continuously. */
+  tip: Pt;
+  /** The last tile that made a valid layout. */
+  tile: Pt;
+  /** The tile under the tip now, and the last one checked. */
+  cur: Pt;
+  tried: Pt;
+  attempt: Pt | null;
+  problem: string | null;
+  ptr: Pt;
+  grabOff: Pt;
+  snap: BendSnap;
+  panAt?: number;
+}
+
+/** Distance from a point to the capsule of a pin: its round head, its stem and its tip. */
+function distToSegment(p: Pt, a: Pt, b: Pt, r: number): number {
+  const vx = b.x - a.x, vy = b.y - a.y;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / (vx * vx + vy * vy || 1)));
+  return Math.max(0, Math.hypot(p.x - (a.x + vx * t), p.y - (a.y + vy * t)) - r);
+}
 
 export class Editor {
   tool: ToolId;
   brush: number;
-  overlay: Overlay = { tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null, bGhost: null };
+  overlay: Overlay = { bendUi: null, tool: 'inspect', hoverTiles: [], changed: new Set(), blocked: new Set(), staged: new Set(), stagedKind: new Map(), tooExpensive: false, hoverPt: null, parcel: null, buildTee: null, buildLine: null, ghost: null, club: null, hint: null, hold: null, bGhost: null };
   /** Parcel picked with the Land tool. */
   parcel: { col: number; row: number } | null = null;
   /** A tee, cup, dogleg or new-hole plan waiting for the player to confirm. */
@@ -84,8 +122,12 @@ export class Editor {
   }
   /** What the Decorate tool places. */
   decorKind: ItemKind = 'flowers';
-  /** True while the next tap on the map adds a turning point to the new hole. */
-  addingBend = false;
+  /** The bend picked by tapping it, shown with a Remove bend action. -1 when none. */
+  selBend = -1;
+  /** A handle being held or dragged right now (read by the renderer). */
+  drag: BendDrag | null = null;
+  /** A released handle gliding to its tile, or back to its last valid one. */
+  settle: BendUi['settle'] = null;
   preview: Preview | null = null;
   /** Where the clubhouse would stand (top-left tile) and why it cannot, while the player is choosing. */
   clubSpot: { x: number; y: number; problem: string | null } | null = null;
@@ -97,7 +139,6 @@ export class Editor {
 
   private mode: Mode = 'none';
   /** A marker of the planned new hole being dragged: its tee, its green or one of its turning points. */
-  private grab: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt } | null = null;
   private pointers = new Map<number, Pt>();
   private start: Pt = { x: 0, y: 0 };
   private moved = false;
@@ -137,6 +178,8 @@ export class Editor {
   constructor(private canvas: HTMLCanvasElement, private game: Game, private r: Renderer) {
     this.tool = game.settings.tool;
     this.brush = game.settings.brush;
+    // the bend handles are read fresh every frame, so they can never fall out of step with the plan
+    Object.defineProperty(this.overlay, 'bendUi', { get: () => this.bendUi(), enumerable: true, configurable: true });
     canvas.addEventListener('pointerdown', (e) => this.down(e));
     canvas.addEventListener('pointermove', (e) => this.move(e));
     canvas.addEventListener('pointerup', (e) => this.up(e));
@@ -161,6 +204,7 @@ export class Editor {
         this.space = true;
         e.preventDefault();
       } else if (e.key === 'Escape') {
+        if (this.drag) { this.abortDrag(); return; }
         this.cancelStroke();
         if (this.proposal) this.discard();
         else this.setTool('inspect');
@@ -207,7 +251,8 @@ export class Editor {
     if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
-    if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.addingBend = false; this.overlay.buildTee = null; this.overlay.buildLine = null; }
+    if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.overlay.buildTee = null; this.overlay.buildLine = null; }
+    this.selBend = -1;
     this.tool = t;
     this.game.settings.tool = t;
     this.overlay.tool = t;
@@ -263,6 +308,7 @@ export class Editor {
   }
   /** Throw away everything not yet built. Nothing is charged. */
   discard() {
+    this.abortDrag(); // a handle in the air is put down first, so nothing it changed can come back
     this.batch.clear();
     this.stageKinds.clear();
     this.batchTools.clear();
@@ -274,7 +320,7 @@ export class Editor {
     this.buildTee = null;
     this.buildCup = null;
     this.newBends = [];
-    this.addingBend = false;
+    this.selBend = -1;
     this.overlay.buildTee = null;
     this.overlay.buildLine = null;
     this.syncStagedOverlay();
@@ -316,86 +362,296 @@ export class Editor {
   }
   /** Re-plan the pending new hole after its par or turning points changed. */
   private replanNew() {
-    if (!this.buildTee || !this.buildCup) return;
-    const plan = this.newHolePlan(this.buildTee, this.buildCup);
-    if (typeof plan === 'string') { this.game.notify('bad', plan); return; }
-    this.pending = plan;
-    this.rev++;
-    this.showPlan(plan, []);
-    this.overlay.buildLine = { from: this.buildTee, to: this.buildCup };
-    this.onChange();
+    const why = this.tryReplan();
+    if (why) this.game.notify('bad', why);
   }
-  /** Re-plan with the markers where they are now; false (and nothing changed) if that layout is not allowed. */
-  private tryReplan(): boolean {
-    if (!this.buildTee || !this.buildCup) return false;
+  /** Re-plan the new hole with the markers where they are now. Null on success, otherwise why that layout is not allowed (nothing changes then). */
+  private tryReplan(): string | null {
+    if (!this.buildTee || !this.buildCup) return 'Place the tee and green first.';
     const plan = this.newHolePlan(this.buildTee, this.buildCup);
-    if (typeof plan === 'string') return false;
+    if (typeof plan === 'string') return plan;
     this.pending = plan;
     this.rev++;
     this.showPlan(plan, []);
+    this.overlay.buildTee = this.buildTee;
     this.overlay.buildLine = { from: this.buildTee, to: this.buildCup };
     this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
     this.onChange();
-    return true;
+    return null;
   }
-  /** The tee, green or turning point of the planned new hole under the finger, if any. */
+
+  // ---- bend editing: grab, drag, release, Build ----
+  /** The hole whose route is being shaped: the new hole being planned, or the selected hole with the Dogleg tool. Bends come from the plan, so cancel and undo need no bookkeeping. */
+  private routeCtx(): { hole: Hole | null; tee: Pt; cup: Pt; bends: Pt[] } | null {
+    if (this.game.owner.active || this.placingClub) return null;
+    if (this.tool === 'build' && this.pending?.newHole && this.buildTee && this.buildCup) return { hole: null, tee: this.buildTee, cup: this.buildCup, bends: this.newBends };
+    if (this.tool === 'bend') {
+      const hole = this.game.hole(this.game.selectedHole);
+      if (!hole) return null;
+      return { hole, tee: hole.tee, cup: hole.cup, bends: this.pending?.hole ? holeBends(this.pending.hole.after) : holeBends(hole) };
+    }
+    return null;
+  }
+  /** Make these the bends of the route being shaped. Returns why not (and changes nothing) if the layout is not allowed. */
+  private applyBends(bends: Pt[]): string | null {
+    const c = this.routeCtx();
+    if (!c) return 'Nothing to shape.';
+    if (!c.hole) {
+      const prev = this.newBends;
+      this.newBends = bends;
+      const why = this.tryReplan();
+      if (why) this.newBends = prev;
+      return why;
+    }
+    const plan = planBends(this.game.world, c.hole, bends);
+    if (!plan) {
+      this.pending = null;
+      this.overlay.ghost = null;
+      this.overlay.hoverTiles = [];
+      this.overlay.changed = new Set();
+    } else {
+      this.pending = plan;
+      this.showPlan(plan, []);
+    }
+    this.rev++;
+    this.preview = null;
+    this.onChange();
+    return null;
+  }
+  /** What the interface needs to draw the handles, yardage and cost for the route being shaped. */
+  private bendUi(): BendUi | null {
+    const c = this.routeCtx();
+    if (!c) return null;
+    const stats = routeStats(c.tee, c.bends, c.cup);
+    const d = this.drag;
+    return {
+      tee: c.tee, cup: c.cup, bends: c.bends,
+      par: this.pending?.hole?.after.par ?? this.pending?.newHole?.par ?? c.hole?.par ?? this.newPar,
+      cost: this.pending?.cost ?? 0,
+      legs: stats.legs, total: stats.total,
+      selected: this.selBend, movable: !!c.hole ? 'bends' : 'all',
+      drag: d ? { kind: d.kind, i: d.i, engaged: d.engaged, tip: d.tip, tile: d.tile, problem: d.problem, attempt: d.attempt, touch: d.touch, since: d.t0 } : null,
+      settle: this.settle,
+    };
+  }
+  /** The tee, green or bend whose visible pin is under this screen point, using the same geometry the renderer draws. */
   private handleAt(p: Pt): { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt } | null {
-    if (this.tool !== 'build' || !this.pending?.newHole || !this.buildTee || !this.buildCup) return null;
-    const reach = this.touch ? 34 : 22;
-    const pts: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt }[] = [
-      ...this.newBends.map((b, i) => ({ kind: 'bend' as const, i, tile: b })),
-      { kind: 'tee', i: 0, tile: this.buildTee },
-      { kind: 'cup', i: 0, tile: this.buildCup },
-    ];
+    const c = this.routeCtx();
+    if (!c) return null;
+    const reach = this.touch ? 34 : 20;
+    const pts: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt }[] = c.bends.map((b, i) => ({ kind: 'bend' as const, i, tile: b }));
+    if (!c.hole) pts.push({ kind: 'tee', i: 0, tile: c.tee }, { kind: 'cup', i: 0, tile: c.cup });
     let best: (typeof pts)[number] | null = null;
     let bestD = reach;
     for (const q of pts) {
-      const s = this.r.toScreen(q.tile.x + 0.5, q.tile.y + 0.5);
-      const d = Math.hypot(s.x - p.x, s.y - p.y);
+      const g = this.r.pinGeom({ x: q.tile.x + 0.5, y: q.tile.y + 0.5 });
+      const d = distToSegment(p, g.head, g.base, g.r);
       if (d < bestD) { bestD = d; best = q; }
     }
     return best ? { ...best, tile: { ...best.tile } } : null;
   }
-  /** Move the grabbed marker to a tile; if the hole would not be allowed there, it stays where it was. */
-  private dragHandleTo(t: Pt) {
-    const g = this.grab;
-    if (!g || (g.tile.x === t.x && g.tile.y === t.y) || !inBounds(this.game.world, t.x, t.y)) return;
-    const before = { tee: this.buildTee, cup: this.buildCup, bends: this.newBends.slice() };
-    if (g.kind === 'tee') this.buildTee = t;
-    else if (g.kind === 'cup') this.buildCup = t;
-    else this.newBends = this.newBends.map((b, i) => (i === g.i ? t : b));
-    if (this.tryReplan()) { g.tile = t; this.overlay.buildTee = this.buildTee; }
-    else { this.buildTee = before.tee; this.buildCup = before.cup; this.newBends = before.bends; }
+  private beginDrag(p: Pt, h: { kind: 'tee' | 'cup' | 'bend'; i: number; tile: Pt }, touch: boolean) {
+    const base = this.r.toScreen(h.tile.x + 0.5, h.tile.y + 0.5);
+    const t0 = performance.now();
+    this.settle = null;
+    this.drag = {
+      kind: h.kind, i: h.i, touch, engaged: false, moved: false, dirty: false, t0, moveAt: 0,
+      tip: { x: h.tile.x + 0.5, y: h.tile.y + 0.5 }, tile: { ...h.tile }, cur: { ...h.tile }, tried: { ...h.tile }, attempt: null, problem: null,
+      ptr: p, grabOff: { x: base.x - p.x, y: base.y - p.y },
+      snap: { pending: this.pending, newBends: this.newBends.map((b) => ({ ...b })), tee: this.buildTee, cup: this.buildCup },
+    };
+    if (touch) {
+      // a brief hold picks the handle up; moving first means the finger wanted to pan the map
+      this.overlay.hold = { x: p.x, y: p.y, t0, ms: BEND_HOLD_MS };
+      this.holdTimer = window.setTimeout(() => {
+        this.holdTimer = null;
+        if (this.mode === 'handle' && this.pointers.size === 1) this.engageDrag();
+      }, BEND_HOLD_MS);
+    } else this.engageDrag();
   }
-  /** Take one turning point out of the planned hole. */
-  removeNewBend(i: number) {
-    if (i < 0 || i >= this.newBends.length) return;
-    this.newBends = this.newBends.filter((_, k) => k !== i);
-    this.addingBend = false;
-    if (!this.tryReplan()) this.replanNew();
-    this.game.notify('info', 'Turning point removed.');
+  private engageDrag() {
+    const d = this.drag;
+    if (!d || d.engaged) return;
+    this.overlay.hold = null;
+    d.engaged = true;
+    d.t0 = performance.now();
+    if (d.kind === 'bend') this.selBend = d.i;
+    if (this.game.preferences.haptics) navigator.vibrate?.(14);
+    this.onChange();
+    const tick = () => {
+      if (this.drag !== d) return;
+      this.retarget();
+      this.edgePan(d);
+      this.evalDrag();
+      this.dragRaf = requestAnimationFrame(tick);
+    };
+    cancelAnimationFrame(this.dragRaf);
+    this.dragRaf = requestAnimationFrame(tick);
+  }
+  private dragRaf = 0;
+  /** Where the pin tip is for the finger's position: it keeps the offset it was grabbed with, and on touch rises above the fingertip so it stays in view. */
+  private retarget() {
+    const d = this.drag;
+    if (!d || !d.engaged) return;
+    // on touch the pin rises above the fingertip once the finger starts to move; just holding changes nothing
+    const k = !d.touch || !d.moved ? 0 : Renderer.reducedMotion ? 1 : Math.min(1, (performance.now() - d.moveAt) / 160);
+    const lift = BEND_LIFT * (k * k * (3 - 2 * k));
+    d.tip = this.r.toWorld(d.ptr.x + d.grabOff.x, d.ptr.y + d.grabOff.y - lift);
+    d.cur = { x: Math.floor(d.tip.x), y: Math.floor(d.tip.y) };
+  }
+  /** Check the tile under the pin tip, once per frame and only when it changed. A bad spot is shown, not refused silently. */
+  private evalDrag() {
+    const d = this.drag;
+    if (!d || !d.engaged || (d.cur.x === d.tried.x && d.cur.y === d.tried.y)) return;
+    d.tried = { ...d.cur };
+    const c = this.routeCtx();
+    if (!c) return;
+    const t = d.cur;
+    let why: string | null;
+    if (d.tile.x === t.x && d.tile.y === t.y) why = null;
+    else if (!inBounds(this.game.world, t.x, t.y)) why = 'That is off the property.';
+    else if (d.kind === 'bend') why = bendProblem(this.game.world, c.tee, c.cup, c.bends, d.i, t) ?? this.applyBends(moveBendTo(c.bends, d.i, t));
+    else {
+      const was = { tee: this.buildTee, cup: this.buildCup };
+      if (d.kind === 'tee') this.buildTee = t; else this.buildCup = t;
+      why = this.tryReplan();
+      if (why) { this.buildTee = was.tee; this.buildCup = was.cup; }
+    }
+    if (why) { d.attempt = { ...t }; d.problem = why; }
+    else { d.attempt = null; d.problem = null; if (d.tile.x !== t.x || d.tile.y !== t.y) d.dirty = true; d.tile = { ...t }; }
+  }
+  /** While a handle is held near a screen edge nothing blocks, the map drifts that way, gently and faster the closer it gets. */
+  private edgePan(d: BendDrag) {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - (d.panAt ?? now)) / 1000);
+    d.panAt = now;
+    if (!d.moved || dt <= 0) return;
+    const ins = this.r.insets;
+    const zone = 48;
+    // an open edge reacts near the screen edge; an edge under a panel only once the finger has gone under it
+    const depth = (fromEdge: number, inset: number) => (inset <= 24 ? Math.max(0, zone - fromEdge) : Math.max(0, inset - fromEdge)) / zone;
+    const q = d.ptr;
+    const vx = Math.min(1, depth(this.r.cw - q.x, ins.r)) - Math.min(1, depth(q.x, ins.l));
+    const vy = Math.min(1, depth(this.r.ch - q.y, ins.b)) - Math.min(1, depth(q.y, ins.t));
+    if (!vx && !vy) return;
+    const speed = 340; // px per second right at the edge
+    this.r.cancelCamera();
+    cancelAnimationFrame(this.glide);
+    this.r.cam.x += (vx * speed * dt) / this.r.cam.zoom;
+    this.r.cam.y += (vy * speed * dt) / this.r.cam.zoom;
+    this.r.clampCam(this.game.world);
+    this.retarget();
+  }
+  /** Put everything back as it was when the handle was picked up (a second finger, a lost pointer, Escape). Never commits. */
+  private abortDrag() {
+    const d = this.drag;
+    if (!d) return;
+    this.stopHold();
+    cancelAnimationFrame(this.dragRaf);
+    if (d.engaged && d.dirty) this.restoreSnap(d.snap);
+    this.drag = null;
+    this.settle = null;
+    if (this.mode === 'handle') this.mode = 'none';
+    this.onChange();
+  }
+  private restoreSnap(s: BendSnap) {
+    this.buildTee = s.tee;
+    this.buildCup = s.cup;
+    this.newBends = s.newBends.map((b) => ({ ...b }));
+    this.pending = s.pending;
+    this.rev++;
+    if (s.pending) this.showPlan(s.pending, []);
+    else { this.overlay.ghost = null; this.overlay.hoverTiles = []; this.overlay.changed = new Set(); }
+    if (s.pending?.newHole) { this.overlay.buildTee = s.tee; this.overlay.buildLine = s.tee && s.cup ? { from: s.tee, to: s.cup } : null; }
+  }
+  /** Finger or mouse released. A drag keeps the proposed layout (or glides back from an invalid spot); a plain tap only selects. */
+  private finishDrag() {
+    const d = this.drag;
+    this.stopHold();
+    cancelAnimationFrame(this.dragRaf);
+    this.drag = null;
+    if (!d) return;
+    if (d.engaged && (d.moved || d.dirty)) {
+      const to = { x: d.tile.x + 0.5, y: d.tile.y + 0.5 };
+      this.settle = { kind: d.kind, i: d.i, from: d.tip, to, t0: performance.now(), dur: d.problem ? 300 : 150 };
+      if (d.problem) this.game.notify('bad', `${d.problem} The handle went back.`);
+      else if (this.game.preferences.haptics) navigator.vibrate?.(6);
+    } else if (d.kind === 'bend') this.selBend = d.i;
+    this.onChange();
+  }
+  /** Tap on empty ground: the Dogleg tool adds a bend there; anywhere else it just lets go of the selection. */
+  private tapRoute(t: Pt): boolean {
+    const c = this.routeCtx();
+    if (!c) return false;
+    if (this.tool !== 'bend') { this.selBend = -1; this.onChange(); return true; }
+    if (c.bends.length >= MAX_BENDS) { this.selBend = -1; this.game.notify('bad', `A hole can have up to ${MAX_BENDS} bends. Move or remove one.`); this.onChange(); return true; }
+    const why = bendProblem(this.game.world, c.tee, c.cup, c.bends, -1, t);
+    if (why) { this.game.notify('bad', why); return true; }
+    const next = insertBend(c.tee, c.bends, c.cup, t);
+    const fail = this.applyBends(next);
+    if (fail) { this.game.notify('bad', fail); return true; }
+    this.selBend = next.findIndex((b) => b.x === t.x && b.y === t.y);
+    this.r.pulse(t.x + 0.5, t.y + 0.5);
+    return true;
+  }
+  /** If any pin of the route is hidden (off screen, or under the Build bar once it has grown), frame the route. Waits a moment for the bar to settle. */
+  private keepInView(pts: Pt[]) {
+    window.setTimeout(() => {
+      const ins = this.r.insets;
+      const hidden = pts.some((q) => {
+        const g = this.r.pinGeom({ x: q.x + 0.5, y: q.y + 0.5 });
+        return g.base.x < ins.l + 14 || g.base.x > this.r.cw - ins.r - 14 || g.head.y - g.r < ins.t || g.base.y > this.r.ch - ins.b - 6;
+      });
+      if (hidden && this.shaping) this.focusPoints(pts, Math.max(0.45, Math.min(0.95, this.r.cam.zoom)));
+    }, 280);
+  }
+  /** Add a bend in the middle of the longest leg, ready to drag. */
+  addBend() {
+    const c = this.routeCtx();
+    if (!c) return;
+    const r = suggestBend(this.game.world, c.tee, c.cup, c.bends);
+    if (typeof r === 'string') { this.game.notify('bad', r); return; }
+    const fail = this.applyBends(r.bends);
+    if (fail) { this.game.notify('bad', fail); return; }
+    this.selBend = r.index;
+    const p = r.bends[r.index];
+    this.r.pulse(p.x + 0.5, p.y + 0.5);
+    this.keepInView([c.tee, ...r.bends, c.cup]);
+    this.onChange();
+  }
+  /** The Remove bend action for the selected bend. Only changes the preview; Build keeps it, Cancel brings it back. */
+  removeSelectedBend() {
+    const c = this.routeCtx();
+    if (!c || this.selBend < 0 || this.selBend >= c.bends.length) return;
+    const fail = this.applyBends(removeBendAt(c.bends, this.selBend));
+    if (fail) { this.game.notify('bad', fail); return; }
+    this.selBend = -1;
+    this.onChange();
+  }
+  /** Remove every bend from the preview. */
+  straighten() {
+    const c = this.routeCtx();
+    if (!c || !c.bends.length) return;
+    const fail = this.applyBends([]);
+    if (fail) { this.game.notify('bad', fail); return; }
+    this.selBend = -1;
+    this.onChange();
+  }
+  /** True while a route is being shaped (the Dogleg tool, or a new hole with its tee and green placed). */
+  get shaping() {
+    return !!this.routeCtx();
+  }
+  get shapingBends(): Pt[] {
+    return this.routeCtx()?.bends ?? [];
   }
   setNewPar(par: number) {
     this.newPar = par;
     this.replanNew();
     this.onChange();
   }
-  /** Ask for a turning point: the next map tap adds one. */
-  startAddBend() {
-    if (this.pending?.newHole && this.newBends.length < MAX_BENDS) {
-      this.addingBend = true;
-      this.onChange();
-    }
-  }
-  clearNewBends() {
-    this.newBends = [];
-    this.addingBend = false;
-    this.replanNew();
-    this.onChange();
-  }
   /** Choose which hole the hole tools work on; unbuilt placements belonged to the old one. */
   selectHole(id: number) {
-    if (this.game.selectedHole !== id) this.clearPending();
+    if (this.game.selectedHole !== id) { this.abortDrag(); this.clearPending(); this.selBend = -1; }
     this.game.selectedHole = id;
     this.onChange();
   }
@@ -413,6 +669,7 @@ export class Editor {
   /** Roll back the stroke in progress (a second finger landed, or the pointer was lost). */
   private cancelStroke() {
     this.stopHold();
+    this.abortDrag();
     if (this.mode === 'hold') this.mode = 'none';
     if (this.mode === 'paint') {
       for (const [i, prev] of this.strokeUndo) {
@@ -455,7 +712,6 @@ export class Editor {
       this.cancelStroke();
       this.clearHover();
       this.mode = 'pinch';
-      this.grab = null;
       const [a, b] = [...this.pointers.values()];
       this.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       return;
@@ -467,10 +723,9 @@ export class Editor {
     if (this.game.owner.active) { this.mode = 'inspect'; return; }
     this.game.followGolfer = 0;
     const handle = this.handleAt(p);
-    if (handle) {
+    if (handle && !(e.button === 1 || e.button === 2 || this.space)) {
       this.mode = 'handle';
-      this.grab = handle;
-      if (this.game.preferences.haptics) navigator.vibrate?.(8);
+      this.beginDrag(p, handle, this.touch);
       return;
     }
     const panByButton = e.button === 1 || e.button === 2 || this.space || this.tool === 'pan';
@@ -542,9 +797,18 @@ export class Editor {
       this.pinch = { dist: d, cx, cy };
       return;
     }
+    if (this.mode === 'handle' && this.drag && !this.drag.engaged && Math.hypot(p.x - this.start.x, p.y - this.start.y) > SLOP) {
+      // the finger travelled before the hold finished: it wanted to pan the map, not pick the handle up
+      this.stopHold();
+      this.drag = null;
+      this.mode = 'pan';
+    }
     if (this.mode === 'handle') {
-      if (Math.hypot(p.x - this.start.x, p.y - this.start.y) > 6) this.moved = true;
-      if (this.moved && this.overCanvas(e)) this.dragHandleTo(this.tileAt(p));
+      const d = this.drag;
+      if (!d || !d.engaged) return;
+      d.ptr = p;
+      if (!d.moved && Math.hypot(p.x - this.start.x, p.y - this.start.y) > 3) { d.moved = true; d.moveAt = performance.now(); }
+      this.retarget(); // the handle follows at once; checking the ground waits for the next frame
       return;
     }
     if (!this.pointers.has(e.pointerId) && this.mode === 'none' && !this.overCanvas(e)) return;
@@ -602,11 +866,10 @@ export class Editor {
       return;
     }
     if (this.mode === 'handle') {
-      // a tap on a turning point (no drag) removes it
-      if (!this.moved && this.grab?.kind === 'bend') this.removeNewBend(this.grab.i);
-      this.grab = null;
+      // a drag keeps the proposed layout; a tap only selects the bend
+      if (this.drag) { this.drag.ptr = p; this.retarget(); this.evalDrag(); }
+      this.finishDrag();
       this.mode = 'none';
-      this.onChange();
       return;
     }
     if (this.mode === 'pan' && this.moved && e.pointerType !== 'mouse' && performance.now() - this.panT < 90 && Math.hypot(this.panVx, this.panVy) > 0.25) this.startGlide();
@@ -737,7 +1000,17 @@ export class Editor {
         this.onChange();
         return;
       }
-      const plan = this.tool === 'bend' ? planMoveBend(world, hole, h.x, h.y) : this.tool === 'tee' ? planMoveTee(world, hole, h.x, h.y) : planMoveCup(world, hole, h.x, h.y);
+      if (this.tool === 'bend') {
+        const c = this.routeCtx();
+        const why = !c ? null : c.bends.length >= MAX_BENDS ? `Up to ${MAX_BENDS} bends. Drag one to move it.` : bendProblem(world, c.tee, c.cup, c.bends, -1, h);
+        this.overlay.hoverTiles = [idx(world, h.x, h.y)];
+        this.overlay.changed = new Set();
+        this.overlay.blocked = why ? new Set(this.overlay.hoverTiles) : new Set();
+        this.preview = { tool: 'bend', label: `Hole ${hole.id}`, tiles: 0, cost: why ? 0 : Math.ceil(40), affordable: !why, message: why ?? 'Click to add a bend here, or drag a bend to reshape.', stroking: false, limited: false };
+        this.onChange();
+        return;
+      }
+      const plan = this.tool === 'tee' ? planMoveTee(world, hole, h.x, h.y) : planMoveCup(world, hole, h.x, h.y);
       if (typeof plan === 'string') {
         this.overlay.hoverTiles = this.tool === 'tee' ? boxTiles(world, h) : brushTiles(world, h.x, h.y, 2);
         this.overlay.changed = new Set();
@@ -872,10 +1145,9 @@ export class Editor {
       return;
     }
     if (this.tool === 'build') {
-      if (this.pending?.newHole && this.addingBend && this.buildTee && this.buildCup) {
-        this.newBends = insertBend(this.buildTee, this.newBends, this.buildCup, t);
-        this.addingBend = false;
-        this.replanNew();
+      if (this.pending?.newHole && this.buildTee && this.buildCup) {
+        // the hole is placed: a tap on bare ground never moves it, it only lets go of the selected bend
+        this.tapRoute(t);
         return;
       }
       if (!this.buildTee) {
@@ -899,6 +1171,7 @@ export class Editor {
       this.overlay.buildLine = { from: this.buildTee, to: t };
       this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
       this.onChange();
+      this.keepInView([this.buildTee, t]);
       return;
     }
     const hole = this.game.hole(this.game.selectedHole);
@@ -906,7 +1179,8 @@ export class Editor {
       this.game.notify('bad', 'Build a hole first, then you can move its tee, cup or bend.');
       return;
     }
-    const plan = this.tool === 'bend' ? planMoveBend(this.game.world, hole, t.x, t.y) : this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
+    if (this.tool === 'bend') { this.tapRoute(t); return; }
+    const plan = this.tool === 'tee' ? planMoveTee(this.game.world, hole, t.x, t.y) : planMoveCup(this.game.world, hole, t.x, t.y);
     if (typeof plan === 'string') {
       this.game.notify('bad', plan);
       return;

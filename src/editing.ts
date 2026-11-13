@@ -39,7 +39,7 @@ export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
   decor: { label: 'Decorate', hint: 'Tap the rough to place it. Tap a placed item again to remove it and get your money back.' },
   green: { label: 'Green', hint: 'Expand or reshape a putting surface. Costs $24 per tile. Cannot overwrite tees or paths.' },
   path: { label: 'Cart path', hint: 'Lay a cart path for $8 per tile. Paint it across water to build a bridge. Golfers walk faster on paths. Paint rough over a path to remove it.' },
-  bend: { label: 'Dogleg', hint: 'Tap a routing point for this hole. Costs $40. Paint fairway along the new route, then reopen.' },
+  bend: { label: 'Dogleg', hint: 'Drag a bend to shape the hole (on touch, press and hold it first). Tap empty ground to add one. $40 per new or moved bend. Nothing is built until you tap Build.' },
   inspect: { label: 'Inspect', hint: 'Tap a hole, a golfer or a tile to see details.' },
   pan: { label: 'Pan', hint: 'Drag to move the map. Scroll or pinch to zoom.' },
   fairway: { label: 'Fairway', hint: 'Paint mown fairway. Replaces rough, sand and water.' },
@@ -451,4 +451,91 @@ export function planStraighten(w: World, h: Hole): EditPlan | string {
   const after = cloneHole(h);
   setRoute(after, []);
   return { tool: 'bend', label: 'Straighten hole', tiles: [], hole: { id: h.id, before: cloneHole(h), after }, cost: 0, notes: routeNotes(w, after, [center(after.tee), center(after.cup)]) };
+}
+
+// ---- live bend editing: pure helpers used by the editor while a bend is being dragged ----
+
+export interface RouteStats {
+  /** Yards of each leg, tee to first bend, bend to bend, last bend to green. */
+  legs: number[];
+  /** Yards along the whole route: the same sum the finished hole reports (holeYards). */
+  total: number;
+}
+
+/** Leg and total yardage for a route. The total is computed exactly as `holeYards` does, so the preview matches the built hole. */
+export function routeStats(tee: Pt, bends: Pt[], cup: Pt): RouteStats {
+  const pts = [center(tee), ...bends.map(center), center(cup)];
+  const legs: number[] = [];
+  for (let k = 0; k + 1 < pts.length; k++) legs.push(Math.round(Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y) * CFG.grid.yardsPerTile));
+  return { legs, total: Math.round(pathTiles(pts) * CFG.grid.yardsPerTile) };
+}
+
+/** Bends closer than this (in tiles) to the tee, the green or another bend would tangle the route. */
+export const MIN_BEND_GAP = 2;
+
+/** Why a turning point cannot sit on this tile, or null if it can. `index` is the bend being moved (or -1 for a new one). */
+export function bendProblem(world: World, tee: Pt, cup: Pt, bends: Pt[], index: number, p: Pt): string | null {
+  if (!inBounds(world, p.x, p.y)) return 'That is off the property.';
+  if (p.x < 1 || p.y < 1 || p.x > world.w - 2 || p.y > world.h - 2) return 'Too close to the edge of the property.';
+  if (!isOwned(world, p.x, p.y)) return 'You do not own this land.';
+  if (world.terrain[idx(world, p.x, p.y)] === T.BUILDING) return 'A bend cannot go through the clubhouse.';
+  if (Math.hypot(tee.x - p.x, tee.y - p.y) < MIN_BEND_GAP) return 'Too close to the tee.';
+  if (Math.hypot(cup.x - p.x, cup.y - p.y) < MIN_BEND_GAP) return 'Too close to the green.';
+  for (let k = 0; k < bends.length; k++) if (k !== index && Math.hypot(bends[k].x - p.x, bends[k].y - p.y) < MIN_BEND_GAP) return `Too close to bend ${k + 1}.`;
+  return null;
+}
+
+/** Replace the bend at `index` with `p`; the others keep their places, so routing order never changes while dragging. */
+export function moveBendTo(bends: Pt[], index: number, p: Pt): Pt[] {
+  return bends.map((b, k) => (k === index ? { x: p.x, y: p.y } : { ...b }));
+}
+
+/** Take one bend out of the route; the rest keep their order. */
+export function removeBendAt(bends: Pt[], index: number): Pt[] {
+  return bends.filter((_, k) => k !== index).map((b) => ({ ...b }));
+}
+
+/**
+ * A sensible place for one more bend: off the middle of the longest leg, on whichever side is allowed.
+ * Returns the new route's bends and the index of the new one, or a reason there is no room.
+ */
+export function suggestBend(world: World, tee: Pt, cup: Pt, bends: Pt[]): { bends: Pt[]; index: number } | string {
+  if (bends.length >= MAX_BENDS) return `A hole can have up to ${MAX_BENDS} bends. Move or remove one.`;
+  const pts = [tee, ...bends, cup];
+  let leg = 0;
+  let longest = -1;
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const d = Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
+    if (d > longest) { longest = d; leg = k; }
+  }
+  if (longest < MIN_BEND_GAP * 2) return 'No room for another bend on this hole.';
+  const a = pts[leg], b = pts[leg + 1];
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const nx = -(b.y - a.y) / longest, ny = (b.x - a.x) / longest;
+  for (const off of [3, -3, 5, -5, 0]) {
+    const p = { x: Math.round(mx + nx * off), y: Math.round(my + ny * off) };
+    const next = bends.map((q) => ({ ...q }));
+    next.splice(leg, 0, p);
+    if (!bendProblem(world, tee, cup, next, leg, p)) return { bends: next, index: leg };
+  }
+  return 'No open ground for a bend in the middle of this hole.';
+}
+
+const samePt = (a: Pt, b: Pt) => a.x === b.x && a.y === b.y;
+export const sameBends = (a: Pt[], b: Pt[]) => a.length === b.length && a.every((p, k) => samePt(p, b[k]));
+
+/**
+ * Re-route an existing hole through these bends. Each new or moved bend costs $40 and removing is free, judged against the
+ * hole as it stands, so dragging a bend back where it started costs nothing. Null when the route is unchanged.
+ */
+export function planBends(w: World, h: Hole, bends: Pt[]): EditPlan | null {
+  const before = holeBends(h);
+  const next = bends.slice(0, MAX_BENDS);
+  if (sameBends(before, next)) return null;
+  const fresh = next.filter((p) => !before.some((q) => samePt(p, q))).length;
+  const after = cloneHole(h);
+  setRoute(after, next);
+  const label = next.length > before.length ? 'Add bend' : next.length < before.length ? 'Remove bend' : 'Move bend';
+  const route = [center(after.tee), ...holeBends(after).map(center), center(after.cup)];
+  return { tool: 'bend', label: `${label}, hole ${h.id}`, tiles: [], hole: { id: h.id, before: cloneHole(h), after }, cost: Math.ceil(40 * COST_MULT) * fresh, notes: routeNotes(w, after, route) };
 }
