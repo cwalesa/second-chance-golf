@@ -653,3 +653,4 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
   #app, #start { top: 50%; bottom: auto; height: min(932px, calc(100vh - 48px)); transform: translate(-50%, -50%); border-radius: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+#tstate[data-hold="unopened"] .ts-act { font-size: 12.5px; }

@@ -1,6 +1,7 @@
 import type { Game } from './game';
 import { T, Pt, World, inBounds, idx } from './terrain';
 import { CFG } from './config';
+import { lotFor, lotKindAt, reserveLots } from './lots';
 
 /**
  * Things the player places on the course one at a time: flower beds, shrubs, benches, lamps,
@@ -46,9 +47,14 @@ export const countOf = (w: World, k: ItemKind) => (w.items ?? []).filter((it) =>
 export function buildingProblem(w: World, x: number, y: number, k: ItemKind): string | null {
   const d = ITEMS[k];
   if (countOf(w, k) >= (d.max ?? 99)) return d.max === 1 ? `You already have a ${d.label.toLowerCase()}.` : `You can have ${d.max} of these.`;
+  // the putting green and the range have a marked lot beside the clubhouse, and go there
+  if (isAmenity(k)) {
+    const lot = lotFor(w, k);
+    if (lot && (x !== lot.x || y !== lot.y)) return 'It goes on the marked lot beside the clubhouse.';
+  }
   for (let yy = y; yy < y + (d.h ?? 1); yy++)
     for (let xx = x; xx < x + (d.w ?? 1); xx++) {
-      const why = itemProblem(w, xx, yy);
+      const why = itemProblem(w, xx, yy, k);
       if (why) return why.startsWith('Not on the fairway') ? 'Fairway is for golfers. Pick rough beside it.' : why;
       if (itemAt(w, xx, yy) >= 0) return 'Something is already there.';
       if (isAmenity(k) && w.terrain[idx(w, xx, yy)] === T.PATH) return 'Keep it off the paths and the clubhouse forecourt.';
@@ -59,8 +65,10 @@ export function buildingProblem(w: World, x: number, y: number, k: ItemKind): st
 export const buildingUpkeep = (w: World) => (w.items ?? []).reduce((a, it) => a + (ITEMS[it.k].upkeep ?? 0), 0);
 
 /** Why an item cannot go on this tile, or null when it can. */
-export function itemProblem(w: World, x: number, y: number): string | null {
+export function itemProblem(w: World, x: number, y: number, forKind?: ItemKind): string | null {
   if (!inBounds(w, x, y)) return 'Off the map.';
+  const lot = lotKindAt(w, x, y);
+  if (lot && lot !== forKind) return lot === 'range' ? 'That ground is saved for the driving range.' : 'That ground is saved for the putting green.';
   const t = w.terrain[idx(w, x, y)];
   if (t === T.WATER) return 'Not in the water.';
   if (t === T.GREEN || t === T.TEE) return 'Not on a green or tee: golfers play there.';
@@ -95,7 +103,7 @@ export function toggleItem(g: Game, at: Pt, kind: ItemKind): { ok: boolean; remo
     w.items.splice(i, 1);
     g.cash += ITEMS[it.k].cost;
     g.today.construction -= ITEMS[it.k].cost;
-    if (isBuilding(it.k)) { if (isAmenity(it.k)) g.upgrades[it.k] = false; g.logEntry(`Sold ${ITEMS[it.k].label.toLowerCase()}`, ITEMS[it.k].cost); g.fleet = Math.min(g.fleet, g.maxFleet); g.applyRegion(); }
+    if (isBuilding(it.k)) { if (isAmenity(it.k)) { g.upgrades[it.k] = false; reserveLots(w); } g.logEntry(`Sold ${ITEMS[it.k].label.toLowerCase()}`, ITEMS[it.k].cost); g.fleet = Math.min(g.fleet, g.maxFleet); g.applyRegion(); }
     w.version++;
     g.dirtySave = true;
     return { ok: true, removed: true };

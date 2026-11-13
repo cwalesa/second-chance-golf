@@ -115,3 +115,34 @@ export function drawAmenityThumb(canvas: HTMLCanvasElement, kind: AmenityKind) {
   const toScreen = (x: number, y: number) => ({ x: cx + (x - y - (fw - fh) / 2) * ISO_X * ts, y: base - (fw + fh) * ISO_Y * ts + (x + y) * ISO_Y * ts });
   drawAmenity({ ctx, ts, toScreen }, kind, 0, 0);
 }
+
+/**
+ * The marked lot for an amenity that has not been built yet: pale mown ground, a dashed boundary, corner pegs
+ * and a small sign. It tells the player where the space is kept without looking like a building.
+ */
+export function drawLot(p: Painter, label: string, x: number, y: number, w: number, d: number) {
+  const c = p.ctx;
+  fill(c, rect(p, x, y, w, d), 'rgba(236,244,206,0.2)');
+  c.save();
+  c.setLineDash([Math.max(4, p.ts * 0.3), Math.max(3, p.ts * 0.22)]);
+  c.strokeStyle = 'rgba(255,255,236,0.85)'; c.lineWidth = Math.max(1.2, p.ts * 0.05);
+  const r = rect(p, x, y, w, d);
+  c.beginPath(); r.forEach((q, i) => (i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y))); c.closePath(); c.stroke();
+  c.restore();
+  for (const [px, py] of [[x, y], [x + w, y], [x + w, y + d], [x, y + d]]) {
+    const a = at(p, px, py), b = at(p, px, py, 0.45);
+    c.strokeStyle = '#8a6a44'; c.lineWidth = Math.max(1.4, p.ts * 0.06);
+    c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+    c.fillStyle = '#f4efd8'; c.fillRect(b.x - p.ts * 0.04, b.y - p.ts * 0.04, p.ts * 0.08, p.ts * 0.08);
+  }
+  // a little sign at the front corner
+  const s = at(p, x + 0.15, y + d + 0.05, 0.5);
+  const fs = Math.max(9, p.ts * 0.26);
+  c.font = `700 ${fs}px system-ui, sans-serif`;
+  const tw = c.measureText(label).width + fs * 0.9;
+  c.fillStyle = 'rgba(40,34,22,0.82)';
+  c.beginPath(); c.roundRect(s.x - tw / 2 + p.ts * 0.4, s.y - fs * 0.95, tw, fs * 1.5, fs * 0.3); c.fill();
+  c.fillStyle = '#f4efd8'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(label, s.x + p.ts * 0.4, s.y - fs * 0.2);
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+}

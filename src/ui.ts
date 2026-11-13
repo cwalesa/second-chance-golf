@@ -277,14 +277,15 @@ export class UI {
         else if (el.dataset.act === 'placeamenity') {
           // pick the item in the Buildings tray and show the clubhouse, where there is room to put it
           this.traySet = 'buildings';
-          this.editor.decorKind = el.dataset.id as ItemKind;
-          this.editor.setTool('decor');
           if (this.mobile) this.tab = 'build';
+          const lot = this.editor.previewAmenity(el.dataset.id as ItemKind);
           this.refresh(true); this.onInsets();
           // the new tile may be off the end of the row
           requestAnimationFrame(() => this.$('tools').querySelector('.ph-bld .tool.on')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
           const club = this.game.world.clubhouse;
-          if (club) this.editor.focusPoints([{ x: club.x, y: club.y }, { x: club.x + 14, y: club.y + 6 }]);
+          const sz = ITEMS[el.dataset.id as ItemKind];
+          if (lot) this.editor.focusPoints([{ x: lot.x, y: lot.y }, { x: lot.x + (sz.w ?? 1), y: lot.y + (sz.h ?? 1) }, ...(club ? [{ x: club.x + 3, y: club.y + 2 }] : [])]);
+          else this.toast('There is no clear ground left near the clubhouse.', 'bad');
         }
         else if (el.dataset.act === 'book') this.game.bookEvent(el.dataset.id as EventId);
         else if (el.dataset.act === 'cancelev') this.game.cancelEvent(id);

@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
+import { suggestClubhouse, suggestFirstHole } from '../src/wilderness';
 import { CFG } from '../src/config';
 import { AMENITY_KINDS, BUILDING_KINDS, ITEMS, buildingProblem, countOf, itemAt, toggleItem } from '../src/items';
 import { cartDriving, cartOut } from '../src/sim';
 import { deserialize, serialize } from '../src/save';
 import { T, idx } from '../src/terrain';
+import { lotFor, lotKindAt, reserveLots } from '../src/lots';
 import { createTestCourse } from './fixtures/classic-course';
 import { run } from './helpers';
 
-/** The first top-left tile (searching outward from the clubhouse) where a building of this kind can stand. */
+/** Where the game keeps this amenity: its marked lot. */
 function spotFor(g: Game, kind: 'puttingGreen' | 'range') {
-  const c = g.world.clubhouse!;
-  for (let y = c.y - 10; y < c.y + 20; y++)
-    for (let x = c.x + 6; x < c.x + 40; x++) if (!buildingProblem(g.world, x, y, kind)) return { x, y };
-  throw new Error('no room');
+  const at = lotFor(g.world, kind);
+  if (!at) throw new Error('no lot');
+  return at;
 }
 const fresh = () => { const g = new Game(createTestCourse()); g.cash = 50000; return g; };
 
@@ -52,6 +53,7 @@ describe('the putting green and driving range are placed, not just bought', () =
   });
   it('cannot stand on a cart path', () => {
     const g = fresh();
+    g.world.clubhouse = null; // no lots: the plain placement rules apply
     let path = -1;
     for (let i = 0; i < g.world.terrain.length && path < 0; i++) if (g.world.terrain[i] === T.PATH) path = i;
     expect(path).toBeGreaterThanOrEqual(0);
@@ -125,5 +127,94 @@ describe('golfers ride in rented carts', () => {
     expect(rider).toBeDefined();
     const back = deserialize(serialize(g))!.game;
     expect(back.sim.golfers.find((x) => x.id === rider.id)!.cart).toBe(rider.cart);
+  });
+});
+
+describe('dedicated lots near the clubhouse', () => {
+  const near = (a: { x: number; y: number }, k: 'puttingGreen' | 'range', c: { x: number; y: number }) =>
+    Math.hypot(a.x + ITEMS[k].w! / 2 - (c.x + 3.5), a.y + ITEMS[k].h! / 2 - (c.y + 2.5));
+  it('are reserved when the clubhouse is built, near it and clear of everything', () => {
+    for (const seed of [1, 7, 4242, 99990]) {
+      const g = new Game(undefined, seed);
+      expect(g.world.lots).toBeUndefined();
+      expect(g.buildClubhouse(suggestClubhouse(g.world)!)).toBe(true);
+      const c = g.world.clubhouse!;
+      const lots = AMENITY_KINDS.map((k) => ({ k, at: g.world.lots![k]! }));
+      for (const { k, at } of lots) {
+        expect(at, `${k} ${seed}`).toBeDefined();
+        expect(near(at, k, c)).toBeLessThan(26);
+        for (let y = at.y; y < at.y + ITEMS[k].h!; y++) for (let x = at.x; x < at.x + ITEMS[k].w!; x++) {
+          expect(g.world.terrain[idx(g.world, x, y)]).toBe(T.ROUGH);
+          expect(g.world.tree[idx(g.world, x, y)]).toBe(0);
+          expect(g.world.zone[idx(g.world, x, y)]).toBe(0);
+        }
+      }
+      const [a, b] = lots;
+      expect(a.at.x < b.at.x + ITEMS[b.k].w! && b.at.x < a.at.x + ITEMS[a.k].w! && a.at.y < b.at.y + ITEMS[b.k].h! && b.at.y < a.at.y + ITEMS[a.k].h!).toBe(false);
+    }
+  });
+  it('are kept for their amenity: other buildings and decorations cannot take the ground', () => {
+    const g = new Game(undefined, 4242);
+    g.buildClubhouse(suggestClubhouse(g.world)!);
+    const pg = g.world.lots!.puttingGreen!;
+    expect(lotKindAt(g.world, pg.x + 1, pg.y + 1)).toBe('puttingGreen');
+    expect(buildingProblem(g.world, pg.x, pg.y, 'barn')).toMatch(/saved for the putting green/);
+    g.cash = 99999;
+    expect(toggleItem(g, { x: pg.x + 1, y: pg.y + 1 }, 'bench').ok).toBe(false);
+    expect(toggleItem(g, { x: pg.x + 1, y: pg.y + 1 }, 'flowers').message).toMatch(/saved/);
+  });
+  it('are the only place the amenity can go, and it can go there', () => {
+    const g = new Game(undefined, 4242);
+    g.buildClubhouse(suggestClubhouse(g.world)!);
+    g.cash = 99999;
+    const lot = g.world.lots!.range!;
+    expect(buildingProblem(g.world, lot.x + 2, lot.y, 'range')).toMatch(/marked lot/);
+    expect(buildingProblem(g.world, lot.x, lot.y, 'range')).toBeNull();
+    expect(toggleItem(g, lot, 'range').ok).toBe(true);
+    expect(lotKindAt(g.world, lot.x, lot.y)).toBeNull(); // built: no longer a lot
+    // selling it brings the lot back
+    expect(toggleItem(g, lot, 'range').removed).toBe(true);
+    expect(g.world.lots!.range).toBeDefined();
+    expect(buildingProblem(g.world, g.world.lots!.range!.x, g.world.lots!.range!.y, 'range')).toBeNull();
+  });
+  it('the suggested first hole keeps clear of them', () => {
+    for (const seed of [1, 7, 4242, 99990]) {
+      const g = new Game(undefined, seed);
+      g.buildClubhouse(suggestClubhouse(g.world)!);
+      const s = suggestFirstHole(g.world);
+      if (!s) continue;
+      for (let k = 0; k <= 30; k++) {
+        const x = Math.round(s.tee.x + ((s.cup.x - s.tee.x) * k) / 30), y = Math.round(s.tee.y + ((s.cup.y - s.tee.y) * k) / 30);
+        expect(lotKindAt(g.world, x, y)).toBeNull();
+      }
+    }
+  });
+  it('are saved with the course, and a course from before them gets lots on load', () => {
+    const g = new Game(undefined, 4242);
+    g.buildClubhouse(suggestClubhouse(g.world)!);
+    const back = deserialize(serialize(g))!.game;
+    expect(back.world.lots).toEqual(g.world.lots);
+    const old = JSON.parse(serialize(g));
+    delete old.world.lots;
+    const migrated = deserialize(JSON.stringify(old))!.game;
+    expect(migrated.world.lots!.puttingGreen).toBeDefined();
+    expect(migrated.world.lots!.range).toBeDefined();
+  });
+  it('move to fresh ground if the player builds over one, and are dropped when there is no room', () => {
+    const g = new Game(undefined, 4242);
+    g.buildClubhouse(suggestClubhouse(g.world)!);
+    const old = { ...g.world.lots!.puttingGreen! };
+    for (let y = old.y; y < old.y + 3; y++) for (let x = old.x; x < old.x + 4; x++) g.world.terrain[idx(g.world, x, y)] = T.FAIRWAY;
+    reserveLots(g.world);
+    const now = g.world.lots!.puttingGreen!;
+    expect(now.x !== old.x || now.y !== old.y).toBe(true);
+  });
+  it('a save that owned the amenities gets them on their lots', () => {
+    const g = fresh();
+    g.upgrades.range = true;
+    const back = deserialize(serialize(g))!.game;
+    const it = back.world.items!.find((x) => x.k === 'range')!;
+    expect(it).toBeDefined();
+    expect(back.world.lots!.range).toBeUndefined();
   });
 });

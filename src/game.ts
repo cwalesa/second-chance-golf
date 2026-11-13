@@ -4,11 +4,12 @@ import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from 
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
-import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNear, buildingProblem, buildingUpkeep, countOf } from './items';
+import { reserveLots, lotFor } from './lots';
+import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNear, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
-import { World, Hole, T, computeZones, holeCondition, idx, inBounds, validateHole, Validation } from './terrain';
+import { World, Hole, computeZones, holeCondition, idx, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
@@ -179,7 +180,7 @@ export class Game {
       this.name = 'Practice Course';
       this.cash = 60000;
       const spot = suggestClubhouse(this.world);
-      if (spot) placeClubhouse(this.world, spot);
+      if (spot) { placeClubhouse(this.world, spot); reserveLots(this.world); }
     }
     // a course handed in ready-made starts its goals at the first one it has not reached, unpaid
     if (world) this.catchUpGoals();
@@ -226,6 +227,7 @@ export class Game {
       this.notify('bad', why);
       return false;
     }
+    reserveLots(this.world); // space for the putting green and the range, kept clear from the start
     this.onFeedback('build');
     this.notify('good', `Clubhouse built. Golfers arrive by the entrance road.`);
     this.dirtySave = true;
@@ -234,7 +236,7 @@ export class Game {
 
   /**
    * Improvements that used to be bought without being placed (the putting green and the driving range) now stand on the
-   * property. A save that owns one with nothing standing gets it placed beside the clubhouse, free of charge.
+   * property. A save that owns one with nothing standing gets it placed on its lot beside the clubhouse, free of charge.
    */
   placeOwnedAmenities(): void {
     const w = this.world, c = w.clubhouse;
@@ -243,19 +245,11 @@ export class Game {
     for (const kind of AMENITY_KINDS) {
       if (!this.upgrades[kind] || countOf(w, kind) > 0) continue;
       const d = ITEMS[kind], fw = d.w ?? 1, fh = d.h ?? 1;
-      const spots: { x: number; y: number; d: number }[] = [];
-      for (let y = c.y - 10; y <= c.y + 22; y++)
-        for (let x = c.x - 10; x <= c.x + 26; x++) spots.push({ x, y, d: Math.hypot(x + fw / 2 - (c.x + 3.5), y + fh / 2 - (c.y + 2.5)) });
-      spots.sort((a, b) => a.d - b.d);
-      const ground = (x: number, y: number) => w.terrain[idx(w, x, y)] === T.ROUGH;
-      const found = spots.find((s) => {
-        if (s.d < 6) return false;
-        for (let yy = s.y; yy < s.y + fh; yy++) for (let xx = s.x; xx < s.x + fw; xx++) if (!inBounds(w, xx, yy) || !ground(xx, yy)) return false;
-        return !buildingProblem(w, s.x, s.y, kind);
-      });
+      const found = lotFor(w, kind);
       if (!found) continue;
       for (let yy = found.y; yy < found.y + fh; yy++) for (let xx = found.x; xx < found.x + fw; xx++) { w.tree[idx(w, xx, yy)] = 0; w.dirty.add(idx(w, xx, yy)); }
       w.items.push({ x: found.x, y: found.y, k: kind });
+      if (w.lots) delete w.lots[kind];
       w.version++;
       this.dirtySave = true;
     }

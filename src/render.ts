@@ -7,7 +7,8 @@ import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TRE
 import { CFG } from './config';
 import { Game } from './game';
 import { Golfer, cartDriving, cartOut } from './sim';
-import { drawAmenity } from './art/amenities';
+import { drawAmenity, drawLot } from './art/amenities';
+import { LOT_LABEL, LotKind } from './lots';
 import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { reliefAt, clubLot } from './wilderness';
 import { ITEMS, ItemKind } from './items';
@@ -1508,6 +1509,14 @@ export class Renderer {
     // carts out on the course are not in the barn
     const cartsOut = game.sim.golfers.filter(cartOut).length;
     const cartsHome = Math.max(0, game.fleet - cartsOut);
+    // the marked lots for the putting green and the range, until they are built (hidden while placing, when the preview shows the spot)
+    if (w.lots && !far) for (const k of ['puttingGreen', 'range'] as LotKind[]) {
+      const lot = w.lots[k];
+      if (!lot || (w.items ?? []).some((i) => i.k === k) || (ov.bGhost && ov.bGhost.k === k)) continue;
+      if (lot.x < x0 - 8 || lot.x > x1 + 1 || lot.y < y0 - 4 || lot.y > y1 + 1) continue;
+      const lw = ITEMS[k].w ?? 1, lh = ITEMS[k].h ?? 1;
+      items.push({ y: -1e9 + lot.x + lot.y - 1, draw: () => drawLot(this.facilityPainter(), LOT_LABEL[k], lot.x, lot.y, lw, lh) });
+    }
     for (const it of w.items ?? []) {
       if (it.x < x0 - 4 || it.x > x1 + 1 || it.y < y0 - 3 || it.y > y1 + 1) continue;
       const d = ITEMS[it.k];
