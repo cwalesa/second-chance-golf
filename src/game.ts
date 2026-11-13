@@ -14,7 +14,7 @@ import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, 
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
 import { EditPlan, ToolId, applyPlan, planRemoveHole, setCostMultiplier, touchedHoles } from './editing';
 import { setPhysics } from './physics';
-import { TutorialState, freshTutorial } from './tutorial';
+import { TutorialState, freshTutorial } from './tutorial-state';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
 import { GoalCtx, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
@@ -52,8 +52,14 @@ export interface Settings {
   brush: number;
   tool: ToolId;
   introSeen: boolean;
+  /** The player's hold on time. Design mode sets it, and only an explicit Resume clears it. */
+  paused: boolean;
+  /** False until the player chooses "Open for business": setting up a new course never runs the clock. */
+  open: boolean;
 }
-export interface TestResult { name: string; type: 'beginner' | 'regular' | 'skilled'; hole: number; strokes: number; par: number; }
+/** How fast test golfers play while the business clock is stopped. It never changes the player's saved speed. */
+export const TEST_SPEED = 3;
+export interface TestResult { name: string; type: 'beginner' | 'regular' | 'skilled'; hole: number; strokes: number; par: number; shots: number; rough: number; bunker: number; water: number; }
 export interface LifetimeStats {
   rounds: number;
   revenue: number;
@@ -70,7 +76,7 @@ export interface NewGameOptions {
   logo?: Logo;
   /** false skips the optional tutorial. */
   tutorial?: boolean;
-  /** the practice course: the tutorial runs here, then the player starts their own course */
+  /** an old disposable practice course; kept so saves from before the guided tutorial can be recognised */
   practice?: boolean;
 }
 
@@ -101,7 +107,6 @@ export class Game {
   heatmap = false;
   followGolfer = 0;
   designMode = false;
-  private designSpeed = 1;
   world: World;
   rng: Rng;
   sim: CourseSim;
@@ -145,7 +150,7 @@ export class Game {
   redoStack: UndoEntry[] = [];
   /** Most recent test rounds by simulated golfers on the owner's layout (not saved, never paid). */
   testResults: TestResult[] = [];
-  settings: Settings = { speed: 1, brush: 1, tool: 'inspect', introSeen: false };
+  settings: Settings = { speed: 1, brush: 1, tool: 'inspect', introSeen: false, paused: false, open: true };
   selectedHole = 1;
   selectedGolfer = 0;
   lastHour = 0;
@@ -164,7 +169,10 @@ export class Game {
     this.region = this.world.region;
     if (opts.name) this.name = opts.name.trim().slice(0, 28) || this.name;
     if (opts.logo) this.logo = opts.logo;
-    if (opts.tutorial === false) this.tutorial.done = true;
+    // A new course starts paused and closed: the player sets it up unhurried and then chooses to open for business.
+    if (!world) { this.settings.paused = true; this.settings.open = false; }
+    // Ready-made courses have nothing to learn from the walkthrough.
+    if (opts.tutorial === false || world) this.tutorial.done = true;
     if (opts.practice) {
       // a ready clubhouse, plenty of money, nothing that counts: just learning
       this.practice = true;
@@ -258,12 +266,81 @@ export class Game {
     this.notify('good', `${STAFF[id].name} hired. Daily wages: ${fmtMoney(STAFF[id].daily)}.`);
   }
   dismiss(id: StaffId) { if (id in STAFF) { this.staff[id] = false; this.dirtySave = true; } }
+  /** Designing stops the business clock. Leaving design never restarts it; only an explicit resume does. */
+  enterDesign() {
+    if (this.owner.active) return;
+    if (!this.designMode) this.designMode = true;
+    if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; this.notify('info', 'Designing: time is paused. Resume from the clock chip when you are ready.'); }
+  }
+  /** Stop designing but leave time paused. */
+  exitDesign() { this.designMode = false; }
   toggleDesignMode() {
     if (this.owner.active) return;
-    this.designMode = !this.designMode;
-    if (this.designMode) { this.designSpeed = this.settings.speed; this.setSpeed(0); }
-    else this.setSpeed(this.designSpeed || 1);
-    this.notify('info', this.designMode ? 'Design mode: time is paused. Edits still cost money. Reopen edited holes when ready.' : 'Course simulation resumed.');
+    if (this.designMode) this.exitDesign(); else this.enterDesign();
+  }
+  /** Hold time. The selected running speed is kept for the resume. */
+  pause() { if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; } }
+  /** Start the business clock again at the player's chosen speed. Never starts a course that has not opened. */
+  resume(): boolean {
+    if (!this.settings.open) { this.notify('info', 'Your course is not open yet. Choose Open for business when you are ready.'); return false; }
+    this.designMode = false;
+    this.settings.paused = false;
+    this.dirtySave = true;
+    return true;
+  }
+  /** Speed 0 is the pause button; any other speed is the player's choice of running speed and resumes an open course. */
+  setSpeed(s: number) {
+    if (s <= 0) { this.pause(); return; }
+    this.settings.speed = s;
+    this.dirtySave = true;
+    if (this.settings.open) this.resume();
+    else this.notify('info', 'Speed saved. The clock starts when you open for business.');
+  }
+  /** Why a course cannot open yet, or null. */
+  get openProblem(): string | null {
+    if (!this.world.clubhouse) return 'Place your clubhouse first.';
+    if (!this.world.holes.some((h) => h.open)) return 'Open at least one hole first, so guests have somewhere to play.';
+    return null;
+  }
+  /** The course welcomes guests. This is the one explicit step that starts the business clock on a new course. */
+  openForBusiness(): boolean {
+    if (this.settings.open) return this.resume();
+    const why = this.openProblem;
+    if (why) { this.notify('bad', why); return false; }
+    this.settings.open = true;
+    this.designMode = false;
+    this.settings.paused = false;
+    this.notify('good', 'Your course is open for business.');
+    this.dirtySave = true;
+    return true;
+  }
+  /** What is holding the business clock, if anything. */
+  get timeHold(): 'owner' | 'unopened' | 'design' | 'paused' | null {
+    if (this.owner.active) return 'owner';
+    if (!this.settings.open || !this.world.clubhouse) return 'unopened';
+    if (this.designMode) return 'design';
+    return this.settings.paused ? 'paused' : null;
+  }
+  get businessRunning(): boolean { return this.timeHold === null; }
+  /** The speed button that should look pressed. */
+  get speedShown(): number { return this.settings.paused || !this.settings.open ? 0 : this.settings.speed; }
+  get hasTestGolfers(): boolean { return this.sim.golfers.some((g) => g.test); }
+  /** How fast the frame loop should run the simulation: 0 means nothing moves. */
+  get timeScale(): number {
+    if (this.owner.active) return 0;
+    if (this.businessRunning) return this.settings.speed;
+    return this.hasTestGolfers ? TEST_SPEED : 0;
+  }
+  /** One frame-loop step honouring every pause reason. Test golfers still play while the business is held. */
+  advance(dt: number) {
+    if (this.owner.active) return;
+    if (this.businessRunning) this.step(dt);
+    else if (this.hasTestGolfers) this.stepTest(dt);
+  }
+  /** Move only the test golfers (guests already on the course stay where they are). No clock, arrivals, upkeep, wear, goals or day changes. */
+  stepTest(dt: number) {
+    this.sim.teeIntervalMult = this.staff.ranger ? .75 : 1;
+    this.sim.update(dt, true);
   }
   claimObjective(id: string) {
     const o = GOALS.find(o => o.id === id);
@@ -459,7 +536,7 @@ export class Game {
   private onRoundComplete(r: RoundResult): string {
     if (r.test) {
       const hole = r.holeIds?.[0] ?? 0;
-      this.testResults.push({ name: r.name, type: r.type, hole, strokes: r.strokes, par: r.par });
+      this.testResults.push({ name: r.name, type: r.type, hole, strokes: r.strokes, par: r.par, shots: r.stats.shots, rough: r.stats.rough, bunker: r.stats.bunker, water: r.stats.water });
       if (this.testResults.length > 12) this.testResults.shift();
       const diff = r.strokes - r.par;
       this.notify('info', `Test golfer ${r.name} finished hole ${hole}: ${r.strokes} strokes (${diff === 0 ? 'par' : (diff > 0 ? '+' : '') + diff}).`);
@@ -679,11 +756,6 @@ export class Game {
     this.cartFee = Math.max(1, Math.min(CFG.extras.cartFeeMax, Math.round(v)));
     this.dirtySave = true;
   }
-  setSpeed(s: number) {
-    this.settings.speed = s;
-    this.dirtySave = true;
-  }
-
   /** Change a hole's par. It is the player's choice and edits to the layout keep it. */
   setHolePar(id: number, par: number) {
     const h = this.world.holes.find((x) => x.id === id);
@@ -694,12 +766,12 @@ export class Game {
   }
 
   /** Send three free simulated golfers (beginner, regular, skilled) round one open hole. */
-  sendTestGolfers(id: number): number {
+  sendTestGolfers(id: number, types: readonly ('beginner' | 'regular' | 'skilled')[] = ['beginner', 'regular', 'skilled']): number {
     const h = this.world.holes.find((x) => x.id === id);
     if (!h) return 0;
     if (!h.open) { this.notify('bad', `Open hole ${id} first. Test golfers only play open holes.`); return 0; }
     let n = 0;
-    for (const type of ['beginner', 'regular', 'skilled'] as const) {
+    for (const type of types) {
       if (this.sim.golfers.length >= 40) break;
       if (this.sim.spawn(type, 0, { test: true, holes: [id] })) n++;
     }
@@ -767,6 +839,8 @@ export class Game {
 
   /** Apply a planned edit. Charges exactly once, closes any open hole it touches, records undo. */
   commitEdit(plan: EditPlan, redo = false): { ok: boolean; message: string } {
+    // Any edit made through a panel (not only the build tray) counts as designing: time holds until the player resumes.
+    if (plan.tiles.length || plan.hole || plan.newHole || plan.removedHole) this.enterDesign();
     if (!plan.tiles.length && !plan.hole && !plan.newHole && !plan.removedHole) return { ok: false, message: 'Nothing would change.' };
     if (plan.newHole) {
       const why = this.addHoleProblem();
@@ -800,6 +874,7 @@ export class Game {
 
   undo(): boolean {
     const e = this.undoStack.pop();
+    if (e) this.enterDesign();
     if (!e) return false;
     const touched = touchedHoles(this.world, e.plan);
     if (e.plan.newHole) this.closeHole(e.plan.newHole.id, true);
@@ -928,6 +1003,8 @@ export class Game {
   /** Catch up on time spent away: a modest, simplified version of the days that passed. */
   applyAway(seconds: number): { days: number; net: number } | null {
     if (seconds < CFG.offline.minAwaySeconds) return null;
+    // Time was held when the player left (paused, designing, or the course never opened), so nothing happened while away.
+    if (!this.settings.open || this.settings.paused || !this.world.clubhouse) return null;
     const days = Math.min(CFG.offline.maxDays, Math.floor(seconds / CFG.offline.realSecondsPerDay));
     if (days < 1) return null;
     let net = 0;

@@ -133,11 +133,11 @@ describe('save compatibility and recovery', () => {
       const d = JSON.parse(serialize(new Game(createTestCourse()))); mutate(d); expect(deserialize(JSON.stringify(d))).toBeNull();
     }
   });
-  it('keeps an intentional pause but resumes after a transient practice mode', () => {
-    const g = new Game(createTestCourse()); g.setSpeed(0);
-    expect(deserialize(serialize(g))!.game.settings.speed).toBe(0);
+  it('keeps an intentional pause through a practice round, and keeps the chosen running speed', () => {
+    const g = new Game(createTestCourse()); g.setSpeed(3); g.pause();
+    expect(deserialize(serialize(g))!.game.settings).toMatchObject({ paused: true, speed: 3 });
     g.owner.start(g);
-    expect(deserialize(serialize(g))!.game.settings.speed).toBe(1);
+    expect(deserialize(serialize(g))!.game.settings).toMatchObject({ paused: true, speed: 3 });
   });
   it('preserves preferences, career progress, and the pending closing report', () => {
     const g = new Game(createTestCourse()); g.preferences.sound = false; run(g, CFG.day.seconds + 1);

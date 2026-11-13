@@ -59,7 +59,7 @@ function practical(id: RegionId): string {
 }
 
 /** Pick a place from the course guide, found your club and begin. The map stays visible once play begins. */
-export function startScreen(practiced = false): Promise<NewGameOptions> {
+export function startScreen(): Promise<NewGameOptions> {
   return new Promise(resolve => {
     const root = document.getElementById('start')!;
     root.hidden = false;
@@ -92,7 +92,7 @@ export function startScreen(practiced = false): Promise<NewGameOptions> {
             <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>
           </div>
           <div id="logoBox" class="logo-box" hidden></div>
-          ${practiced ? '<p class="practiced">Practice done. Pick where to build your own course.</p>' : '<label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Start with a short practice course</span></label>'}
+          <label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Guide me through my first hole</span></label>
         </section>
       </main>
       <footer class="guide-foot"><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
@@ -113,7 +113,7 @@ export function startScreen(practiced = false): Promise<NewGameOptions> {
     }));
     (root.querySelector('#startBtn') as HTMLElement).onclick = () => {
       root.hidden = true;
-      resolve({ region, name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) }, tutorial: false, practice: !practiced && !!(root.querySelector('#tutOn') as HTMLInputElement | null)?.checked });
+      resolve({ region, name: name.trim() || 'Willow Creek', logo: { ...logo, initials: initialsOf(name) }, tutorial: (root.querySelector('#tutOn') as HTMLInputElement | null)?.checked !== false });
     };
   });
 }

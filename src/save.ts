@@ -1,4 +1,5 @@
 import { Game } from './game';
+import { TUTORIAL_VERSION } from './tutorial-state';
 import { CFG } from './config';
 import { World, computeZones } from './terrain';
 import { createWilderness } from './wilderness';
@@ -67,7 +68,7 @@ export function serialize(g: Game): string {
     recent: g.recent,
     rng: g.rng.state,
     lastHour: g.lastHour,
-    settings: { ...g.settings, speed: g.owner.active || g.designMode ? 1 : g.settings.speed },
+    settings: { ...g.settings },
     selectedHole: g.selectedHole,
   });
 }
@@ -131,9 +132,11 @@ export function deserialize(text: string): LoadedSave | null {
       g.catchUpGoals();
     }
     // Saves from before the walkthrough existed already know the controls.
-    g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done } : { step: 0, done: true };
-    // the walkthrough only runs on the practice course; a real course from an older version is past it
-    if (!g.practice) g.tutorial.done = true;
+    g.tutorial = d.tutorial && Number.isInteger(d.tutorial.step) ? { step: Math.max(0, d.tutorial.step), done: !!d.tutorial.done, v: d.tutorial.v } : { step: 0, done: true };
+    // The guided tutorial (v2) runs on the player's own course. Any older walkthrough ran on the practice course,
+    // so a real course saved by an older version is past it and its step numbers mean nothing now.
+    if (g.tutorial.v !== TUTORIAL_VERSION && !g.practice) g.tutorial = { step: 0, done: true, v: TUTORIAL_VERSION };
+    else if (g.tutorial.v !== TUTORIAL_VERSION) g.tutorial.step = 0;
     g.staff = { ...g.staff, ...(d.staff ?? {}) };
     g.members = Array.isArray(d.members) ? d.members : [];
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];
@@ -171,6 +174,11 @@ export function deserialize(text: string): LoadedSave | null {
     g.recent = d.recent;
     g.lastHour = d.lastHour;
     g.settings = { ...g.settings, ...d.settings };
+    // Saves from before time could be held had one speed setting: 0 meant paused, and every course was already open.
+    if (typeof d.settings?.paused !== 'boolean') g.settings.paused = !(g.settings.speed > 0);
+    if (typeof d.settings?.open !== 'boolean') g.settings.open = true;
+    if (!(g.settings.speed > 0)) g.settings.speed = 1;
+    if (!g.world.clubhouse) g.settings.open = false;
     g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
