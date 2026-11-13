@@ -2,6 +2,8 @@ import { paintToolTile } from './classic-art';
 import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
+import { assessDesign } from './design';
+const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
@@ -220,6 +222,18 @@ export class UI {
 
   private buildSide() {
     this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    // expandable sections remember being open, and their contents ease in rather than appearing all at once
+    this.$('side').addEventListener('toggle', (e) => {
+      const d = e.target as HTMLDetailsElement;
+      if (!d.matches?.('details.xp')) return;
+      if (d.open) {
+        if (!this.openSecs.has(d.dataset.sec!)) {
+          this.openSecs.add(d.dataset.sec!);
+          const body = d.querySelector<HTMLElement>('.xp-body');
+          if (body && !UI.reduced) body.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.7,.3,1)' });
+        }
+      } else this.openSecs.delete(d.dataset.sec!);
+    }, true);
     this.$('sheetClose').onclick = (e) => { e.stopPropagation(); this.tab = 'none'; this.refresh(true); this.onInsets(); };
     this.$('sheetSize').onclick = (e) => { e.stopPropagation(); this.setSheet(this.sheet === 'full' ? 'half' : 'full'); };
     this.bindSheetDrag();
@@ -767,13 +781,55 @@ export class UI {
     const box = this.$('toasts');
     box.appendChild(t);
     while (box.children.length > 1) box.firstChild!.remove();
-    window.setTimeout(() => t.remove(), kind === 'bad' ? 6000 : 4500);
+    window.setTimeout(() => UI.fadeOut(t), kind === 'bad' ? 6000 : 4500);
     if (kind === 'bad' && /need|cash/i.test(text)) {
       const c = this.$('cash');
       c.classList.remove('flash');
       void c.offsetWidth;
       c.classList.add('flash');
     }
+  }
+
+  static reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Remove an element after a short fade, so nothing just vanishes. */
+  static fadeOut(el: HTMLElement) {
+    if (UI.reduced || !el.isConnected) { el.remove(); return; }
+    el.classList.add('out');
+    window.setTimeout(() => el.remove(), 200);
+  }
+  private sideKey = '';
+  /** Expandable panel sections the player has opened, kept open across refreshes. */
+  private openSecs = new Set<string>();
+  /**
+   * Show or hide a panel with a short slide and fade. The state changes at once (so nothing waits on the animation);
+   * only the hiding is deferred, and showing again mid-way simply cancels it.
+   */
+  private reveal(el: HTMLElement, show: boolean) {
+    const d = el as HTMLElement & { _hideT?: number };
+    if (show) {
+      if (d._hideT) { window.clearTimeout(d._hideT); d._hideT = 0; el.classList.remove('closing'); }
+      if (el.style.display === 'none') el.style.display = '';
+      return;
+    }
+    if (el.style.display === 'none' || d._hideT) return;
+    if (UI.reduced || el.getClientRects().length === 0) { el.style.display = 'none'; return; }
+    el.classList.add('closing');
+    d._hideT = window.setTimeout(() => { d._hideT = 0; el.classList.remove('closing'); el.style.display = 'none'; this.layoutVars(); }, 190);
+  }
+  private menuT = 0;
+  /** The menu window: opens at once, closes with a short fade (body.menu-closing keeps its layout while it goes). */
+  private revealMenu(open: boolean) {
+    const b = document.body;
+    if (open) {
+      if (this.menuT) { window.clearTimeout(this.menuT); this.menuT = 0; b.classList.remove('menu-closing'); }
+      b.classList.add('menu-open');
+      return;
+    }
+    if (!b.classList.contains('menu-open')) return;
+    b.classList.remove('menu-open');
+    if (UI.reduced) return;
+    b.classList.add('menu-closing');
+    this.menuT = window.setTimeout(() => { this.menuT = 0; b.classList.remove('menu-closing'); }, 180);
   }
 
   /** After a build: what happened, and one tap to take it back. */
@@ -791,7 +847,7 @@ export class UI {
     t.append(m, b);
     box.append(t);
     while (box.children.length > 1) box.firstChild!.remove();
-    window.setTimeout(() => t.remove(), 7000);
+    window.setTimeout(() => UI.fadeOut(t), 7000);
   }
 
   markSaved() {
@@ -880,7 +936,7 @@ export class UI {
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
-    document.body.classList.toggle('menu-open', this.menuOpen);
+    this.revealMenu(this.menuOpen);
     this.$('nav').querySelectorAll<HTMLElement>('[data-mspeed]').forEach((b) => b.classList.toggle('on', Number(b.dataset.mspeed) === g.speedShown));
     const fabState = this.tab === 'build' ? 'done' : this.menuOpen ? 'close' : 'menu';
     if (this.cache.get('fab') !== fabState) {
@@ -894,13 +950,13 @@ export class UI {
     const titleHole = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
     this.$('sheetTitle').textContent = titleHole ? titleHole.name : this.tab === 'none' ? '' : TAB_LABEL[this.tab] ?? this.tab;
     const sideOpen = this.tab !== 'none' && this.tab !== 'build';
-    this.$('side').style.display = sideOpen ? '' : 'none';
+    this.reveal(this.$('side'), sideOpen);
     if (sideOpen) this.applySheet();
     this.layoutVars();
     const sh = this.tab === 'course' ? g.world.holes.find((x) => x.id === g.selectedHole) : null;
     this.$('sheetSub').textContent = sh ? `Hole ${sh.id} · ${sh.open ? 'Open' : g.validate(sh.id).ok ? 'Ready to open' : 'Closed'}` : '';
     document.body.dataset.sheet = sideOpen && this.portraitSheet ? this.sheet : '';
-    this.$('tools').style.display = !this.mobile || this.tab === 'build' ? '' : 'none';
+    this.reveal(this.$('tools'), !this.mobile || this.tab === 'build');
     this.updateConfirm();
     (this.$('view') as HTMLElement).classList.toggle('pan', this.editor.tool === 'pan');
 
@@ -915,8 +971,12 @@ export class UI {
       const body = this.$('sidebody');
       const top = body.scrollTop;
       body.innerHTML = html;
-      body.scrollTop = top;
+      // a different panel (or a different hole) eases in; a refresh of the same one changes in place
+      const key = `${this.tab}:${this.tab === 'course' ? g.selectedHole : ''}:${this.tab === 'journey' ? this.journalView : ''}`;
+      if (key !== this.sideKey) { this.sideKey = key; body.scrollTop = 0; if (!UI.reduced) body.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.7,.3,1)' }); }
+      else body.scrollTop = top;
       this.cache.set('side', html);
+      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (this.openSecs.has(d.dataset.sec!)) d.open = true; });
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }
@@ -1150,48 +1210,52 @@ export class UI {
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
     const dogleg = holeBends(h).length > 0 || Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
     const nHoles = w.holes.length;
-    let html = `<div class="sec"><h3>Hole ${h.id}</h3><div class="card hole-detail"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><button class="btn sm" data-act="rename" aria-label="Rename hole">Rename</button></div>
-      <div class="hole-stats"><div><b>Par ${h.par}</b><small>${h.par === 3 ? 'Short' : h.par === 4 ? 'Standard' : 'Long'}</small></div><div><b>${yards} yd</b><small>${dogleg ? 'Dogleg' : 'Straight'}</small></div><div><b>${h.open ? 'Open' : 'Closed'}</b><small>${h.open ? `${playing} playing · ${queued} waiting` : 'No golfers'}</small></div></div>
-      <div class="par-row"><span>Par</span>${[3, 4, 5].map((n) => `<button class="mini ${n === h.par ? 'on' : ''}" data-act="setpar" data-id="${n}">${n}</button>`).join('')}<small class="dim">${PAR_YARDS[h.par][0]} to ${PAR_YARDS[h.par][1]} yd suits a par ${h.par}</small></div>`;
-    if (h.open) {
-      for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
-      html += `<div class="note good">Open for play. Editing its ground closes it so nobody is caught mid-hole.</div>`;
-    } else if (v.ok) {
-      for (const p of v.warnings) html += `<div class="note warn">${p}</div>`;
-      html += `<div class="note good">All checks pass: tee box, green and a continuous fairway. Ready to open.</div>`;
-    } else {
+    // A collapsible section: closed by default, remembered once opened (see openSecs).
+    const xp = (sec: string, title: string, note: string, body: string) =>
+      `<details class="xp" data-sec="${sec}"><summary><span class="xp-t">${title}</span>${note ? `<span class="xp-n">${note}</span>` : ''}</summary><div class="xp-body">${body}</div></details>`;
+    // What the next action needs, and nothing else: name, par and length, whether it can open, and the button.
+    const hs = this.holeState(h);
+    let html = `<div class="card hole-detail hole-summary"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><span class="hole-state ${hs.cls}">${hs.text}</span></div>
+      <div class="hole-line"><b>Par ${h.par}</b><span>·</span><b>${yards} yd</b><span>·</span><span>${dogleg ? 'Dogleg' : 'Straight'}</span>${h.open ? `<span>·</span><span>${playing} playing, ${queued} waiting</span>` : ''}</div>`;
+    if (!h.open && !v.ok) {
       html += `<div class="why-closed"><b>This hole cannot open yet</b>${v.issues.map((it, i) => `<div class="issue"><p>${it.text}</p><div class="btnrow">${it.at ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="show">Show on map</button>` : ''}${it.fix ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="fix">Fix with ${TOOL_INFO[it.fix].label}</button>` : ''}</div></div>`).join('')}</div>`;
     }
-    html += `<div class="btnrow hole-actions">${h.open ? `<button class="btn" data-act="close" data-id="${h.id}">Close hole</button>` : `<button class="btn primary" data-act="open" data-id="${h.id}">Open hole</button>`}<button class="btn" data-act="practice">Play it</button><button class="btn" data-act="testgolfers" ${h.open ? '' : 'disabled'}>Test golfers</button></div>${h.open ? '' : '<p class="dim small">Test golfers play open holes only.</p>'}</div></div>`;
+    html += h.open
+      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="practice">Play it</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
+      : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? '<p class="dim small">Opening it lets golfers play. Time stays paused until you open for business.</p>' : ''}`;
+    html += `</div>`;
+    if (v.warnings.length) html += xp('warn', 'Things to check', `${v.warnings.length}`, v.warnings.map((p) => `<div class="note warn">${p}</div>`).join(''));
     const icon = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    html += `<div class="sec edit-hole"><h3>Edit hole ${h.id}</h3><p class="dim small">Pick an action, then tap the map. You'll see a preview and the price before anything is built.</p><div class="edit-grid">
+    html += xp('edit', 'Edit hole', 'Par, tee, green, turns', `<div class="par-row"><span>Par</span>${[3, 4, 5].map((n) => `<button class="mini ${n === h.par ? 'on' : ''}" data-act="setpar" data-id="${n}">${n}</button>`).join('')}<small class="dim">${PAR_YARDS[h.par][0]} to ${PAR_YARDS[h.par][1]} yd suits a par ${h.par}</small></div>
+      <p class="dim small">Pick an action, then tap the map. You see a preview and the price before anything is built.${h.open ? ' Editing its ground closes the hole while work is done.' : ''}</p><div class="edit-grid">
       <button class="edit-act" data-act="holetool" data-id="tee">${icon('<path d="M8 21l4-7 4 7"/><circle cx="12" cy="10" r="3"/>')}<span><b>Move tee</b><small>New tee box</small></span></button>
       <button class="edit-act" data-act="holetool" data-id="cup">${icon('<path d="M12 21V4l7 3-7 3"/><ellipse cx="12" cy="21" rx="5" ry="1.5"/>')}<span><b>Move cup</b><small>New green</small></span></button>
       <button class="edit-act" data-act="holetool" data-id="bend">${icon('<path d="M4 20L10 8l10-4"/>')}<span><b>Turning points</b><small>Tap to add, move or remove</small></span></button>
       <button class="edit-act" data-act="straighten" ${holeBends(h).length ? '' : 'disabled'}>${icon('<path d="M4 20L20 4"/>')}<span><b>Straighten</b><small>Remove all turns</small></span></button>
       <button class="edit-act" data-act="rename">${icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>')}<span><b>Rename</b><small>Change its name</small></span></button>
       <button class="edit-act danger" data-act="removehole" ${nHoles <= 1 ? 'disabled' : ''}>${icon('<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>')}<span><b>Remove</b><small>Undo brings it back</small></span></button>
-    </div></div>`;
-    const summary = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div>`;
-    html += summary + `<div class="sec"><h3>All holes · routing order</h3><div class="hole-list">${w.holes.map((x) => {
-      const hs = this.holeState(x);
-      return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${hs.cls}">${hs.text}</span></button>`;
-    }).join('')}</div></div>`;
+    </div>`);
     const tests = g.testResults.filter((r) => r.hole === h.id).slice(-4).reverse();
-    if (tests.length) html += `<div class="sec"><h3>Test golfers on this hole</h3><div class="card">${tests.map((r) => `<div class="row"><span>${escapeHtml(r.name)} <span class="dim">${r.type}</span></span><b>${r.strokes} <span class="dim">(par ${r.par})</span></b></div>`).join('')}</div></div>`;
-    html += designPanel(g, h);
-    html += `<div class="sec"><h3>Turf</h3><div class="card"><div class="barrow"><span>Fairway</span>${bar(cond.fairway)}<span class="n">${Math.round(cond.fairway)}</span></div>
+    const results = (tests.length ? `<div class="card"><div class="t">Test golfers</div>${tests.map((r) => `<div class="row"><span>${escapeHtml(r.name)} <span class="dim">${r.type}</span></span><b>${r.strokes} <span class="dim">(par ${r.par})</span></b></div>`).join('')}</div>` : '')
+      + `<div class="card">${st.rounds ? `<div class="row"><span class="k">Rounds</span><span>${st.rounds}</span></div><div class="row"><span class="k">Average score</span><span>${(st.strokes / st.rounds).toFixed(1)} (par ${h.par})</span></div>${st.girN ? `<div class="row"><span class="k">Greens in regulation</span><span>${Math.round((st.gir / st.girN) * 100)}%</span></div>` : ''}${st.fwyN ? `<div class="row"><span class="k">Fairways hit</span><span>${Math.round((st.fwy / st.fwyN) * 100)}%</span></div>` : ''}<div class="row"><span class="k">Water balls</span><span>${st.water}</span></div><div class="row"><span class="k">Picked up</span><span>${st.picked}</span></div>` : '<div class="dim">No guest has finished this hole yet.</div>'}</div>`;
+    html += xp('results', 'Scores', st.rounds ? `${st.rounds} rounds` : tests.length ? `${tests.length} test` : '', results);
+    html += xp('design', 'Design report', g.designRating || h.open ? `${assessDesignScore(g, h)}/100` : '', designPanel(g, h).replace(/<h3>[^<]*<\/h3>/, ''));
+    html += xp('turf', 'Turf and repairs', `${Math.round(Math.min(cond.fairway, cond.green, cond.tee))} lowest`, `<div class="card"><div class="barrow"><span>Fairway</span>${bar(cond.fairway)}<span class="n">${Math.round(cond.fairway)}</span></div>
       <div class="barrow"><span>Green</span>${bar(cond.green)}<span class="n">${Math.round(cond.green)}</span></div>
       <div class="barrow"><span>Tee box</span>${bar(cond.tee)}<span class="n">${Math.round(cond.tee)}</span></div>
-      <div class="dim">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}</div></div>`;
-    html += `<div class="sec"><h3>Results from guests</h3><div class="card">${st.rounds ? `<div class="row"><span class="k">Rounds</span><span>${st.rounds}</span></div><div class="row"><span class="k">Average score</span><span>${(st.strokes / st.rounds).toFixed(1)} (par ${h.par})</span></div>${st.girN ? `<div class="row"><span class="k">Greens in regulation</span><span>${Math.round((st.gir / st.girN) * 100)}%</span></div>` : ''}${st.fwyN ? `<div class="row"><span class="k">Fairways hit</span><span>${Math.round((st.fwy / st.fwyN) * 100)}%</span></div>` : ''}<div class="row"><span class="k">Water balls</span><span>${st.water}</span></div><div class="row"><span class="k">Picked up</span><span>${st.picked}</span></div>` : '<div class="dim">No guest has finished this hole yet.</div>'}</div></div>`;
+      <div class="dim">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}</div>`);
+    const list = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div><div class="hole-list">${w.holes.map((x) => {
+      const xs = this.holeState(x);
+      return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${xs.cls}">${xs.text}</span></button>`;
+    }).join('')}</div>`;
+    html += xp('course', 'All holes', `${nHoles} · Par ${totalPar}`, list);
     const it = this.editor.inspectTile;
     if (it) {
       const i = idx(w, it.x, it.y);
       const t = w.terrain[i];
-      html += `<div class="sec"><h3>Tile (${it.x}, ${it.y})</h3><div class="row"><span class="k">Ground</span><span>${terrainLabel(t)}${w.tree[i] ? ' with tree' : ''}</span></div>${t <= 3 ? `<div class="row"><span class="k">Condition</span><span>${Math.round(w.cond[i])}</span></div>${bar(w.cond[i])}` : ''}<div class="row"><span class="k">Belongs to</span><span>${w.zone[i] ? `Hole ${w.zone[i]}` : 'No hole'}</span></div></div>`;
+      html += xp('tile', `Tile ${it.x}, ${it.y}`, terrainLabel(t), `<div class="row"><span class="k">Ground</span><span>${terrainLabel(t)}${w.tree[i] ? ' with tree' : ''}</span></div>${t <= 3 ? `<div class="row"><span class="k">Condition</span><span>${Math.round(w.cond[i])}</span></div>${bar(w.cond[i])}` : ''}<div class="row"><span class="k">Belongs to</span><span>${w.zone[i] ? `Hole ${w.zone[i]}` : 'No hole'}</span></div>`);
     }
-    if (g.ownerRecords.length) html += `<div class="sec"><h3>Your practice scorecards</h3>${g.ownerRecords.slice(-4).reverse().map(r => `<div class="card"><div class="row"><b>Day ${r.day}</b><span>${r.scores.reduce((s,x) => s + x.strokes, 0)} strokes · par ${r.scores.reduce((s,x) => s + x.par, 0)}</span></div><div class="owner-scorecard">${r.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div></div>`).join('')}</div>`;
+    if (g.ownerRecords.length) html += xp('cards', 'Your practice scorecards', `${g.ownerRecords.length}`, g.ownerRecords.slice(-4).reverse().map(r => `<div class="card"><div class="row"><b>Day ${r.day}</b><span>${r.scores.reduce((s,x) => s + x.strokes, 0)} strokes · par ${r.scores.reduce((s,x) => s + x.par, 0)}</span></div><div class="owner-scorecard">${r.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div></div>`).join(''));
     return html;
   }
 

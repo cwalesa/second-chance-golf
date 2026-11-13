@@ -99,7 +99,7 @@ async function boot() {
   {
     // Open on a meadow worth looking at, or on the clubhouse once it exists.
     const look = club ? { x: club.x + 8, y: club.y + 2 } : (() => { const c = suggestClubhouse(game.world); return c ? { x: c.x + 4, y: c.y + 3 } : { x: game.world.w / 2, y: game.world.h / 2 }; })();
-    renderer.focus(look.x, look.y, ui.mobile ? .5 : .6, game.world);
+    renderer.focus(look.x, look.y, ui.mobile ? .5 : .6, game.world, true);
   }
 
   if (startNote) ui.toast(startNote, 'info');
@@ -138,6 +138,13 @@ async function boot() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+  // After any tap or click, bring the interface and the tutorial up to date on the next frame, rather than on the next
+  // tick of the slower interface clock, so an instruction never lags behind what the player just did.
+  const settle = () => requestAnimationFrame(() => { ui.refresh(); tutorial.update(); });
+  document.addEventListener('pointerup', settle, true);
+  document.addEventListener('keyup', settle, true);
+  // iOS only shows :active (the pressed look) when a touch listener exists
+  document.addEventListener('touchstart', () => {}, { passive: true });
   (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, feedback };
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});

@@ -75,6 +75,9 @@ export class Editor {
     const r = toggleItem(this.game, { x: g.x, y: g.y }, g.k);
     if (!r.ok) { this.game.notify('bad', r.message ?? 'Not there.'); return; }
     this.game.onFeedback('build');
+    const d = ITEMS[g.k];
+    if (!g.sell) this.r.rise(`item:${g.x},${g.y}`);
+    this.r.cost(g.x + (d.w ?? 1) / 2, g.y + (d.h ?? 1) / 2, d.cost, g.sell);
     this.game.notify('good', g.sell ? `${ITEMS[g.k].label} sold.` : `${ITEMS[g.k].label} built.`);
     this.bGhost = null;
     this.syncGhost();
@@ -248,7 +251,14 @@ export class Editor {
     if (!p) return;
     const res = this.game.commitEdit(p);
     this.lastMsg = res.message;
-    if (res.ok) { this.discard(); this.onBuilt(p.label, p.cost); }
+    if (res.ok) {
+      // the new ground settles in, and the price shows where the work was done
+      this.r.settle(p.tiles.map((t) => t.i));
+      const at = planCentre(this.game.world, p);
+      if (at) this.r.cost(at.x, at.y, p.cost);
+      this.discard();
+      this.onBuilt(p.label, p.cost);
+    }
     else this.onChange();
   }
   /** Throw away everything not yet built. Nothing is charged. */
@@ -278,7 +288,14 @@ export class Editor {
       this.game.notify('info', 'Unbuilt changes discarded.');
       return true;
     }
+    const last = this.game.undoStack[this.game.undoStack.length - 1];
     const ok = this.game.undo();
+    if (ok && last) {
+      // undo is answered the same way as building: the ground settles back and the refund shows where it happened
+      this.r.settle(last.plan.tiles.map((t) => t.i));
+      const at = planCentre(this.game.world, last.plan);
+      if (at) this.r.cost(at.x, at.y, last.cost, true);
+    }
     this.onChange();
     return ok;
   }
@@ -517,6 +534,7 @@ export class Editor {
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       const cx = (a.x + b.x) / 2;
       const cy = (a.y + b.y) / 2;
+      this.r.cancelCamera();
       this.r.cam.x -= (cx - this.pinch.cx) / this.r.cam.zoom;
       this.r.cam.y -= (cy - this.pinch.cy) / this.r.cam.zoom;
       if (this.pinch.dist > 0) this.r.zoomAt(cx, cy, d / this.pinch.dist, this.game.world);
@@ -549,6 +567,8 @@ export class Editor {
       this.panVx = 0.6 * this.panVx + 0.4 * ((p.x - prev.x) / dtv);
       this.panVy = 0.6 * this.panVy + 0.4 * ((p.y - prev.y) / dtv);
       this.panT = nowT;
+      // direct manipulation: the map follows the finger exactly, and any automatic move stops
+      this.r.cancelCamera();
       this.r.cam.x -= (p.x - prev.x) / this.r.cam.zoom;
       this.r.cam.y -= (p.y - prev.y) / this.r.cam.zoom;
       this.r.clampCam(this.game.world);
@@ -861,6 +881,7 @@ export class Editor {
       if (!this.buildTee) {
         this.buildTee = t;
         this.overlay.buildTee = t;
+        this.r.pulse(t.x + 0.5, t.y + 0.5);
         this.hover = t;
         this.updateHover();
         return;
@@ -871,6 +892,7 @@ export class Editor {
         return;
       }
       this.buildCup = t;
+      this.r.pulse(t.x + 0.5, t.y + 0.5);
       this.pending = plan;
       this.rev++;
       this.showPlan(plan, []);
@@ -926,6 +948,7 @@ export class Editor {
     const c = this.clubSpot;
     if (!c || c.problem || !this.clubLocked) return;
     if (this.game.buildClubhouse({ x: c.x, y: c.y })) {
+      this.r.rise('club');
       this.clubSpot = null;
       this.clubLocked = false;
       this.overlay.club = null;
@@ -975,3 +998,12 @@ function boxTiles(world: Game['world'], c: Pt): number[] {
 }
 
 export const terrainLabel = (t: number) => ['Rough', 'Fairway', 'Green', 'Tee box', 'Bunker', 'Water', 'Cart path', 'Clubhouse'][t] ?? 'Unknown';
+
+/** Roughly where an edit happened, for its cost tag: the middle of a new hole, or of the changed tiles. */
+function planCentre(w: Game['world'], p: { tiles: { i: number }[]; newHole?: { tee: Pt; cup: Pt } }): Pt | null {
+  if (p.newHole) return { x: (p.newHole.tee.x + p.newHole.cup.x) / 2 + 0.5, y: (p.newHole.tee.y + p.newHole.cup.y) / 2 + 0.5 };
+  if (!p.tiles.length) return null;
+  let sx = 0, sy = 0;
+  for (const t of p.tiles) { sx += t.i % w.w; sy += Math.floor(t.i / w.w); }
+  return { x: sx / p.tiles.length + 0.5, y: sy / p.tiles.length + 0.5 };
+}
