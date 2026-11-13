@@ -414,3 +414,7 @@ Simulation runs on a fixed 1/30 s step independent of rendering; the speed butto
 ## Browser tests
 
 `npm run e2e` starts its own dev server and drives the game in Chromium with real touch events: tutorial without Skip, building (fade, cancel, undo, bend drag), the hole panel, the first-round card, the pop-up queue and terrain continuity on a slow renderer. `npm run e2e -- panel` runs only matching suites. It needs Chromium: `npx playwright install chromium`, or set `E2E_CHROMIUM` to a binary. It is separate from `npm test` (vitest) and takes about five minutes.
+
+## Performance tools
+
+`npm run perf -- --holes 18 --speed 8 --secs 20 --mode pan` records every frame on a built course (frame gaps, drawing, simulation and interface time, long tasks, saves, what is growing); add `--prof` for a CPU profile, `--methods` for per-method drawing time, `--age 10 --save file.json` to play simulated days first and keep the course, `--load file.json` to start from one. `npm run perf:matrix` runs the standard set of conditions and prints one table. Chromium here is headless and software-drawn, so compare runs on the same machine; it is not a phone.
