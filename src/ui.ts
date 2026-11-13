@@ -3,9 +3,10 @@ import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
-import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, isBuilding } from './items';
+import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb } from './art/facilities';
+import { drawAmenityThumb } from './art/amenities';
 import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
@@ -139,6 +140,7 @@ export class UI {
       this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-decorthumb]').forEach((c) => {
         const kk = c.dataset.decorthumb!;
         if (kk === 'barn' || kk === 'shed' || kk === 'halfway' || kk === 'cart') { drawFacilityThumb(c, kk); return; }
+        if (kk === 'puttingGreen' || kk === 'range') { drawAmenityThumb(c, kk); return; }
         const sp = sprites[kk];
         const x = c.getContext('2d')!;
         const k = Math.min((c.width - 8) / sp.cv.width, (c.height - 6) / sp.cv.height);
@@ -272,6 +274,19 @@ export class UI {
         else if (el.dataset.act === 'open') this.openFromPanel(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
         else if (el.dataset.act === 'buy') this.game.buyUpgrade(el.dataset.id as UpgradeId);
+        else if (el.dataset.act === 'placeamenity') {
+          // pick the item in the Buildings tray and show the clubhouse, where there is room to put it
+          this.traySet = 'buildings';
+          if (this.mobile) this.tab = 'build';
+          const lot = this.editor.previewAmenity(el.dataset.id as ItemKind);
+          this.refresh(true); this.onInsets();
+          // the new tile may be off the end of the row
+          requestAnimationFrame(() => this.$('tools').querySelector('.ph-bld .tool.on')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
+          const club = this.game.world.clubhouse;
+          const sz = ITEMS[el.dataset.id as ItemKind];
+          if (lot) this.editor.focusPoints([{ x: lot.x, y: lot.y }, { x: lot.x + (sz.w ?? 1), y: lot.y + (sz.h ?? 1) }, ...(club ? [{ x: club.x + 3, y: club.y + 2 }] : [])]);
+          else this.toast('There is no clear ground left near the clubhouse.', 'bad');
+        }
         else if (el.dataset.act === 'book') this.game.bookEvent(el.dataset.id as EventId);
         else if (el.dataset.act === 'cancelev') this.game.cancelEvent(id);
         else if (el.dataset.act === 'evfee') this.game.setEventFee(el.dataset.ev as EventId, this.game.eventFees[el.dataset.ev as EventId] + Number(el.dataset.id));
@@ -1254,6 +1269,12 @@ export class UI {
     if (g.upgrades.carts) html += `<div class="card"><div class="row"><span class="t">Cart rental price</span><span><button class="btn" data-act="cartfee" data-id="-1">−</button> <b>${fmtMoney(g.cartFee)}</b> <button class="btn" data-act="cartfee" data-id="1">+</button></span></div><div class="dim">About ${Math.round(cartRentalRate(g.cartFee) * 100)}% of golfers rent a cart at this price.</div></div>`;
     for (const id of UPGRADE_IDS) {
       const u = CFG.upgrades[id];
+      if (isAmenity(id as ItemKind)) {
+        // these are placed on the property: the button takes you to the Buildings tray with the item selected
+        const standing = countOf(g.world, id as ItemKind) > 0;
+        html += `<div class="card"><div class="row"><span class="t">${u.name}</span><span class="reward">${fmtMoney(u.cost)}</span></div><div class="dim">${u.blurb}</div><div style="margin-top:6px">${standing ? '<span class="badge open">BUILT</span>' : `<button class="btn" data-act="placeamenity" data-id="${id}" ${g.cash < u.cost ? 'disabled' : ''}>Place it${g.cash < u.cost ? ` (need ${fmtMoney(u.cost - g.cash)} more)` : ''}</button>`}</div></div>`;
+        continue;
+      }
       html += `<div class="card"><div class="row"><span class="t">${u.name}</span><span class="reward">${fmtMoney(u.cost)}</span></div><div class="dim">${u.blurb}</div><div style="margin-top:6px">${g.upgrades[id] ? '<span class="badge open">OWNED</span>' : `<button class="btn" data-act="buy" data-id="${id}" ${g.cash < u.cost ? 'disabled' : ''}>Buy${g.cash < u.cost ? ` (need ${fmtMoney(u.cost - g.cash)} more)` : ''}</button>`}</div></div>`;
     }
     html += `</div><div class="sec"><h3>Recent transactions</h3><div class="feed">${g.log.filter((l) => !l.label.startsWith('Green fee')).slice(-8).reverse().map((l) => `<div class="row"><span>${l.label}<br><span class="dim">Day ${l.day}, ${l.hour}</span></span>${money(l.amount)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div>`;

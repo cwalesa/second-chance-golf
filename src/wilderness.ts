@@ -2,6 +2,7 @@
 // player to choose for the clubhouse. Everything here is deterministic from the land seed, so the valley
 // shading can be rebuilt on load without saving anything extra.
 import { CFG } from './config';
+import { lotKindAt } from './lots';
 import { REGIONS, RegionId } from './progression';
 import { CLUB_H, CLUB_W, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
 
@@ -299,7 +300,7 @@ export function suggestFirstHole(world: World): { tee: Pt; cup: Pt } | null {
   const blocked = (x: number, y: number) => {
     if (!inBounds(world, x, y)) return true;
     const t = world.terrain[idx(world, x, y)];
-    return t === T.WATER || t === T.PATH || t === T.BUILDING;
+    return t === T.WATER || t === T.PATH || t === T.BUILDING || lotKindAt(world, x, y) !== null; // the putting green and range lots stay clear
   };
   let best: { tee: Pt; cup: Pt } | null = null;
   let bestScore = -Infinity;

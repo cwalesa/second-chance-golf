@@ -6,7 +6,9 @@ import { drawCart, drawFacility } from './art/facilities';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
-import { Golfer } from './sim';
+import { Golfer, cartDriving, cartOut } from './sim';
+import { drawAmenity, drawLot } from './art/amenities';
+import { LOT_LABEL, LotKind } from './lots';
 import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { reliefAt, clubLot } from './wilderness';
 import { ITEMS, ItemKind } from './items';
@@ -1504,13 +1506,26 @@ export class Renderer {
       items.push({ y: d.x + d.y, draw: () => this.drawDecor(d) });
     }
     if (!far) this.teeFurniture(game, items);
+    // carts out on the course are not in the barn
+    const cartsOut = game.sim.golfers.filter(cartOut).length;
+    const cartsHome = Math.max(0, game.fleet - cartsOut);
+    // the marked lots for the putting green and the range, until they are built (hidden while placing, when the preview shows the spot)
+    if (w.lots && !far) for (const k of ['puttingGreen', 'range'] as LotKind[]) {
+      const lot = w.lots[k];
+      if (!lot || (w.items ?? []).some((i) => i.k === k) || (ov.bGhost && ov.bGhost.k === k)) continue;
+      if (lot.x < x0 - 8 || lot.x > x1 + 1 || lot.y < y0 - 4 || lot.y > y1 + 1) continue;
+      const lw = ITEMS[k].w ?? 1, lh = ITEMS[k].h ?? 1;
+      items.push({ y: -1e9 + lot.x + lot.y - 1, draw: () => drawLot(this.facilityPainter(), LOT_LABEL[k], lot.x, lot.y, lw, lh) });
+    }
     for (const it of w.items ?? []) {
       if (it.x < x0 - 4 || it.x > x1 + 1 || it.y < y0 - 3 || it.y > y1 + 1) continue;
       const d = ITEMS[it.k];
-      items.push({ y: it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, game.fleet) : 0) });
+      // the putting green and the range are ground, so people and trees are drawn over them
+      const flat = it.k === 'puttingGreen' || it.k === 'range';
+      items.push({ y: flat ? -1e9 + it.x + it.y : it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, cartsHome) : 0) });
       // the fleet: three carts in the bays (drawn with the barn), up to eight more nose-in along striped rows in front
       if (it.k === 'barn') {
-        const out = Math.max(0, Math.min(game.fleet, 11) - 3);
+        const out = Math.max(0, Math.min(cartsHome, 11) - 3);
         for (let c = 0; c < out; c++) {
           const row = Math.floor(c / 4), col = c % 4;
           const cx = it.x + 0.55 + col * 0.95, cy = it.y + (d.h ?? 2) + 0.95 + row * 1.6;
@@ -1524,7 +1539,15 @@ export class Renderer {
         }
       }
     }
-    for (const g of game.sim.golfers) items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
+    for (const g of game.sim.golfers) {
+      // a renter's cart: carrying them while they drive, parked beside them while they play the shot
+      if (cartOut(g)) {
+        const driving = cartDriving(g), h = g.heading ?? 0;
+        const cx = driving ? g.rx : g.rx + 0.85, cy = driving ? g.ry : g.ry - 0.2;
+        items.push({ y: cx + cy - 0.02, draw: () => drawCart(this.facilityPainter(), cx, cy, h, g.cart ?? 0) });
+      }
+      items.push({ y: g.rx + g.ry, draw: () => this.drawGolfer(g, g.id === game.selectedGolfer, time) });
+    }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
 
@@ -1609,6 +1632,10 @@ export class Renderer {
 
   /** Something the player placed: flowers, a shrub, a bench, a lamp, a ball wash, a fountain or a statue. */
   drawPlaced(k: string, x: number, y: number, alpha = 1, inside = 0) {
+    if (k === 'puttingGreen' || k === 'range') {
+      drawAmenity(this.facilityPainter(), k, x, y, alpha);
+      return;
+    }
     if (k === 'barn' || k === 'shed' || k === 'halfway') {
       drawFacility(this.facilityPainter(), k, x, y, alpha, inside);
       return;
@@ -1765,15 +1792,19 @@ export class Renderer {
     const ctx = this.ctx;
     const u = Math.max(this.ts, 16);
     const k = u * 1.32; // figure scale: a little larger than a tile so people read at phone zoom
-    const p = this.toScreen(g.rx, g.ry);
+    const rides = cartDriving(g);
+    const p0 = this.toScreen(g.rx, g.ry);
+    // seated: lifted onto the seat, legs behind the cart's body
+    const p = rides ? { x: p0.x, y: p0.y - k * 0.13 } : p0;
     const gt = CFG.golfers.types[g.type];
     const look = this.golferLook(g);
-    const walking = g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave';
+    const walking = !rides && (g.phase === 'arrive' || g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit' || g.phase === 'leave');
     const f = g.flight;
     const putting = !!f && f.putt;
     const sw = walking ? Math.sin(g.walkT) : 0;
     const stride = walking ? Math.cos(g.walkT) : 0;
-    // soft shadow toward the lower right, same sun as the trees, plus a tight contact shadow
+    // soft shadow toward the lower right, same sun as the trees, plus a tight contact shadow (a cart casts its own)
+    if (!rides) {
     ctx.fillStyle = 'rgba(8,26,16,0.22)';
     ctx.beginPath();
     ctx.ellipse(p.x + k * 0.17, p.y + k * 0.03, k * 0.3, k * 0.08, 0.18, 0, Math.PI * 2);
@@ -1782,6 +1813,7 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, k * 0.16, k * 0.055, 0, 0, Math.PI * 2);
     ctx.fill();
+    }
     if (selected) {
       ctx.strokeStyle = '#ffe27a';
       ctx.lineWidth = 2;
@@ -1848,6 +1880,7 @@ export class Renderer {
     }
     const bobY = (walking ? Math.abs(stride) * 0.03 : 0) + lift;
     ctx.save();
+    if (rides) { ctx.beginPath(); ctx.rect(p.x - 2 * k, p.y - 4 * k, 4 * k, 3.72 * k); ctx.clip(); }
     ctx.translate(p.x, p.y);
     ctx.scale(g.dir >= 0 ? k : -k, k);
     const line = 1.1 / k; // an outline of about one pixel

@@ -59,6 +59,8 @@ export interface World {
   landSeed: number;
   /** Flowers, benches, fountains and other things the player placed (see items.ts). */
   items?: { x: number; y: number; k: import('./items').ItemKind }[];
+  /** Reserved ground near the clubhouse for the putting green and the driving range (see lots.ts). */
+  lots?: { puttingGreen?: Pt; range?: Pt };
 }
 
 export const CLUB_W = 7;

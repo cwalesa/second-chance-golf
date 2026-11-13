@@ -9,6 +9,7 @@ import { REGIONS } from './progression';
 import { CHAIN, CHAIN_V1 } from './campaign';
 import { ITEMS } from './items';
 import { defaultLogo } from './logo';
+import { reserveLots } from './lots';
 
 const KEY = 'second-chance-golf.save.v2';
 const VERSION = 2;
@@ -43,6 +44,7 @@ export function serialize(g: Game): string {
       gate: w.gate,
       landSeed: w.landSeed,
       items: w.items ?? [],
+      lots: w.lots ?? {},
       w: w.w,
       h: w.h,
     },
@@ -106,6 +108,9 @@ export function deserialize(text: string): LoadedSave | null {
     world.items = Array.isArray(d.world.items)
       ? d.world.items.filter((it: { x: number; y: number; k: string }) => it && Number.isInteger(it.x) && Number.isInteger(it.y) && it.x >= 0 && it.y >= 0 && it.x < base.w && it.y < base.h && it.k in ITEMS)
       : [];
+    const okLot = (p: { x: number; y: number } | undefined) => !!p && Number.isInteger(p.x) && Number.isInteger(p.y) && p.x >= 0 && p.y >= 0 && p.x < base.w && p.y < base.h;
+    world.lots = {};
+    if (d.world.lots && typeof d.world.lots === 'object') for (const k of ['puttingGreen', 'range'] as const) if (okLot(d.world.lots[k])) world.lots[k] = { x: d.world.lots[k].x, y: d.world.lots[k].y };
     const seen = new Set<number>();
     for (const h of world.holes) {
       if (!Number.isInteger(h.id) || h.id < 1 || h.id > 255 || seen.has(h.id) || typeof h.name !== 'string' || ![3, 4, 5].includes(h.par)) return null;
@@ -182,6 +187,9 @@ export function deserialize(text: string): LoadedSave | null {
     g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
+    // a putting green or range owned before they could be placed now stands beside the clubhouse
+    reserveLots(g.world); // courses from before lots existed get theirs now
+    g.placeOwnedAmenities();
     return { game: g, savedAt: d.savedAt ?? Date.now() };
   } catch {
     return null;

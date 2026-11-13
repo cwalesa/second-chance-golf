@@ -1,7 +1,8 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay } from './render';
-import { ITEMS, ItemKind, buildingProblem, isBuilding, itemAt, toggleItem } from './items';
+import { ITEMS, ItemKind, buildingProblem, isAmenity, isBuilding, itemAt, toggleItem } from './items';
+import { lotFor } from './lots';
 import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, planMoveBend, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
 import { CLUB_H, CLUB_W, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
@@ -59,6 +60,15 @@ export class Editor {
     this.onChange();
   }
   cancelGhost() { this.bGhost = null; this.syncGhost(); }
+  /** Pick the putting green or the range and show it on its lot straight away. Returns where it goes, or null when there is no space left. */
+  previewAmenity(kind: ItemKind): { x: number; y: number } | null {
+    this.decorKind = kind;
+    this.setTool('decor');
+    const lot = isAmenity(kind) ? lotFor(this.game.world, kind) : null;
+    this.bGhost = lot ? { x: lot.x, y: lot.y, k: kind, sell: false } : null;
+    this.syncGhost();
+    return lot;
+  }
   confirmGhost() {
     const g = this.bGhost;
     if (!g || this.bProblem) return;
@@ -817,7 +827,11 @@ export class Editor {
       if (isBuilding(this.decorKind) || (existing && isBuilding(existing.k))) {
         // buildings are priced in thousands: preview first, then confirm or sell
         if (existing && isBuilding(existing.k)) this.bGhost = { x: existing.x, y: existing.y, k: existing.k, sell: true };
-        else this.bGhost = { x: t.x - Math.floor((ITEMS[this.decorKind].w ?? 1) / 2), y: t.y - Math.floor((ITEMS[this.decorKind].h ?? 1) / 2), k: this.decorKind, sell: false };
+        else {
+          // the putting green and the range snap to their marked lot; everything else goes where the player taps
+          const lot = isAmenity(this.decorKind) ? lotFor(this.game.world, this.decorKind) : null;
+          this.bGhost = lot ? { x: lot.x, y: lot.y, k: this.decorKind, sell: false } : { x: t.x - Math.floor((ITEMS[this.decorKind].w ?? 1) / 2), y: t.y - Math.floor((ITEMS[this.decorKind].h ?? 1) / 2), k: this.decorKind, sell: false };
+        }
         this.syncGhost();
         return;
       }

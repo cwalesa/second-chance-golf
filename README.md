@@ -395,3 +395,9 @@ Simulation runs on a fixed 1/30 s step independent of rendering; the speed butto
 - Leaving Design keeps time paused until you press Resume (or a speed button), which returns to the speed you had chosen.
 - Test golfers play while the business is held, at a quick fixed pace, without arrivals, income, upkeep, turf wear or day progress. Guests already on the course stay frozen. Your saved speed is not changed.
 - Offline catch-up only applies to a course left running; a paused, designing or not-yet-open course is unchanged when you return.
+
+## Placed amenities and golf carts
+
+- Each course keeps dedicated ground beside the clubhouse for the putting green and the driving range, cleared of trees and marked with a dashed boundary and sign until they are built. Nothing else can be placed there, the suggested first hole keeps clear of it, and the amenities snap to it. Selling one brings its lot back. A lot whose ground has been built over moves to fresh ground nearby.
+- The putting green and the driving range are placed on the property from the Buildings tray (or **Place it** in Finances), at their usual prices. They count as owned once standing and are sold back by tapping them; their benefits and upkeep are unchanged. A save that already owned one gets it placed beside the clubhouse, free.
+- Golfers who rent a cart (cart upgrade) take one from the barn's fleet and drive it between shots, leaving it parked beside them while they play the shot. Carts out on the course are not shown in the barn. Pace of play and rental income are unchanged.
