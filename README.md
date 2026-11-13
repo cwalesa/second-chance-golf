@@ -401,3 +401,12 @@ Simulation runs on a fixed 1/30 s step independent of rendering; the speed butto
 - Each course keeps dedicated ground beside the clubhouse for the putting green and the driving range, cleared of trees and marked with a dashed boundary and sign until they are built. Nothing else can be placed there, the suggested first hole keeps clear of it, and the amenities snap to it. Selling one brings its lot back. A lot whose ground has been built over moves to fresh ground nearby.
 - The putting green and the driving range are placed on the property from the Buildings tray (or **Place it** in Finances), at their usual prices. They count as owned once standing and are sold back by tapping them; their benefits and upkeep are unchanged. A save that already owned one gets it placed beside the clubhouse, free.
 - Golfers who rent a cart (cart upgrade) take one from the barn's fleet and drive it between shots, leaving it parked beside them while they play the shot. Carts out on the course are not shown in the barn. Pace of play and rental income are unchanged.
+
+## Motion and feedback
+
+- Controls press in at once (about 110 ms) and panels, the menu and the toolbox slide and fade in and out (about 180 to 220 ms). State changes immediately; only the hiding is animated, so rapid taps never leave a panel stuck half-way.
+- The camera eases to clubhouses, holes and golfers, re-aiming as panels open so the subject lands in the free map area. It follows golfers softly, never pulls back after you drag or pinch, and is clamped so the background beyond the map shows only as a sliver.
+- Building runs preview, confirm, a short settle or rise, and a small cost tag where the work happened; tee and green markers pulse when placed and undo shows its refund the same way. Painting stays immediate.
+- The hole panel shows the essentials first (name, par and length, status, Open hole), with editing, scores, design, turf and the hole list in expandable sections.
+- The tutorial is a compact strip that expands for more help, Skip and Exit.
+- Reduced-motion preferences turn the animations off; everything still works instantly.

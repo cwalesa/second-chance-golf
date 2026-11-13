@@ -23,6 +23,8 @@ interface Step {
   phase: number;
   /** One short, actionable instruction. */
   short: (c: Ctx) => string;
+  /** A little more help, shown only when the player expands the strip. Touch gestures are described exactly. */
+  more?: string;
   /** What to point at; the first selector that is on screen gets the pulsing ring. */
   target?: (c: Ctx) => string[];
   /** The action is done when this is true; the tutorial then moves on by itself. */
@@ -47,6 +49,7 @@ interface Step {
 }
 
 const PHASES = 6;
+const HOLE_MORE = 'Tap the glowing spots, or any open ground. Once the tee and green are down you can drag the T or G marker and pick par 3, 4 or 5. Nothing is charged until you tap Build.';
 
 // ---- suggestions: helpful, never required ----
 const clubSuggestion = (c: Ctx) => {
@@ -121,6 +124,7 @@ const lastResult = (c: Ctx) => [...c.g.testResults].reverse().find((r) => r.hole
 const STEPS: Step[] = [
   {
     id: 'club',
+    more: 'The suggested spot is flat, dry and next to the road. To choose your own, tap any open ground, then tap Build here. Drag with one finger to look around and pinch to zoom.',
     phase: 1,
     short: (c) => {
       const spot = c.e.clubSpot;
@@ -140,21 +144,24 @@ const STEPS: Step[] = [
   },
   {
     id: 'newhole',
+    more: 'Tap the glowing spots, or any open ground. Once the tee and green are down you can drag the T or G marker and pick par 3, 4 or 5. Nothing is charged until you tap Build.',
     phase: 2,
     short: holeText,
     enter: (c) => {
       c.e.setNewPar(3);
-      const s = holeSuggestion(c);
-      trayOpen(c, s ? [s.tee, s.cup] : undefined);
+      const s = holeSuggestion(c), k = c.g.world.clubhouse;
+      // frame the new clubhouse together with where the first hole could go, so the camera does not leave it behind
+      trayOpen(c, s ? [s.tee, s.cup, ...(k ? [{ x: k.x + 3, y: k.y + 2 }] : [])] : undefined);
     },
     ensure: holeEnsure,
     target: holeTarget,
     hint: holeHint,
     check: (c) => holeStage(c) >= 1,
   },
-  { id: 'tee', phase: 2, short: holeText, ensure: holeEnsure, target: holeTarget, hint: holeHint, check: (c) => holeStage(c) >= 2 },
+  { id: 'tee', phase: 2, more: HOLE_MORE, short: holeText, ensure: holeEnsure, target: holeTarget, hint: holeHint, check: (c) => holeStage(c) >= 2 },
   {
     id: 'green',
+    more: HOLE_MORE,
     phase: 2,
     short: holeText,
     ensure: holeEnsure,
@@ -167,12 +174,13 @@ const STEPS: Step[] = [
     },
     check: (c) => holeStage(c) >= 3,
   },
-  { id: 'build', phase: 2, short: holeText, ensure: holeEnsure, target: holeTarget, check: (c) => holeStage(c) >= 4 && !c.e.proposal },
+  { id: 'build', phase: 2, more: HOLE_MORE, short: holeText, ensure: holeEnsure, target: holeTarget, check: (c) => holeStage(c) >= 4 && !c.e.proposal },
   {
     id: 'open',
+    more: 'An open hole is ready for golfers. The business clock stays paused until you choose Open for business.',
     phase: 3,
     short: (c) => { const h = closedHole(c); return h ? `Tap Open hole to let golfers play ${h.name}.` : 'Your hole is open.'; },
-    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); showHole(c, (closedHole(c) ?? first(c))?.id); },
+    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); showHole(c, (closedHole(c) ?? first(c))?.id); c.e.focusHole(); },
     ensure: (c) => { const h = closedHole(c); if (h) showHole(c, h.id); },
     target: () => ['[data-act="open"]'],
     check: (c) => c.g.world.holes.length > 0 && c.g.world.holes.every((h) => h.open),
@@ -180,9 +188,10 @@ const STEPS: Step[] = [
   },
   {
     id: 'test',
+    more: 'A test golfer is free: no green fee, no wear on the turf, and the clock stays paused.',
     phase: 4,
-    short: () => 'Tap Test golfers to send one out. It plays for free, and the clock stays paused.',
-    enter: (c) => { c.mark.rn = c.g.testResults.length; showHole(c, first(c)?.id); },
+    short: () => 'Tap Test golfers to send one out.',
+    enter: (c) => { c.mark.rn = c.g.testResults.length; showHole(c, first(c)?.id); c.e.focusHole(); },
     ensure: (c) => showHole(c, first(c)?.id),
     target: () => ['[data-act="testgolfers"]'],
     check: (c) => c.g.hasTestGolfers || c.g.testResults.length > ((c.mark.rn as number) ?? 0),
@@ -191,6 +200,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'watch',
+    more: 'The camera follows the golfer. Drag the map to look somewhere else; that stops the camera following.',
     phase: 4,
     short: () => 'Watch your test golfer play the hole.',
     enter: (c) => {
@@ -207,6 +217,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'result',
+    more: 'This is what one golfer did. Guests vary, so treat it as a hint rather than a rule.',
     phase: 4,
     short: (c) => {
       const r = lastResult(c);
@@ -218,8 +229,9 @@ const STEPS: Step[] = [
   },
   {
     id: 'improve',
+    more: 'Press and hold on the grass beside the green until the ring fills, then drag to paint sand. Lift your finger and tap Build. You can paint several strokes before paying.',
     phase: 5,
-    short: (c) => (c.e.proposal ? 'Tap Build to dig the bunker.' : 'Optional: hold a finger beside the green, then drag to dig a bunker.'),
+    short: (c) => (c.e.proposal ? 'Tap Build to dig the bunker.' : 'Optional: press and hold beside the green, then drag to paint a bunker.'),
     enter: (c) => {
       const h = first(c);
       c.mark.sand = h ? near(c, h.cup, 6, 4) : 0;
@@ -237,6 +249,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'finish',
+    more: 'Opening for business starts the clock. Guests arrive, pay green fees and play your open holes. You can pause or keep designing at any time.',
     phase: 6,
     short: (c) => {
       const h = closedHole(c);
@@ -260,7 +273,12 @@ export class Tutorial {
   private entered = -1;
   private ring: HTMLElement | null = null;
   private html = '';
-  private doneFlash = 0;
+  /** The strip is one line; expanded, it adds a little help and the Exit option. */
+  private expanded = false;
+  /** When the step last changed: a second tap that lands just after a step advances must not advance another. */
+  private stepAt = 0;
+  private inUpdate = false;
+  private shownStep = -1;
 
   constructor(private g: Game, e: Editor, r: Renderer, private ui: UI) {
     this.ctx = { g, e, r, ui, mark: {} };
@@ -272,6 +290,8 @@ export class Tutorial {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-coach]');
       if (!b) return;
       const act = b.dataset.coach;
+      if (act === 'more') { this.expanded = !this.expanded; this.update(true); this.ui.onInsets(); return; }
+      if (performance.now() - this.stepAt < 400) return; // a double tap must not run two steps
       if (act === 'next') this.next();
       else if (act === 'skip') this.skip();
       else if (act === 'exit') this.exit();
@@ -284,6 +304,7 @@ export class Tutorial {
     window.addEventListener('resize', () => this.update(true));
   }
 
+  static reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   get active() {
     return !this.g.tutorial.done;
   }
@@ -292,6 +313,8 @@ export class Tutorial {
     const cur = STEPS[this.g.tutorial.step];
     cur?.leave?.(this.ctx);
     this.g.tutorial.step = i;
+    this.stepAt = performance.now();
+    this.expanded = false;
     this.g.dirtySave = true;
     if (i >= STEPS.length) this.finish();
   }
@@ -333,6 +356,11 @@ export class Tutorial {
 
   /** Called a few times a second from the main loop. */
   update(force = false): void {
+    if (this.inUpdate) return; // steps call the interface, which may ask for an update: never re-enter
+    this.inUpdate = true;
+    try { this.updateNow(force); } finally { this.inUpdate = false; }
+  }
+  private updateNow(force: boolean): void {
     if (!this.active) {
       if (!this.card.hidden) { this.card.hidden = true; this.clearRing(); document.body.classList.remove('coaching'); }
       return;
@@ -351,23 +379,29 @@ export class Tutorial {
       this.arrange();
     }
     const back = step.regressTo?.(this.ctx);
-    if (back && !entering) { this.goTo(indexOf(back)); this.update(true); return; }
+    if (back && !entering) { this.goTo(indexOf(back)); this.updateNow(true); return; }
     step.ensure?.(this.ctx);
     if (!entering && step.check && step.check(this.ctx)) {
-      this.doneFlash = performance.now();
       this.advance();
-      this.update(true);
+      this.updateNow(true);
       return;
     }
-    const flash = performance.now() - this.doneFlash < 900;
     const manual = typeof step.manual === 'function' ? step.manual(this.ctx) : step.manual ?? !step.check;
-    const html = `<div class="coach-title"><b>Tutorial</b><span class="coach-count">Step ${step.phase} of ${PHASES}</span></div><div class="coach-row"><p class="coach-short">${flash ? '✓ ' : ''}${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${step.nextLabel ?? 'Next'}</button>` : ''}</div><div class="coach-foot">${step.skipTo ? '<button class="coach-x" data-coach="skip">Skip this step</button>' : ''}<button class="coach-x" data-coach="exit">Exit tutorial</button></div>`;
-    if (force || entering || html !== this.html) {
-      this.html = html;
-      this.card.innerHTML = html;
-      this.card.classList.toggle('flash', flash);
+    const text = step.short(this.ctx);
+    // the strip's frame only changes when its controls do; the instruction itself is swapped in place, at once
+    const frame = `<div class="coach-strip"><span class="coach-step" aria-label="Step ${step.phase} of ${PHASES}">${step.phase}/${PHASES}</span><p class="coach-short"></p>${manual ? `<button class="btn primary coach-next" data-coach="next">${step.nextLabel ?? 'Next'}</button>` : ''}${step.skipTo ? '<button class="coach-x" data-coach="skip">Skip</button>' : ''}<button class="coach-more-btn" data-coach="more" aria-expanded="${this.expanded}" aria-label="${this.expanded ? 'Less help' : 'More help and options'}">${this.expanded ? '▴' : '▾'}</button></div>${this.expanded ? `<div class="coach-more"><p>${step.more ?? 'Follow the highlighted control or the glowing spot on the map.'}</p><div class="coach-foot">${step.skipTo ? '<button class="coach-x" data-coach="skip">Skip this step</button>' : ''}<button class="coach-x" data-coach="exit">Exit tutorial</button></div></div>` : ''}`;
+    if (force || entering || frame !== this.html) {
+      this.html = frame;
+      this.card.innerHTML = frame;
       this.ui.onInsets();
     }
+    const p = this.card.querySelector<HTMLElement>('.coach-short');
+    if (p && p.textContent !== text) {
+      p.textContent = text;
+      // a new step eases its words in; the strip itself stays put
+      if (this.shownStep !== t.step && !Tutorial.reduced) p.animate([{ opacity: 0.15, transform: 'translateY(3px)' }, { opacity: 1, transform: 'none' }], { duration: 180, easing: 'ease-out' });
+    }
+    this.shownStep = t.step;
     this.dock();
     this.ctx.e.overlay.hint = step.hint?.(this.ctx) ?? null;
     this.pointAt(step.target?.(this.ctx) ?? []);

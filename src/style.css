@@ -51,6 +51,11 @@
   --raise: linear-gradient(#f4f2ea, #dcd9cf);
   --raise-hi: linear-gradient(#fbfaf5, #e6e3d9);
   --shadow-win: 0 2px 0 rgba(20, 36, 22, .35), 0 8px 20px rgba(14, 28, 16, .32);
+  /* motion: quick feedback for presses, a little longer for things that move into place; no bounce */
+  --t-press: 110ms;
+  --t-ui: 220ms;
+  --ease-out: cubic-bezier(.2, .7, .3, 1);
+  --ease-in: cubic-bezier(.5, 0, .75, .4);
 }
 
 /* ================= base ================= */
@@ -200,11 +205,17 @@ body:is([data-tab="build"], [data-tab="course"], [data-tab="guests"], [data-tab=
 body.has-proposal #fab, body.placing-club #fab, body.placing-building #fab, body.owner-playing #fab, body:has(#modal:not([hidden])) #fab { display: none; }
 
 #nav { display: none; }
-body.menu-open #nav {
+body.menu-open #nav, body.menu-closing #nav {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; position: fixed; z-index: 20; left: calc(8px + var(--sal)); right: calc(8px + var(--sar)); bottom: calc(80px + var(--sab)); max-width: 420px; margin-left: auto;
   padding: 0 10px 10px; overflow: auto; max-height: calc(100dvh - 130px); animation: rise .18s ease-out; box-shadow: 0 0 0 100vmax rgba(8, 20, 10, .42), var(--shadow-win);
 }
 @keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+@keyframes sink { to { transform: translateY(14px); opacity: 0; } }
+@keyframes sheet-in { from { transform: translateY(28px); opacity: 0; } }
+@keyframes sheet-out { to { transform: translateY(28px); opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }
+body.menu-open #nav { animation: rise var(--t-ui) var(--ease-out); }
+body.menu-closing #nav { animation: sink 170ms var(--ease-in) forwards; pointer-events: none; box-shadow: var(--shadow-win); }
 #nav .mhead { grid-column: 1 / -1; justify-content: space-between; padding-right: 0; margin: 0 -10px; }
 #nav .mhead { min-height: 44px; }
 #nav .mhead b { font-size: 15px; }
@@ -654,3 +665,69 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 #tstate[data-hold="unopened"] .ts-act { font-size: 12.5px; }
+
+
+/* ================= motion and feedback ================= */
+/* Every raised control answers the press at once and returns on release (touch and mouse alike). */
+.btn, .mini, .seg button, .tray-done, .sheet-btn, .tool, .edit-act, .cat, #fab, #tstate button, #nav button, #tools .ph-undo, #tools .ph-mode button,
+.coach-next, .coach-more-btn, .toast button, #tip button, .ptip button, .place, .crest-btn, .golfer-row, .hole-list > button, details.xp > summary {
+  transition: transform var(--t-press) var(--ease-out), background-color var(--t-press) linear, box-shadow var(--t-press) linear, color var(--t-press) linear, opacity var(--t-press) linear;
+  -webkit-tap-highlight-color: transparent;
+}
+.tool:active, .tool.on:active { transform: translateY(2px); }
+/* a selected tool stays visibly pressed in, with a green inner ring, until another is chosen */
+#tools .ph-tools .tool.on { transition-duration: 60ms; }
+
+/* panels: slide up and fade in, reverse on close (the close is timed in ui.reveal) */
+#side { animation: sheet-in var(--t-ui) var(--ease-out); transition: height var(--t-ui) var(--ease-out); }
+#side[data-sheet="drag"] { transition: none; }
+#side.closing { display: flex !important; animation: sheet-out 180ms var(--ease-in) forwards; pointer-events: none; }
+#tools { animation: sheet-in var(--t-ui) var(--ease-out); }
+#tools.closing { display: flex !important; animation: sheet-out 180ms var(--ease-in) forwards; pointer-events: none; }
+#confirm { animation: rise 200ms var(--ease-out); }
+#modal { animation: fade-in 160ms linear; }
+.toast { transition: opacity 200ms linear, transform 200ms var(--ease-in); }
+.toast.out { opacity: 0; transform: translateY(8px); }
+#tip { transition: opacity 200ms linear, transform 200ms var(--ease-in); }
+#tip.out { opacity: 0; transform: translateY(-6px); }
+#sidebody { will-change: auto; }
+
+/* ================= first-hole panel: the essentials first ================= */
+.hole-summary .row { border: 0; padding: 0; min-height: 0; }
+.hole-summary .big-name { font: 700 18px/1.2 var(--font); }
+.hole-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin: 4px 0 10px; font-size: 14px; color: var(--ink-2); }
+.hole-line b { color: var(--ink); font-weight: 700; }
+.hole-summary .hole-actions { margin-top: 0; }
+.hole-summary .hole-actions .btn.wide { flex: 1 1 100%; }
+.hole-summary > .dim.small { margin-top: 8px; }
+.hole-state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 3px; font: 700 11px/1.2 var(--font); letter-spacing: .02em; background: var(--panel); color: var(--ink-2); white-space: nowrap; }
+.hole-state.open { background: #d4ead7; border-color: #8fbf98; color: #1f5a2a; }
+.hole-state.ready { background: #fbf4dc; border-color: #d9cd94; color: #6b5a12; }
+.hole-state.blocked { background: #f1ddd7; border-color: #cf9b8f; color: #7c2b1a; }
+/* expandable sections: a raised header row; opened, it shows a pressed-in look and its contents ease in */
+details.xp { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--well); box-shadow: inset 1px 1px 0 var(--bevel-hi); }
+details.xp > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--tap); padding: 0 12px; cursor: pointer; border-radius: 3px; background: var(--raise); box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo); }
+details.xp > summary::-webkit-details-marker { display: none; }
+details.xp > summary::before { content: ''; flex: none; width: 0; height: 0; border-left: 5px solid var(--ink-2); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform var(--t-ui) var(--ease-out); }
+details.xp[open] > summary::before { transform: rotate(90deg); }
+details.xp[open] > summary { border-radius: 3px 3px 0 0; border-bottom: 1px solid var(--line); }
+details.xp > summary:active { background: var(--panel-3); }
+.xp-t { flex: 1; font: 700 13.5px var(--font); color: var(--ink); }
+.xp-n { flex: none; font: 600 12px var(--font); color: var(--ink-2); }
+.xp-body { padding: 10px 12px 4px; }
+.xp-body > .card:last-child, .xp-body > .sec:last-child { margin-bottom: 8px; }
+.xp-body .sec > h3 { display: none; }
+
+/* ================= tutorial: one compact strip that can open for more ================= */
+#coach { overflow: hidden; border-left: 4px solid var(--accent); }
+#coach .coach-strip { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 4px 4px 8px; }
+#coach .coach-step { flex: none; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--well); font: 700 11px/1.2 var(--font); color: var(--ink-2); box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .15); }
+#coach .coach-short { flex: 1; min-width: 0; font: 600 14px/1.3 var(--font); color: var(--ink); }
+#coach .coach-next { flex: none; min-height: 40px; padding: 0 14px; }
+#coach .coach-more-btn { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); font-size: 14px; }
+#coach .coach-more-btn:active { background: var(--panel-3); }
+#coach .coach-strip > .coach-x { flex: none; min-height: 44px; padding: 0 6px; }
+#coach .coach-more { padding: 0 10px 6px 12px; border-top: 1px solid var(--line); animation: fade-in var(--t-ui) var(--ease-out); }
+#coach .coach-more p { margin: 8px 0 2px; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+#coach .coach-foot { padding: 0; justify-content: flex-start; gap: 8px; }
+#coach .coach-x { min-height: 44px; }

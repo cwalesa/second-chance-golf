@@ -65,7 +65,7 @@ export class Studio {
     const aim = (e: PointerEvent) => {
       const b = this.mini.getBoundingClientRect(), w = this.g.world;
       this.g.followGolfer = 0;
-      this.r.focus(Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * w.w, Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * w.h, this.r.cam.zoom, w);
+      this.r.focus(Math.max(0, Math.min(1, (e.clientX - b.left) / b.width)) * w.w, Math.max(0, Math.min(1, (e.clientY - b.top) / b.height)) * w.h, this.r.cam.zoom, w, true);
       this.drawMini();
     };
     this.mini.addEventListener('pointerdown', e => { e.stopPropagation(); this.mini.setPointerCapture(e.pointerId); aim(e); });
@@ -87,7 +87,7 @@ export class Studio {
     o.update(g, dt);
     if (g.followGolfer) {
       const golfer = g.sim.golfers.find(x => x.id === g.followGolfer);
-      if (golfer) this.r.focus(golfer.x, golfer.y, this.r.cam.zoom, g.world);
+      if (golfer) this.r.follow(golfer.x, golfer.y, dt, g.world);
       else g.followGolfer = 0;
     }
     document.body.classList.toggle('owner-playing', o.active);

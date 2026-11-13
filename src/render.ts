@@ -128,28 +128,155 @@ export class Renderer {
     const p = unprojectGround((sx - this.cw / 2) / this.cam.zoom + this.cam.x, (sy - this.ch / 2) / this.cam.zoom + this.cam.y);
     return { x: p.x / TS, y: p.y / TS };
   }
+  /**
+   * Keep the view on the map. The centre may go no closer to an edge than the visible half-extent of the screen
+   * (in ground tiles), so the empty background beyond the map never fills more than a sliver at a corner.
+   */
+  private clampedCenter(px: number, py: number, zoom: number, w: World): { x: number; y: number } {
+    // half the screen, measured along the ground axes: a screen corner sits (du + dv) / 2 tiles from the centre on x or y
+    const du = this.cw / 2 / zoom / (ISO_X * TS);
+    const dv = this.ch / 2 / zoom / (ISO_Y * TS);
+    const reach = ((du + dv) / 2) * 0.82;
+    const mx = Math.min(w.w / 2, Math.max(2, reach)), my = Math.min(w.h / 2, Math.max(2, reach));
+    return { x: Math.max(mx, Math.min(w.w - mx, px / TS)) * TS, y: Math.max(my, Math.min(w.h - my, py / TS)) * TS };
+  }
   clampCam(w: World) {
     const p = unprojectGround(this.cam.x, this.cam.y);
-    const q = projectGround(Math.max(2 * TS, Math.min((w.w - 2) * TS, p.x)), Math.max(2 * TS, Math.min((w.h - 2) * TS, p.y)));
+    const c = this.clampedCenter(p.x, p.y, this.cam.zoom, w);
+    const q = projectGround(c.x, c.y);
     this.cam.x = q.x; this.cam.y = q.y;
   }
   zoomAt(sx: number, sy: number, factor: number, w: World) {
+    this.cancelCamera();
     const before = this.toWorld(sx, sy);
-    this.cam.zoom = Math.max(Renderer.MIN_ZOOM, Math.min(Renderer.MAX_ZOOM, this.cam.zoom * factor));
+    this.cam.zoom = Math.max(this.minZoom(w), Math.min(Renderer.MAX_ZOOM, this.cam.zoom * factor));
     const after = this.toWorld(sx, sy);
     const delta = projectGround((before.x - after.x) * TS, (before.y - after.y) * TS);
     this.cam.x += delta.x; this.cam.y += delta.y;
     this.clampCam(w);
   }
+  /** Never so far out that the map is smaller than the screen. */
+  minZoom(w: World) {
+    const fit = Math.max(this.cw / ((w.w + w.h) * TS * ISO_X), this.ch / ((w.w + w.h) * TS * ISO_Y));
+    return Math.max(Renderer.MIN_ZOOM, fit * 1.05);
+  }
   insets = { l: 12, r: 12, t: 70, b: 118 };
-  focus(tx: number, ty: number, zoom: number, w: World) {
-    this.cam.zoom = zoom;
+  /** Where the camera must be for a ground point to sit in the middle of the free map area at this zoom. */
+  private camFor(tx: number, ty: number, zoom: number, w: World) {
+    const z = Math.max(this.minZoom(w), Math.min(Renderer.MAX_ZOOM, zoom));
     const sx = (this.insets.l + (this.cw - this.insets.r)) / 2;
     const sy = (this.insets.t + (this.ch - this.insets.b)) / 2;
     const p = projectGround(tx * TS, ty * TS);
-    this.cam.x = p.x - (sx - this.cw / 2) / zoom;
-    this.cam.y = p.y - (sy - this.ch / 2) / zoom;
-    this.clampCam(w);
+    const cx = p.x - (sx - this.cw / 2) / z, cy = p.y - (sy - this.ch / 2) / z;
+    const u = unprojectGround(cx, cy), c = this.clampedCenter(u.x, u.y, z, w), q = projectGround(c.x, c.y);
+    return { x: q.x, y: q.y, zoom: z };
+  }
+  /** A camera move in progress: eased toward a ground point, re-aimed every frame so panels opening mid-way are allowed for. */
+  private camAnim: { tx: number; ty: number; zoom: number; from: { x: number; y: number; zoom: number }; t0: number; dur: number; w: World } | null = null;
+  static reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Move the camera to a ground point. Eased unless `instant` (direct manipulation, first frame) or the player prefers reduced motion. */
+  focus(tx: number, ty: number, zoom: number, w: World, instant = false) {
+    if (instant || Renderer.reducedMotion) {
+      this.camAnim = null;
+      const c = this.camFor(tx, ty, zoom, w);
+      this.cam.x = c.x; this.cam.y = c.y; this.cam.zoom = c.zoom;
+      return;
+    }
+    const c = this.camFor(tx, ty, zoom, w);
+    const dist = Math.hypot(c.x - this.cam.x, c.y - this.cam.y) * this.cam.zoom + Math.abs(Math.log(c.zoom / this.cam.zoom)) * 300;
+    if (dist < 1) { this.camAnim = null; this.cam.x = c.x; this.cam.y = c.y; this.cam.zoom = c.zoom; return; }
+    this.camAnim = { tx, ty, zoom, from: { ...this.cam }, t0: performance.now(), dur: Math.min(520, 260 + dist * 0.25), w };
+  }
+  // ---------- construction feedback: short, quiet, never over the controls ----------
+  private buildFx: { kind: 'settle' | 'rise' | 'pulse' | 'cost'; t0: number; dur: number; tiles?: number[]; key?: string; x?: number; y?: number; text?: string; good?: boolean }[] = [];
+  private addFx(f: { kind: 'settle' | 'rise' | 'pulse' | 'cost'; dur: number; tiles?: number[]; key?: string; x?: number; y?: number; text?: string; good?: boolean }) {
+    if (Renderer.reducedMotion && f.kind !== 'cost') return;
+    this.buildFx = this.buildFx.filter((o) => !(o.kind === f.kind && o.key && o.key === f.key));
+    this.buildFx.push({ ...f, t0: performance.now() });
+    if (this.buildFx.length > 24) this.buildFx.shift();
+  }
+  /** Freshly built ground: a pale wash that fades as the new surface settles in. */
+  settle(tiles: number[]) { if (tiles.length) this.addFx({ kind: 'settle', dur: 380, tiles }); }
+  /** A building or object rising into place. */
+  rise(key: string) { this.addFx({ kind: 'rise', dur: 340, key }); }
+  /** A tee or green marker landing. */
+  pulse(x: number, y: number) { this.addFx({ kind: 'pulse', dur: 380, x, y }); }
+  /** What it cost (or refunded), shown where it happened. One at a time, so tags never stack. */
+  cost(x: number, y: number, amount: number, refund = false) {
+    if (!amount) return;
+    this.addFx({ kind: 'cost', dur: 1000, x, y, text: `${refund ? '+' : '\u2212'}$${Math.round(amount).toLocaleString('en-US')}`, good: refund, key: 'cost' });
+  }
+  /** Draw `draw` scaled up from the ground at (ax, ay) while its rise effect runs. */
+  private withRise(key: string, ax: number, ay: number, draw: () => void) {
+    const f = this.buildFx.find((o) => o.kind === 'rise' && o.key === key);
+    if (!f) { draw(); return; }
+    const k = Math.min(1, (performance.now() - f.t0) / f.dur), e = 1 - Math.pow(1 - k, 3);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, 0.25 + k * 1.4);
+    ctx.translate(ax, ay); ctx.scale(1, 0.8 + 0.2 * e); ctx.translate(-ax, -ay);
+    draw();
+    ctx.restore();
+  }
+  private drawGroundFx(w: World) {
+    const now = performance.now(), ctx = this.ctx;
+    this.buildFx = this.buildFx.filter((f) => now - f.t0 < f.dur);
+    for (const f of this.buildFx) {
+      const k = (now - f.t0) / f.dur;
+      if (f.kind === 'settle' && f.tiles) {
+        ctx.fillStyle = `rgba(255,248,214,${0.42 * (1 - k) * (1 - k)})`;
+        for (const i of f.tiles) { this.groundPolygon(i % w.w, Math.floor(i / w.w)); ctx.fill(); }
+      } else if (f.kind === 'pulse') {
+        const p = this.toScreen(f.x!, f.y!), r = this.ts * (0.45 + 1.0 * (1 - Math.pow(1 - k, 2)));
+        ctx.strokeStyle = `rgba(255,246,200,${0.95 * (1 - k)})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, r * 0.95, r * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+  }
+  private drawCostFx() {
+    const now = performance.now(), ctx = this.ctx;
+    for (const f of this.buildFx) {
+      if (f.kind !== 'cost') continue;
+      const k = (now - f.t0) / f.dur;
+      const p = this.toScreen(f.x!, f.y!);
+      const y = p.y - this.ts * 1.2 - 22 * (1 - Math.pow(1 - k, 2));
+      ctx.globalAlpha = k < 0.6 ? 1 : Math.max(0, 1 - (k - 0.6) / 0.4);
+      ctx.font = '700 12px system-ui, sans-serif';
+      const tw = ctx.measureText(f.text!).width + 14;
+      ctx.fillStyle = 'rgba(30,40,30,0.82)';
+      ctx.beginPath(); ctx.roundRect(p.x - tw / 2, y - 10, tw, 20, 10); ctx.fill();
+      ctx.fillStyle = f.good ? '#bfeec4' : '#fff3d6';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.text!, p.x, y + 0.5);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** The player took the camera: any automatic move stops where it is. */
+  cancelCamera() { this.camAnim = null; }
+  get cameraMoving() { return !!this.camAnim; }
+  /** Called once per frame before drawing. */
+  stepCamera(now: number) {
+    const a = this.camAnim;
+    if (!a) return;
+    const k = Math.min(1, (now - a.t0) / a.dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    const c = this.camFor(a.tx, a.ty, a.zoom, a.w);
+    // zoom eases in log space so zooming in and out feel the same
+    this.cam.zoom = Math.exp(Math.log(a.from.zoom) + (Math.log(c.zoom) - Math.log(a.from.zoom)) * e);
+    this.cam.x = a.from.x + (c.x - a.from.x) * e;
+    this.cam.y = a.from.y + (c.y - a.from.y) * e;
+    if (k >= 1) this.camAnim = null;
+  }
+  /** Follow a moving golfer softly: the camera closes most of the gap in about half a second, without snapping. */
+  follow(tx: number, ty: number, dt: number, w: World) {
+    if (this.camAnim) return; // let a framing move finish first
+    const c = this.camFor(tx, ty, this.cam.zoom, w);
+    const f = Renderer.reducedMotion ? 1 : 1 - Math.exp(-Math.min(0.1, dt) * 5);
+    this.cam.x += (c.x - this.cam.x) * f;
+    this.cam.y += (c.y - this.cam.y) * f;
   }
   fit(w: World) {
     let right = 1, bottom = 1;
@@ -329,7 +456,9 @@ export class Renderer {
           if (inBounds(w, tx, ty) && w.terrain[ty * w.w + tx] !== T.WATER) best = Math.min(best, Math.hypot(dx, dy));
         }
       const t = Math.max(0, Math.min(1, (best - 1) / 2.5));
-      return mix(COL.water, COL.waterDeep, t * t * (3 - 2 * t) * 0.85);
+      const base = mix(COL.water, COL.waterDeep, t * t * (3 - 2 * t) * 0.85);
+      const n = (vnoise(x / 7, y / 7, 91) - 0.5) * 14, m = (vnoise(x / 3, y / 3, 92) - 0.5) * 5;
+      return [base[0] + n * 0.5 + m, base[1] + n * 0.8 + m, base[2] + n + m];
     });
   }
   private drawSmooth(c: CanvasRenderingContext2D, key: string, tx0: number, ty0: number, tx1: number, ty1: number, w: World) {
@@ -375,7 +504,7 @@ export class Renderer {
     green: [0.72, 0.3],
     tee: [0.3, 0.3],
     bunker: [0.66, 0.3],
-    water: [0.7, 0.3],
+    water: [0.82, 0.3],
     bridge: [0.3, 0.3],
     path: [0.36, 0.3],
   };
@@ -406,7 +535,7 @@ export class Renderer {
     path: (t) => t === T.PATH || t === T.BUILDING,
   };
   /** How far each surface's contour may wander, in tiles. Tees and paving stay geometric. */
-  private static readonly WARP: Record<string, number> = { grass: 0.2, green: 0.12, tee: 0, bunker: 0.18, water: 0.22, bridge: 0, path: 0 };
+  private static readonly WARP: Record<string, number> = { grass: 0.3, green: 0.2, tee: 0, bunker: 0.2, water: 0.34, bridge: 0, path: 0 };
 
   /** Which distance fields a terrain type feeds. */
   private static fieldsFor(t: number): string[] {
@@ -1234,10 +1363,12 @@ export class Renderer {
     // ---- water: wet bank, a thin pale shoreline, depth from the colour map, bank shadow on the sun side
     const water = dist('water');
     if (water) {
-      flatStamp(water, falloff(0.11), [58, 74, 38], 0.3);
-      flatStamp(water, band(-0.035, 0.005), [204, 198, 150], 0.7);
+      flatStamp(water, falloff(0.18), [58, 74, 38], 0.22);
+      flatStamp(water, band(-0.06, 0.015), [196, 192, 150], 0.3);
       shadeStamp(water, inside, [{ rgb: COL.water }, { cmap: 'water' }, tex('water', () => makeWaterTexture())]);
-      flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.18), [156, 228, 216], 0.26);
+      flatStamp(water, (d, k) => aa(d[k], 0) * clamp01(1 - d[k] / 0.34), [150, 210, 196], 0.24);
+      // a thin lighter line just inside the water's edge: the shore catching the light
+      flatStamp(water, band(0.035, 0.07), [226, 240, 228], 0.14);
       flatStamp(water, innerShade(7, 3, 0.22, 1.2), [10, 46, 72], 0.4);
     }
 
@@ -1415,6 +1546,7 @@ export class Renderer {
   render(game: Game, ov: Overlay, time: number, alpha = 1) {
     const w = game.world;
     this.time = time;
+    this.stepCamera(performance.now());
     for (const g of game.sim.golfers) {
       g.rx = g.px + (g.x - g.px) * alpha;
       g.ry = g.py + (g.y - g.py) * alpha;
@@ -1444,6 +1576,7 @@ export class Renderer {
     }
     ctx.restore();
     ctx.imageSmoothingQuality = 'low';
+    this.drawGroundFx(w);
     const ts = this.ts;
     const corners = [[0,0],[this.cw,0],[0,this.ch],[this.cw,this.ch]].map(([x,y]) => this.toWorld(x,y));
     const x0 = Math.max(0, Math.floor(Math.min(...corners.map(p => p.x))) - 5);
@@ -1522,7 +1655,7 @@ export class Renderer {
       const d = ITEMS[it.k];
       // the putting green and the range are ground, so people and trees are drawn over them
       const flat = it.k === 'puttingGreen' || it.k === 'range';
-      items.push({ y: flat ? -1e9 + it.x + it.y : it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, cartsHome) : 0) });
+      items.push({ y: flat ? -1e9 + it.x + it.y : it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => { const a = this.toScreen(it.x + (d.w ?? 1) / 2, it.y + (d.h ?? 1)); this.withRise(`item:${it.x},${it.y}`, a.x, a.y, () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, cartsHome) : 0)); } });
       // the fleet: three carts in the bays (drawn with the barn), up to eight more nose-in along striped rows in front
       if (it.k === 'barn') {
         const out = Math.max(0, Math.min(cartsHome, 11) - 3);
@@ -1560,6 +1693,7 @@ export class Renderer {
     this.drawParcels(game, ov);
     this.drawQueues(game);
     this.drawOverlay(game, ov, time);
+    this.drawCostFx();
     this.drawAtmosphere(time, game.season.index, game.region);
 
     this.drawStudio(game);
@@ -2243,7 +2377,7 @@ export class Renderer {
   }
   private drawBuilding(game: Game, time: number) {
     const c = game.world.clubhouse;
-    if (c && this.nearScreen(c.x + 4, c.y + 3, 16)) drawCountryClub(this.clubPainter(c), game, time);
+    if (c && this.nearScreen(c.x + 4, c.y + 3, 16)) { const a = this.toScreen(c.x + 3.5, c.y + 5); this.withRise('club', a.x, a.y, () => drawCountryClub(this.clubPainter(c), game, time)); }
   }
   private drawStructures(game: Game, time: number) {
     const c = game.world.clubhouse;
