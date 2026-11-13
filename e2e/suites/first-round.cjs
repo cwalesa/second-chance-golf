@@ -22,7 +22,7 @@ module.exports = async ({ browser, base, freshCourse, ok, withClubhouse, suggest
   await page.evaluate(() => { const s = window.scg; s.editor.setTool('inspect'); s.game.exitDesign(); s.game.resume(); s.game.setSpeed(1); });
   let text = null;
   for (let i = 0; i < 14 && !text; i++) {
-    await page.evaluate(() => { const p = document.getElementById('goalpop'); (p?.querySelector('[data-gp="collect"], .gp-go') || p)?.click(); const m = document.getElementById('modal'); if (m && !m.hidden) [...m.querySelectorAll('button')].find((b) => /Continue|Close|Collect|OK|Done/i.test(b.textContent))?.click(); });
+    await page.evaluate(() => { const p = document.getElementById('goalpop'); (p?.querySelector('[data-gp="collect"], .gp-go') || p)?.click(); const m = document.getElementById('modal'); if (m && !m.hidden) (m.querySelector('button.primary') ?? [...m.querySelectorAll('button')].find((b) => /Continue|Close|Collect|OK|Done/i.test(b.textContent)))?.click(); });
     await page.waitForTimeout(800); text = await card();
   }
   ok('the card appears once nothing else needs attention', !!text);
@@ -34,7 +34,7 @@ module.exports = async ({ browser, base, freshCourse, ok, withClubhouse, suggest
   const rounds = await page.evaluate(() => window.scg.game.stats.rounds);
   await page.evaluate(() => window.scg.game.setSpeed(8));
   let seen = 0;
-  for (let i = 0; i < 150 && (i < 14 || (await page.evaluate(() => window.scg.game.stats.rounds)) <= rounds); i++) { await page.waitForTimeout(1000); if (await card()) seen++; await page.evaluate(() => { const p = document.getElementById('goalpop'); (p?.querySelector('[data-gp="collect"], .gp-go') || p)?.click(); const m = document.getElementById('modal'); if (m && !m.hidden) [...m.querySelectorAll('button')].find((b) => /Continue|Close|Collect|OK|Done/i.test(b.textContent))?.click(); }); }
+  for (let i = 0; i < 150 && (i < 14 || (await page.evaluate(() => window.scg.game.stats.rounds)) <= rounds); i++) { await page.waitForTimeout(1000); if (await card()) seen++; await page.evaluate(() => { const p = document.getElementById('goalpop'); (p?.querySelector('[data-gp="collect"], .gp-go') || p)?.click(); const m = document.getElementById('modal'); if (m && !m.hidden) (m.querySelector('button.primary') ?? [...m.querySelectorAll('button')].find((b) => /Continue|Close|Collect|OK|Done/i.test(b.textContent)))?.click(); }); }
   console.log('  state', JSON.stringify(await page.evaluate(() => ({ paused: window.scg.game.settings.paused, speed: window.scg.game.settings.speed, modal: !document.getElementById('modal').hidden, pop: !!document.getElementById('goalpop'), open: window.scg.game.openHoles.length, golfers: window.scg.game.golfers?.length }))));
   ok('later rounds never raise a second card', seen === 0 && (await page.evaluate(() => window.scg.game.stats.rounds)) > rounds, `cards ${seen}, rounds ${rounds} -> ${await page.evaluate(() => window.scg.game.stats.rounds)}`);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));

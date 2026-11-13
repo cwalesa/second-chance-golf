@@ -10,7 +10,9 @@ const cache = new WeakMap<World, Map<number, { version: number; report: DesignRe
 /** Layout only: condition and guest scores are deliberately shown separately. */
 export function assessDesign(w: World, h: Hole): DesignReport {
   let m = cache.get(w); if (!m) cache.set(w, m = new Map());
-  const hit = m.get(h.id); if (hit?.version === w.version) return hit.report;
+  // the report reads layout only (terrain, trees, zones), so turf wear must not throw it away
+  const layout = w.version - (w.wearBumps ?? 0);
+  const hit = m.get(h.id); if (hit?.version === layout) return hit.report;
   const path = holePath(h);
   let corridor = 0, fair = 0, trees = 0, edgeTrees = 0, water = 0, sand = 0, nearGreen = 0;
   const cup = center(h.cup);
@@ -49,7 +51,7 @@ export function assessDesign(w: World, h: Hole): DesignReport {
   if (bend < 2 && h.par > 3) advice.push('Move the routing point to create a dogleg and a choice of landing areas.');
   if (!advice.length) advice.push('A balanced layout. Watch actual scores and landing marks before adding more difficulty.');
   const report = { scenery, strategy, forgiveness, character, overall, verdict: overall >= 80 ? 'Signature hole' : overall >= 65 ? 'Worth coming back for' : overall >= 50 ? 'Promising layout' : 'Needs a redesign', advice, carry };
-  m.set(h.id, { version: w.version, report }); return report;
+  m.set(h.id, { version: layout, report }); return report;
 }
 export function designEnjoyment(r: DesignReport, type: GolferType): number {
   const score = type === 'beginner' ? r.forgiveness * .7 + r.scenery * .3 : type === 'skilled' ? r.strategy * .65 + r.scenery * .35 : r.overall;

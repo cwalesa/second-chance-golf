@@ -180,6 +180,7 @@ export class CourseSim {
   wearMult = 1;
   teeIntervalMult = 1;
   private wearDirty = false;
+  private pathBudget = 2;
   private lastWearBump = 0;
 
   constructor(public world: World, public rng: Rng, public hooks: SimHooks) {}
@@ -327,6 +328,9 @@ export class CourseSim {
     let gy = ty;
     if (direct > 2.5) {
       if (!g.pathGoal || Math.hypot(g.pathGoal.x - tx, g.pathGoal.y - ty) > 1.2) {
+        // Planning a walk is the most expensive thing a golfer does. A few per step is plenty; anyone else waits a step (a thirtieth of a second) so a crowd never piles them into one frame.
+        if (this.pathBudget <= 0) return false;
+        this.pathBudget--;
         g.path = findPath(this.world, { x: g.x, y: g.y }, { x: tx, y: ty });
         g.pathGoal = { x: tx, y: ty };
         // Nobody wades: if the ball lies where no one can walk (an island, the far bank with no bridge), it is dropped on the near side
@@ -687,6 +691,7 @@ export class CourseSim {
 
   /** onlyTests: the business is held, so guests already on the course stay frozen and only test golfers move. */
   update(dt: number, onlyTests = false) {
+    this.pathBudget = 2;
     this.now += dt;
     while (this.fx.length && this.now - this.fx[0].t0 > 2.8) this.fx.shift();
     this.manageTees(onlyTests);
@@ -707,6 +712,7 @@ export class CourseSim {
     if (this.golfers.some((g) => g.phase === 'leave' && g.x === this.sites.spawn.x && g.y === this.sites.spawn.y)) this.golfers = this.golfers.filter((g) => !(g.phase === 'leave' && g.x === this.sites.spawn.x && g.y === this.sites.spawn.y));
     if (this.wearDirty && this.now - this.lastWearBump > 1) {
       this.world.version++;
+      this.world.wearBumps = (this.world.wearBumps ?? 0) + 1;
       this.wearDirty = false;
       this.lastWearBump = this.now;
     }

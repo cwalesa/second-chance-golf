@@ -46,6 +46,8 @@ export interface World {
   zone: Uint8Array; // owning hole id, 0 = none
   holes: Hole[];
   version: number;
+  /** How many of the `version` bumps were only gradual turf wear (see layoutStamp). */
+  wearBumps?: number;
   /** Bumped whenever the layout (ground types, holes) changes, but not for wear: validation results stay valid until it moves. */
   layout?: number;
   region: RegionId;
@@ -211,13 +213,20 @@ export interface HoleCondition {
   overall: number;
   wornShare: number;
 }
+/**
+ * A number that changes whenever the ground is edited, and only every `every` wear updates otherwise. Turf wear bumps the
+ * world's version about once a simulated second while golfers play; things that are costly to rebuild and only mildly
+ * sensitive to wear (routes, hole condition) key their caches on this instead of the raw version.
+ */
+export const layoutStamp = (world: World, every: number) => (world.version - (world.wearBumps ?? 0)) * 1e6 + Math.floor((world.wearBumps ?? 0) / every);
 const condCache = new WeakMap<World, Map<string, { v: number; r: HoleCondition }>>();
 export function holeCondition(world: World, h: Hole): HoleCondition {
   let localCache = condCache.get(world);
   if (!localCache) condCache.set(world, localCache = new Map());
   const key = String(h.id);
   const hit = localCache.get(key);
-  if (hit && hit.v === world.version) return hit.r;
+  const stamp = layoutStamp(world, 5);
+  if (hit && hit.v === stamp) return hit.r;
   const sums = { f: 0, fn: 0, t: 0, tn: 0 };
   let gs = 0;
   let gn = 0;
@@ -255,12 +264,12 @@ export function holeCondition(world: World, h: Hole): HoleCondition {
   const nn = sums.fn + sums.tn + gn;
   const overall = nn ? (sums.f + sums.t + gs) / nn : 0;
   const r = { fairway, green, tee, overall, wornShare: total ? worn / total : 0 };
-  localCache.set(key, { v: world.version, r });
+  localCache.set(key, { v: stamp, r });
   return r;
 }
 
 // ---- Route field: weighted distance-to-cup used by golfers to choose safe lines ----
-const fieldCache = new WeakMap<World, Map<number, { v: number; cx: number; cy: number; f: Float64Array }>>();
+const fieldCache = new WeakMap<World, Map<number, { layout: number; epoch: number; cx: number; cy: number; f: Float64Array }>>();
 function stepCost(world: World, i: number): number {
   let c: number;
   switch (world.terrain[i]) {
@@ -276,19 +285,38 @@ function stepCost(world: World, i: number): number {
   }
   return world.tree[i] ? c + 5 : c;
 }
+// scratch space for the search: one cost grid and one heap, reused by every field
+let rfN = 0;
+let rfCost = new Float32Array(0);
+let rfHeapD = new Float64Array(0);
+let rfHeapI = new Int32Array(0);
+const lastWearRefresh = new WeakMap<World, number>();
+
+/**
+ * Weighted distance to the cup for every tile. Editing the ground rebuilds a hole's field the next time it is asked for; gradual
+ * turf wear only makes it slightly out of date, so then the old field keeps serving while at most one hole is refreshed per
+ * wear update. (Rebuilding all of them together was the biggest spike in a busy course.)
+ */
 export function routeField(world: World, h: Hole): Float64Array {
   let fields = fieldCache.get(world);
   if (!fields) fieldCache.set(world, fields = new Map());
   const hit = fields.get(h.id);
-  if (hit && hit.v === world.version && hit.cx === h.cup.x && hit.cy === h.cup.y) return hit.f;
-  const n = world.w * world.h;
+  const wb = world.wearBumps ?? 0;
+  const layout = world.version - wb;
+  const epoch = Math.floor(wb / 60);
+  if (hit && hit.layout === layout && hit.cx === h.cup.x && hit.cy === h.cup.y) {
+    if (hit.epoch === epoch || lastWearRefresh.get(world) === wb) return hit.f;
+    lastWearRefresh.set(world, wb);
+  }
+  const W = world.w;
+  const n = W * world.h;
+  if (rfN !== n) { rfN = n; rfCost = new Float32Array(n); rfHeapD = new Float64Array(n * 8); rfHeapI = new Int32Array(n * 8); }
+  const cost = rfCost, heapD = rfHeapD, heapI = rfHeapI;
+  for (let i = 0; i < n; i++) cost[i] = stepCost(world, i);
   const dist = new Float64Array(n).fill(1e9);
-  const heapD: number[] = [];
-  const heapI: number[] = [];
+  let size = 0;
   const push = (d: number, i: number) => {
-    let k = heapD.length;
-    heapD.push(d);
-    heapI.push(i);
+    let k = size++;
     while (k > 0) {
       const p = (k - 1) >> 1;
       if (heapD[p] <= d) break;
@@ -299,44 +327,40 @@ export function routeField(world: World, h: Hole): Float64Array {
     heapD[k] = d;
     heapI[k] = i;
   };
-  const pop = (): [number, number] => {
-    const d0 = heapD[0];
-    const i0 = heapI[0];
-    const d = heapD.pop()!;
-    const i = heapI.pop()!;
-    const len = heapD.length;
-    if (len > 0) {
+  const start = h.cup.y * W + h.cup.x;
+  dist[start] = 0;
+  push(0, start);
+  while (size) {
+    const d = heapD[0];
+    const i = heapI[0];
+    size--;
+    if (size > 0) {
+      const ld = heapD[size], li = heapI[size];
       let k = 0;
       for (;;) {
         let c = 2 * k + 1;
-        if (c >= len) break;
-        if (c + 1 < len && heapD[c + 1] < heapD[c]) c++;
-        if (heapD[c] >= d) break;
+        if (c >= size) break;
+        if (c + 1 < size && heapD[c + 1] < heapD[c]) c++;
+        if (heapD[c] >= ld) break;
         heapD[k] = heapD[c];
         heapI[k] = heapI[c];
         k = c;
       }
-      heapD[k] = d;
-      heapI[k] = i;
+      heapD[k] = ld;
+      heapI[k] = li;
     }
-    return [d0, i0];
-  };
-  const start = h.cup.y * world.w + h.cup.x;
-  dist[start] = 0;
-  push(0, start);
-  while (heapD.length) {
-    const [d, i] = pop();
     if (d > dist[i]) continue;
-    const x = i % world.w;
-    const y = (i - x) / world.w;
+    const x = i % W;
+    const y = (i - x) / W;
     for (let dy = -1; dy <= 1; dy++) {
+      const ny = y + dy;
+      if (ny < 0 || ny >= world.h) continue;
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= world.w || ny >= world.h) continue;
-        const j = ny * world.w + nx;
-        const nd = d + stepCost(world, j) * (dx && dy ? 1.414 : 1);
+        if (nx < 0 || nx >= W) continue;
+        const j = ny * W + nx;
+        const nd = d + cost[j] * (dx && dy ? 1.414 : 1);
         if (nd < dist[j]) {
           dist[j] = nd;
           push(nd, j);
@@ -344,7 +368,7 @@ export function routeField(world: World, h: Hole): Float64Array {
       }
     }
   }
-  fields.set(h.id, { v: world.version, cx: h.cup.x, cy: h.cup.y, f: dist });
+  fields.set(h.id, { layout, epoch, cx: h.cup.x, cy: h.cup.y, f: dist });
   return dist;
 }
 
@@ -514,31 +538,40 @@ export function cloneHole(h: Hole): Hole {
 }
 
 // ---- Walking paths for golfers (avoid water, buildings and, where possible, trees) ----
+// Walking. Searches reuse their buffers too: a golfer asks for a new walk at nearly every shot, and this was the largest single cost of a busy course.
+let pathN = 0, pathGen = 0;
+let pathG = new Float64Array(0), pathFrom = new Int32Array(0), pathSeen = new Uint32Array(0), pathClosed = new Uint32Array(0);
+let pathHeapF = new Float64Array(0), pathHeapI = new Int32Array(0);
+/** Cost of stepping onto each terrain type while walking; -1 is not walkable. Trees add to it (see findPath). */
+const WALK_COST = (() => {
+  const t = new Float32Array(32).fill(1);
+  t[T.WATER] = -1;
+  t[T.BUILDING] = -1;
+  t[T.PATH] = 0.8;
+  t[T.BRIDGE] = 0.8;
+  t[T.BUNKER] = 1.6;
+  t[T.ROUGH] = 1.1;
+  return t;
+})();
 export function findPath(world: World, a: Pt, b: Pt): Pt[] | null {
   const sx = Math.floor(a.x);
   const sy = Math.floor(a.y);
   const gx = Math.floor(b.x);
   const gy = Math.floor(b.y);
   if (!inBounds(world, sx, sy) || !inBounds(world, gx, gy)) return null;
-  const n = world.w * world.h;
-  const g = new Float64Array(n).fill(1e9);
-  const from = new Int32Array(n).fill(-1);
-  const closed = new Uint8Array(n);
-  const cost = (i: number): number => {
-    const t = world.terrain[i];
-    if (t === T.WATER || t === T.BUILDING) return -1;
-    let c = t === T.PATH || t === T.BRIDGE ? 0.8 : t === T.BUNKER ? 1.6 : t === T.ROUGH ? 1.1 : 1;
-    if (world.tree[i]) c += 3;
-    return c;
-  };
-  const h = (x: number, y: number) => Math.hypot(x - gx, y - gy);
-  // binary min-heap on f = g + h
-  const hf: number[] = [];
-  const hi: number[] = [];
+  const W = world.w, H = world.h;
+  const n = W * H;
+  if (pathN !== n) {
+    pathN = n; pathG = new Float64Array(n); pathFrom = new Int32Array(n); pathSeen = new Uint32Array(n); pathClosed = new Uint32Array(n); pathGen = 0;
+    pathHeapF = new Float64Array(n * 8); pathHeapI = new Int32Array(n * 8);
+  }
+  const gen = ++pathGen;
+  const gArr = pathG, fromArr = pathFrom, seen = pathSeen, closedArr = pathClosed, hf = pathHeapF, hi = pathHeapI;
+  const terrain = world.terrain, trees = world.tree;
+  const costAt = (i: number) => { const c = WALK_COST[terrain[i]]; return c >= 0 && trees[i] ? c + 3 : c; };
+  let size = 0;
   const push = (f: number, i: number) => {
-    let k = hf.length;
-    hf.push(f);
-    hi.push(i);
+    let k = size++;
     while (k > 0) {
       const p = (k - 1) >> 1;
       if (hf[p] <= f) break;
@@ -549,61 +582,60 @@ export function findPath(world: World, a: Pt, b: Pt): Pt[] | null {
     hf[k] = f;
     hi[k] = i;
   };
-  const pop = () => {
-    const top = hi[0];
-    const f = hf.pop()!;
-    const i = hi.pop()!;
-    const len = hf.length;
-    if (len) {
+  const si = sy * W + sx;
+  gArr[si] = 0; seen[si] = gen; fromArr[si] = -1;
+  push(Math.hypot(sx - gx, sy - gy), si);
+  while (size) {
+    const cur = hi[0];
+    size--;
+    if (size > 0) {
+      const lf = hf[size], li = hi[size];
       let k = 0;
       for (;;) {
         let c = 2 * k + 1;
-        if (c >= len) break;
-        if (c + 1 < len && hf[c + 1] < hf[c]) c++;
-        if (hf[c] >= f) break;
+        if (c >= size) break;
+        if (c + 1 < size && hf[c + 1] < hf[c]) c++;
+        if (hf[c] >= lf) break;
         hf[k] = hf[c];
         hi[k] = hi[c];
         k = c;
       }
-      hf[k] = f;
-      hi[k] = i;
+      hf[k] = lf;
+      hi[k] = li;
     }
-    return top;
-  };
-  const si = sy * world.w + sx;
-  g[si] = 0;
-  push(h(sx, sy), si);
-  while (hf.length) {
-    const cur = pop();
-    if (closed[cur]) continue;
-    closed[cur] = 1;
-    const cx = cur % world.w;
-    const cy = (cur - cx) / world.w;
+    if (closedArr[cur] === gen) continue;
+    closedArr[cur] = gen;
+    const cx = cur % W;
+    const cy = (cur - cx) / W;
     if (cx === gx && cy === gy) {
       const out: Pt[] = [];
-      for (let i = cur; i !== -1 && i !== si; i = from[i]) out.push({ x: (i % world.w) + 0.5, y: Math.floor(i / world.w) + 0.5 });
+      for (let i = cur; i !== -1 && i !== si; i = fromArr[i]) out.push({ x: (i % W) + 0.5, y: Math.floor(i / W) + 0.5 });
       out.reverse();
       if (out.length) out[out.length - 1] = { x: b.x, y: b.y };
       return out;
     }
-    for (let dy = -1; dy <= 1; dy++)
+    const gCur = gArr[cur];
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= H) continue;
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const nx = cx + dx;
-        const ny = cy + dy;
-        if (!inBounds(world, nx, ny)) continue;
-        const ni = ny * world.w + nx;
-        if (closed[ni]) continue;
-        const c = cost(ni);
+        if (nx < 0 || nx >= W) continue;
+        const ni = ny * W + nx;
+        if (closedArr[ni] === gen) continue;
+        const c = costAt(ni);
         if (c < 0 && !(nx === gx && ny === gy)) continue;
-        if (dx && dy && (cost(cy * world.w + nx) < 0 || cost(ny * world.w + cx) < 0)) continue;
-        const ng = g[cur] + Math.max(0.5, c) * (dx && dy ? 1.414 : 1);
-        if (ng < g[ni]) {
-          g[ni] = ng;
-          from[ni] = cur;
-          push(ng + h(nx, ny), ni);
+        if (dx && dy && (costAt(cy * W + nx) < 0 || costAt(ny * W + cx) < 0)) continue;
+        const ng = gCur + Math.max(0.5, c) * (dx && dy ? 1.414 : 1);
+        if (seen[ni] !== gen || ng < gArr[ni]) {
+          gArr[ni] = ng;
+          seen[ni] = gen;
+          fromArr[ni] = cur;
+          push(ng + Math.hypot(nx - gx, ny - gy), ni);
         }
       }
+    }
   }
   return null;
 }

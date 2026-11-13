@@ -49,16 +49,21 @@ async function boot() {
   const studio = new Studio(game, editor, renderer, ui);
   const tutorial = new Tutorial(game, editor, renderer, ui);
   let resetting = false;
-  const persist = () => {
+  // The timed autosave writes only when something moved since the last one; leaving, hiding and Save now always write.
+  let savedKey = '';
+  const stateKey = () => `${game.sim.now.toFixed(2)}|${game.world.version}|${Math.round(game.cash)}|${game.total}`;
+  const persist = (periodic?: unknown) => {
     if (resetting) return;
-    if (saveGame(game)) ui.markSaved();
+    const key = stateKey();
+    if (periodic === true && key === savedKey && !game.dirtySave) return;
+    if (saveGame(game)) { ui.markSaved(); savedKey = key; game.dirtySave = false; }
   };
   ui.onReset = () => {
     resetting = true;
     clearSave();
     location.reload();
   };
-  ui.onSaveNow = persist;
+  ui.onSaveNow = () => persist();
   ui.onExport = () => {
     persist();
     const blob = new Blob([serialize(game)], { type: 'application/json' });
@@ -87,11 +92,11 @@ async function boot() {
   ui.onInsets = place;
   window.addEventListener('resize', place);
   window.addEventListener('orientationchange', () => setTimeout(place, 200));
-  window.addEventListener('pagehide', persist);
+  window.addEventListener('pagehide', () => persist());
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) persist();
   });
-  window.setInterval(persist, 6000);
+  window.setInterval(() => persist(true), 6000);
 
   ui.refresh(true);
   renderer.resize();
