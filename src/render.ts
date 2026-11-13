@@ -10,7 +10,7 @@ import { Golfer, cartDriving, cartOut } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
 import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
-import { reliefAt, clubLot } from './wilderness';
+import { landOf, clubLot } from './wilderness';
 import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
@@ -109,6 +109,9 @@ export class Renderer {
   private regionKey = '';
   private cmaps: Record<string, HTMLCanvasElement> = {};
   private cmapData: Record<string, Uint8ClampedArray> = {};
+  private cmapImg: Record<string, ImageData> = {};
+  /** Tiles whose colours changed since the colour maps were last built; null when none, 'all' for everything. */
+  private colorRect: { x0: number; y0: number; x1: number; y1: number } | 'all' | null = null;
   private texCache = new Map<string, Tex | null>();
 
   constructor(public canvas: HTMLCanvasElement) {
@@ -347,6 +350,7 @@ export class Renderer {
       this.fields.clear();
       this.patterns.clear();
       this.pages.clear();
+      this.groundGen++;
       this.queue.length = 0;
       this.dirtyChunks.clear();
       this.buildWarp(w);
@@ -367,9 +371,12 @@ export class Renderer {
       let typeChanged = false;
       const region = { x0: w.w, y0: w.h, x1: 0, y1: 0 };
       const keys = new Set<string>();
+      if (this.colorRect === null) this.colorRect = { x0: w.w, y0: w.h, x1: 0, y1: 0 };
+      const cr = this.colorRect === 'all' ? null : this.colorRect;
       for (const i of w.dirty) {
         const x = i % w.w;
         const y = (i - x) / w.w;
+        if (cr) { if (x < cr.x0) cr.x0 = x; if (y < cr.y0) cr.y0 = y; if (x + 1 > cr.x1) cr.x1 = x + 1; if (y + 1 > cr.y1) cr.y1 = y + 1; }
         if (this.prevTerrain![i] !== w.terrain[i]) {
           typeChanged = true;
           region.x0 = Math.min(region.x0, x);
@@ -389,21 +396,27 @@ export class Renderer {
       w.dirty.clear();
       this.needCompose = true;
       // edits and big changes show immediately; gradual wear is batched
-      if (typeChanged || nDirty > 20) this.composeAt = 1;
-      else if (this.composeAt === 0) this.composeAt = now + 500;
+      if (typeChanged) this.composeUrgent = true;
+      if (typeChanged || nDirty > 150) this.composeAt = 1;
+      else if (this.composeAt === 0) this.composeAt = now + 2500;
     }
     if (this.needCompose && (this.composeAt === 1 || now >= this.composeAt)) {
-      this.compose(w);
-      this.needCompose = false;
-      this.composeAt = 0;
+      // An edit shows at once. Wear, repairs and the like are composed a few chunks per frame, so a busy course never stalls on them.
+      if (this.compose(w, this.composeUrgent ? Infinity : Renderer.COMPOSE_SLICE_MS)) {
+        this.needCompose = this.dirtyChunks.size > 0;
+        this.composeAt = this.needCompose ? now + 2500 : 0;
+        this.composeUrgent = false;
+      }
     }
   }
+  private composeUrgent = false;
+  private static readonly COMPOSE_SLICE_MS = 4;
 
   /**
    * Surface colour maps: one pixel per tile, upscaled with smoothing. They carry only broad, gentle colour
    * (condition, water depth); all fine detail comes from the textures, so there are no cloudy blotches.
    */
-  private buildColorMaps(w: World) {
+  private buildColorMaps(w: World, rect?: { x0: number; y0: number; x1: number; y1: number }) {
     const mk = (key: string, color: (x: number, y: number, i: number) => RGB) => {
       // always a fresh canvas: rewriting one that has already been drawn can leave iPhone Safari using a stale copy
       const prev = this.cmaps[key];
@@ -412,9 +425,14 @@ export class Renderer {
       cv.width = w.w;
       cv.height = w.h;
       const cx = cv.getContext('2d')!;
-      const img = cx.createImageData(w.w, w.h);
-      for (let y = 0; y < w.h; y++)
-        for (let x = 0; x < w.w; x++) {
+      // After an edit or some turf wear only the tiles near the change are recoloured (the picture is kept between rebuilds)
+      const kept = this.cmapImg[key];
+      const partial = !!rect && !!kept && kept.width === w.w && kept.height === w.h;
+      const img = partial ? kept : new ImageData(w.w, w.h);
+      this.cmapImg[key] = img;
+      const ry0 = partial ? rect!.y0 : 0, ry1 = partial ? rect!.y1 : w.h, rx0 = partial ? rect!.x0 : 0, rx1 = partial ? rect!.x1 : w.w;
+      for (let y = ry0; y < ry1; y++)
+        for (let x = rx0; x < rx1; x++) {
           const i = y * w.w + x;
           const [r, g, b] = color(x, y, i);
           const o = i * 4;
@@ -432,10 +450,12 @@ export class Renderer {
     const wearOf = (cond: number) => Math.max(0, Math.min(1, (64 - cond) / 54));
     // Valleys and ridges: low ground is deeper green, high ground is sunnier, and slopes facing the light are brighter.
     const seed = w.landSeed;
+    const land = seed ? landOf(seed, w).relief : null;
+    const rel = (x: number, y: number) => land![Math.max(0, Math.min(w.h - 1, Math.floor(y))) * w.w + Math.max(0, Math.min(w.w - 1, Math.floor(x)))];
     const lit = (c: RGB, x: number, y: number, k: number): RGB => {
-      if (!seed) return c;
-      const r = reliefAt(seed, x, y, w);
-      const slope = reliefAt(seed, x - 1, y, w) - reliefAt(seed, x + 1, y, w) + reliefAt(seed, x, y - 1, w) - reliefAt(seed, x, y + 1, w);
+      if (!land) return c;
+      const r = rel(x, y);
+      const slope = rel(x - 1, y) - rel(x + 1, y) + rel(x, y - 1) - rel(x, y + 1);
       const j = ((r - 0.5) * 46 + slope * 120) * k;
       return [c[0] + j * 1.05, c[1] + j * 0.9, c[2] + j * 0.45 - (0.5 - r) * 14 * k];
     };
@@ -836,6 +856,7 @@ export class Renderer {
       const ctx = cv.getContext('2d')!;
       ctx.translate(-px * Renderer.PAGE * TS, -py * Renderer.PAGE * TS);
       pg = { cv, ctx, used: this.frameNo };
+      this.groundGen++;
       this.pages.set(key, pg);
     }
     return pg;
@@ -853,6 +874,7 @@ export class Renderer {
     for (const [key, pg] of old) {
       if (this.pages.size <= Renderer.MAX_PAGES) break;
       pg.cv.width = pg.cv.height = 0;
+      this.groundGen++;
       this.pages.delete(key);
       const px = key % 1000;
       const py = Math.floor(key / 1000);
@@ -861,6 +883,7 @@ export class Renderer {
   }
   allChunks(w: World) {
     for (let cy = 0; cy * Renderer.CH < w.h; cy++) for (let cx = 0; cx * Renderer.CH < w.w; cx++) this.dirtyChunks.add(cy * 1000 + cx);
+    this.colorRect = 'all';
   }
   private markChunk(w: World, i: number) {
     const x = i % w.w;
@@ -942,6 +965,13 @@ export class Renderer {
     }
   }
 
+  // A flat copy of the projected ground, for frames where nothing about it changed (see render()). groundGen counts every change to the ground pictures.
+  private groundCv: HTMLCanvasElement | null = null;
+  private groundKey = '';
+  private groundKeyGen = -1;
+  private groundSeen = '';
+  private groundSeenGen = -1;
+  private groundGen = 0;
   /** Draw the ground pages that touch the screen, in the already-projected transform. */
   private drawPages(visible: number[]) {
     const P = Renderer.PAGE;
@@ -1070,20 +1100,33 @@ export class Renderer {
   }
 
   /** Compose the chunks an edit touched. Chunks on pages that are not resident are simply marked unbuilt. */
-  compose(w: World) {
+  /** The chunks being composed in the current round. Chunks that go stale meanwhile wait for the next round, so a round always ends. */
+  private batch: number[] = [];
+  compose(w: World, budgetMs = Infinity): boolean {
     const cxN = this.chunksX(w);
     const per = Renderer.PAGE / Renderer.CH;
-    this.buildColorMaps(w);
-    for (const key of this.dirtyChunks) {
+    if (!this.batch.length) {
+      if (this.colorRect) {
+        const r = this.colorRect === 'all' ? undefined : { x0: Math.max(0, this.colorRect.x0 - 4), y0: Math.max(0, this.colorRect.y0 - 4), x1: Math.min(w.w, this.colorRect.x1 + 4), y1: Math.min(w.h, this.colorRect.y1 + 4) };
+        this.buildColorMaps(w, r);
+        this.colorRect = null;
+      }
+      this.batch = [...this.dirtyChunks];
+      this.dirtyChunks.clear();
+    }
+    const t0 = performance.now();
+    while (this.batch.length) {
+      const key = this.batch.pop()!;
       const cx = key % 1000;
       const cy = Math.floor(key / 1000);
       const ci = cy * cxN + cx;
       if (this.pages.has(Math.floor(cy / per) * 1000 + Math.floor(cx / per)) && this.built[ci]) {
         this.ensureFields(w, cx, cy);
         this.composeChunk(w, cx, cy);
+        if (performance.now() - t0 > budgetMs) break;
       } else this.built[ci] = 0;
     }
-    this.dirtyChunks.clear();
+    return this.batch.length === 0;
   }
 
   // ---- chunk compositor ----
@@ -1335,6 +1378,7 @@ export class Renderer {
   }
 
   private composeChunk(w: World, cx: number, cy: number) {
+    this.groundGen++;
     const C = Renderer.CH;
     const tx0 = cx * C;
     const ty0 = cy * C;
@@ -1670,14 +1714,33 @@ export class Renderer {
     else {
       // The flat map of the whole property always sits under the detailed ground, so a chunk that is still being built (a fast camera move,
       // a new world, a slow phone) shows plain ground colour for a moment and never a hole in the map.
-      this.drawOverview(w, true);
-      ctx.imageSmoothingQuality = 'low';
       const visible = this.visiblePages(w);
       // while the camera travels, also build around where it is going
       const a = this.camAnim;
       const ahead = a ? this.pagesNear(w, a.tx, a.ty, 22).filter((k) => !visible.includes(k)) : [];
       this.pumpChunks(w, [...visible, ...ahead], this.frameBudget);
-      this.drawPages(visible);
+      // While the camera is still and the ground is finished, the projected ground is the same picture every frame: keep it and copy it flat.
+      const key = `${this.cam.x}|${this.cam.y}|${z}|${this.cw}|${this.ch}|${this.dpr}`;
+      const still = !this.queue.length && this.groundSeen === key && this.groundSeenGen === this.groundGen;
+      if (this.groundCv && this.groundKey === key && this.groundKeyGen === this.groundGen && !this.queue.length) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(this.groundCv, 0, 0);
+      } else {
+        this.drawOverview(w, true);
+        ctx.imageSmoothingQuality = 'low';
+        this.drawPages(visible);
+        if (still) {
+          const cv = this.groundCv ?? (this.groundCv = document.createElement('canvas'));
+          if (cv.width !== this.canvas.width || cv.height !== this.canvas.height) { cv.width = this.canvas.width; cv.height = this.canvas.height; }
+          const g = cv.getContext('2d')!;
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.drawImage(this.canvas, 0, 0); // at this point the canvas holds the background and the ground, nothing else
+          this.groundKey = key;
+          this.groundKeyGen = this.groundGen;
+        }
+      }
+      this.groundSeen = key;
+      this.groundSeenGen = this.groundGen;
     }
     ctx.restore();
     if (far) this.drawFarTrees(game, w);

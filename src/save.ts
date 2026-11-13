@@ -204,9 +204,14 @@ export function deserialize(text: string): LoadedSave | null {
   }
 }
 
+function looksValid(text: string): boolean {
+  try { const d = JSON.parse(text); return !!d && typeof d === 'object' && d.v === VERSION && !!d.world && Array.isArray(d.world.holes); } catch { return false; }
+}
 function keepBackup() {
   const previous = localStorage.getItem(KEY);
-  if (previous && deserialize(previous)) {
+  // The previous save was written by this game moments ago, so a cheap shape check is enough: rebuilding the whole game from it
+  // (the old check) froze the page for over a tenth of a second on every autosave.
+  if (previous && looksValid(previous)) {
     try { localStorage.setItem(BACKUP_KEY, previous); } catch { /* Backup space must not prevent a primary save. */ }
   }
 }

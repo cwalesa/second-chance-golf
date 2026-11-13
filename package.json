@@ -11,7 +11,9 @@
     "test": "vitest run",
     "cap:sync": "npm run build && npx cap sync",
     "cap:ios": "npm run cap:sync && npx cap open ios",
-    "e2e": "node e2e/run.cjs"
+    "e2e": "node e2e/run.cjs",
+    "perf": "node e2e/perf.cjs",
+    "perf:matrix": "node e2e/perf-matrix.cjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.0",
