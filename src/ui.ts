@@ -5,6 +5,7 @@ import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { panelControl } from './panel-click';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb, isFacilityKind } from './art/facilities';
@@ -90,9 +91,13 @@ export class UI {
       if (this.menuOpen && !(e.target as HTMLElement).closest('#nav, #fab, #modal')) { this.menuOpen = false; this.refresh(true); }
       if ((e.target as HTMLElement).closest('#side, #top, #tools')) this.busy = true;
     });
-    const release = () => (this.busy = false);
+    // A press on a panel holds back its rebuilds until the click that follows has been delivered (on touch screens the click can land a moment after
+    // the finger lifts), so the control that was pressed is still the one that receives it.
+    let releaseT = 0;
+    const release = () => { window.clearTimeout(releaseT); releaseT = window.setTimeout(() => (this.busy = false), 350); };
     document.addEventListener('pointerup', release);
     document.addEventListener('pointercancel', release);
+    document.addEventListener('pointerdown', () => window.clearTimeout(releaseT), true);
     this.buildTools();
     this.buildTop();
     this.buildSide();
@@ -238,7 +243,8 @@ export class UI {
     this.$('sheetSize').onclick = (e) => { e.stopPropagation(); this.setSheet(this.sheet === 'full' ? 'half' : 'full'); };
     this.bindSheetDrag();
     this.$('side').addEventListener('click', (e) => {
-      const el = (e.target as HTMLElement).closest('[data-tab],[data-act],[data-hole]') as HTMLElement | null;
+      // see panel-click.ts: a click on a section header or plain text is not a control, and must not rebuild the panel
+      const el = panelControl<HTMLElement>(e.target as HTMLElement, this.$('side'));
       if (!el) return;
       if (el.dataset.tab) {
         this.tab = el.dataset.tab as Tab;
@@ -822,6 +828,26 @@ export class UI {
   private sideKey = '';
   /** Expandable panel sections the player has opened, kept open across refreshes. */
   private openSecs = new Set<string>();
+  private sideAt = 0;
+  /** Which control inside the panel has focus, described by what it is rather than where it sits, so it can be found again after a rebuild. */
+  private focusKey(body: HTMLElement): { sel: string; n: number; caret: [number, number] | null } | null {
+    const a = document.activeElement as HTMLElement | null;
+    if (!a || a === body || !body.contains(a)) return null;
+    const d = a.dataset;
+    const sel = a.id ? `#${CSS.escape(a.id)}` : a.matches('summary') ? `details[data-sec="${a.parentElement?.getAttribute('data-sec')}"] > summary` : d.act ? `${a.tagName.toLowerCase()}[data-act="${d.act}"]${d.id ? `[data-id="${d.id}"]` : ''}` : d.hole ? `[data-hole="${d.hole}"]` : '';
+    if (!sel) return null;
+    const same = [...body.querySelectorAll(sel)];
+    const input = a as HTMLInputElement;
+    return { sel, n: Math.max(0, same.indexOf(a)), caret: typeof input.selectionStart === 'number' ? [input.selectionStart, input.selectionEnd ?? input.selectionStart] : null };
+  }
+  private restoreFocus(body: HTMLElement, f: { sel: string; n: number; caret: [number, number] | null } | null) {
+    if (!f) return;
+    const el = body.querySelectorAll<HTMLElement>(f.sel)[f.n] ?? body.querySelector<HTMLElement>(f.sel);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const input = el as HTMLInputElement;
+    if (f.caret && typeof input.setSelectionRange === 'function') { try { input.setSelectionRange(f.caret[0], f.caret[1]); } catch { /* not a text field */ } }
+  }
   /**
    * Show or hide a panel with a short slide and fade. The state changes at once (so nothing waits on the animation);
    * only the hiding is deferred, and showing again mid-way simply cancels it.
@@ -989,16 +1015,26 @@ export class UI {
     if (this.panelTip && this.panelTip !== this.tab) this.panelTip = null;
     const ptip = this.panelTip && TAB_TIPS[this.panelTip] ? `<div class="ptip"><span aria-hidden="true"></span><p>${TAB_TIPS[this.panelTip]}</p><button data-act="tipok">Got it</button></div>` : '';
     const html = ptip + this.sideHtml();
+    // While the simulation runs, the panel's figures change all the time: rebuild the panel at most twice a second unless the player just did something.
+    const now = performance.now();
+    if (!force && this.cache.get('side') !== html && now - this.sideAt < 500) return;
     if (force || this.cache.get('side') !== html) {
+      this.sideAt = now;
       const body = this.$('sidebody');
       const top = body.scrollTop;
+      // Remember what the player has expanded and what has focus, straight from the page as it is now, so a rebuild can put both back.
+      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (d.open) this.openSecs.add(d.dataset.sec!); else this.openSecs.delete(d.dataset.sec!); });
+      const focus = this.focusKey(body);
       body.innerHTML = html;
+      // Put the expanded sections back first: with them collapsed the panel is shorter, and restoring the scroll position into a shorter
+      // panel clamps it, so the content would jump and a tap meant for one header would land on another.
+      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (this.openSecs.has(d.dataset.sec!)) d.open = true; });
       // a different panel (or a different hole) eases in; a refresh of the same one changes in place
       const key = `${this.tab}:${this.tab === 'course' ? g.selectedHole : ''}:${this.tab === 'journey' ? this.journalView : ''}`;
       if (key !== this.sideKey) { this.sideKey = key; body.scrollTop = 0; if (!UI.reduced) body.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.7,.3,1)' }); }
       else body.scrollTop = top;
       this.cache.set('side', html);
-      body.querySelectorAll<HTMLDetailsElement>('details.xp').forEach((d) => { if (this.openSecs.has(d.dataset.sec!)) d.open = true; });
+      this.restoreFocus(body, focus);
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }
