@@ -53,6 +53,8 @@ export interface World {
   dirty: Set<number>; // tile indices changed since the renderer last looked
   /** Top-left tile of the 7x5 clubhouse. null while the player has not chosen a spot yet. */
   clubhouse: Pt | null;
+  /** The clubhouse is turned: its plan is mirrored across the diagonal, so the 7x5 footprint stands 5x7 and the entrance faces the other way. */
+  clubFlip?: boolean;
   /** Where arriving golfers appear: the far end of the entrance road. */
   gate: Pt;
   /** Seeds the generated land and its valley shading (see wilderness.ts). */
@@ -65,11 +67,16 @@ export interface World {
 
 export const CLUB_W = 7;
 export const CLUB_H = 5;
+/** Footprint of the clubhouse in tiles for an orientation. */
+export const clubDims = (flip?: boolean) => (flip ? { w: CLUB_H, h: CLUB_W } : { w: CLUB_W, h: CLUB_H });
+/** A point given relative to the clubhouse's top-left corner as laid out unturned, moved to the clubhouse's orientation. */
+export const clubRel = (flip: boolean | undefined, dx: number, dy: number): Pt => (flip ? { x: dy, y: dx } : { x: dx, y: dy });
 
 /** Where golfers spawn, walk in and queue at the door, worked out from wherever the clubhouse stands. */
-export function clubSites(w: Pick<World, 'clubhouse' | 'gate'>): { spawn: Pt; door: Pt; entry: Pt } {
+export function clubSites(w: Pick<World, 'clubhouse' | 'gate' | 'clubFlip'>): { spawn: Pt; door: Pt; entry: Pt } {
   const c = w.clubhouse ?? { x: w.gate.x, y: w.gate.y };
-  return { spawn: w.gate, door: { x: c.x + 3.5, y: c.y - 0.4 }, entry: { x: c.x - 1.4, y: c.y - 0.4 } };
+  const d = clubRel(w.clubFlip, 3.5, -0.4), e = clubRel(w.clubFlip, -1.4, -0.4);
+  return { spawn: w.gate, door: { x: c.x + d.x, y: c.y + d.y }, entry: { x: c.x + e.x, y: c.y + e.y } };
 }
 
 export const idx = (w: World, x: number, y: number) => y * w.w + x;

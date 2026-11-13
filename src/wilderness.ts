@@ -2,9 +2,10 @@
 // player to choose for the clubhouse. Everything here is deterministic from the land seed, so the valley
 // shading can be rebuilt on load without saving anything extra.
 import { CFG } from './config';
-import { lotKindAt } from './lots';
+import { lotKindAt, reserveLots } from './lots';
+import { ITEMS } from './items';
 import { REGIONS, RegionId } from './progression';
-import { CLUB_H, CLUB_W, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
+import { CLUB_H, CLUB_W, clubDims, clubRel, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
 
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const smooth = (a: number, b: number, x: number) => {
@@ -180,14 +181,15 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
 // ---- Choosing the clubhouse spot ----
 
 /** Tile rectangle the clubhouse lawn, plaza and entrance road occupy around a footprint's top-left corner. */
-export const clubLot = (c: Pt) => ({ x0: c.x - 3, y0: c.y - 2, x1: c.x + 17, y1: c.y + 8 });
+export const clubLot = (c: Pt, flip = false) => (flip ? { x0: c.x - 2, y0: c.y - 3, x1: c.x + 8, y1: c.y + 17 } : { x0: c.x - 3, y0: c.y - 2, x1: c.x + 17, y1: c.y + 8 });
 
 /** Highest minus lowest ground under the building: valley sides are too steep to build on. */
-export function slopeAt(world: World, c: Pt): number {
+export function slopeAt(world: World, c: Pt, flip = false): number {
   if (!world.landSeed) return 0;
+  const { w: CW, h: CH } = clubDims(flip);
   let lo = 1;
   let hi = 0;
-  for (const [dx, dy] of [[0, 0], [CLUB_W, 0], [0, CLUB_H], [CLUB_W, CLUB_H], [CLUB_W / 2, CLUB_H / 2]]) {
+  for (const [dx, dy] of [[0, 0], [CW, 0], [0, CH], [CW, CH], [CW / 2, CH / 2]]) {
     const v = reliefAt(world.landSeed, c.x + dx, c.y + dy, world);
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
@@ -196,12 +198,13 @@ export function slopeAt(world: World, c: Pt): number {
 }
 
 /** Why a clubhouse cannot stand with its top-left corner here, or null when it can. */
-export function clubhouseProblem(world: World, c: Pt): string | null {
-  const lot = clubLot(c);
+export function clubhouseProblem(world: World, c: Pt, flip = false): string | null {
+  const lot = clubLot(c, flip);
+  const { w: CW, h: CH } = clubDims(flip);
   if (lot.x0 < 1 || lot.y0 < 1 || lot.x1 > world.w - 2 || lot.y1 > world.h - 2) return 'Too close to the edge. The clubhouse needs room for its lawn, car park and road.';
-  for (let y = c.y - 1; y <= c.y + CLUB_H; y++)
-    for (let x = c.x - 1; x <= c.x + CLUB_W; x++) if (world.terrain[idx(world, x, y)] === T.WATER) return 'Too close to the water. Pick drier ground.';
-  if (slopeAt(world, c) > 0.2) return 'Too steep. Look for flatter ground on the valley floor.';
+  for (let y = c.y - 1; y <= c.y + CH; y++)
+    for (let x = c.x - 1; x <= c.x + CW; x++) if (world.terrain[idx(world, x, y)] === T.WATER) return 'Too close to the water. Pick drier ground.';
+  if (slopeAt(world, c, flip) > 0.2) return 'Too steep. Look for flatter ground on the valley floor.';
   return null;
 }
 
@@ -236,11 +239,24 @@ export function suggestClubhouse(world: World): Pt | null {
   return best;
 }
 
+/** The tiles the clubhouse, its forecourt paths and its entrance road cover, as laid out for an orientation (the road is chosen by the caller). */
+function clubStamp(c: Pt, flip: boolean): { building: Pt[]; paths: Pt[] } {
+  const at = (dx: number, dy: number): Pt => { const r = clubRel(flip, dx, dy); return { x: c.x + r.x, y: c.y + r.y }; };
+  const building: Pt[] = [];
+  for (let y = 0; y < CLUB_H; y++) for (let x = 0; x < CLUB_W; x++) building.push(at(x, y));
+  const paths: Pt[] = [];
+  for (let x = 8; x <= 16; x++) for (let y = 1; y <= 5; y++) paths.push(at(x, y));
+  for (let y = 1; y <= 5; y++) paths.push(at(7, y));
+  for (let x = -2; x <= 5; x++) paths.push(at(x, -1));
+  for (let y = -1; y <= 5; y++) for (let x = -2; x <= -1; x++) paths.push(at(x, y));
+  return { building, paths };
+}
+
 /** Build the clubhouse, its lawn, car park and an entrance road to the nearest edge. Free: it is the club's start. */
-export function placeClubhouse(world: World, c: Pt): string | null {
-  const why = clubhouseProblem(world, c);
+export function placeClubhouse(world: World, c: Pt, flip = false): string | null {
+  const why = clubhouseProblem(world, c, flip);
   if (why) return why;
-  const lot = clubLot(c);
+  const lot = clubLot(c, flip);
   const set = (x: number, y: number, t: number, cond: number) => {
     if (!inBounds(world, x, y)) return;
     const i = idx(world, x, y);
@@ -261,29 +277,88 @@ export function placeClubhouse(world: World, c: Pt): string | null {
       world.dirty.add(i);
       if (world.terrain[i] === T.ROUGH) world.cond[i] = Math.max(world.cond[i], 66);
     }
-  const rowA = c.y + 6;
-  // Same layout as the classic clubhouse, moved to wherever the player chose.
-  for (let y = c.y; y < c.y + CLUB_H; y++) for (let x = c.x; x < c.x + CLUB_W; x++) set(x, y, T.BUILDING, 100);
-  for (let x = c.x + 8; x <= c.x + 16; x++) for (let y = c.y + 1; y <= c.y + 5; y++) set(x, y, T.PATH, 60);
-  for (let y = c.y + 1; y <= c.y + 5; y++) set(c.x + 7, y, T.PATH, 60);
-  for (let x = c.x - 2; x <= c.x + 5; x++) set(x, c.y - 1, T.PATH, 60);
-  for (let y = c.y - 1; y <= c.y + 5; y++) for (let x = c.x - 2; x <= c.x - 1; x++) set(x, y, T.PATH, 60);
-  // The road leaves along the side with the least water to cross.
-  const wet = (x0: number, x1: number) => {
+  const stamp = clubStamp(c, flip);
+  for (const p of stamp.building) set(p.x, p.y, T.BUILDING, 100);
+  for (const p of stamp.paths) set(p.x, p.y, T.PATH, 60);
+  // The road leaves along the side with the least water to cross: along a row to the left or right edge, or (turned) along a column to the top or bottom.
+  const along = flip ? world.h : world.w, pos = flip ? c.y : c.x, lane = flip ? c.x + 6 : c.y + 6;
+  const isWater = (a: number, l: number) => (flip ? world.terrain[idx(world, l, a)] : world.terrain[idx(world, a, l)]) === T.WATER;
+  const wet = (a0: number, a1: number) => {
     let n = 0;
-    for (let x = x0; x <= x1; x++) for (let y = rowA; y <= rowA + 1; y++) if (world.terrain[idx(world, x, y)] === T.WATER) n++;
+    for (let a = a0; a <= a1; a++) for (let l = lane; l <= lane + 1; l++) if (inBounds(world, flip ? l : a, flip ? a : l) && isWater(a, l)) n++;
     return n;
   };
-  const left = wet(0, c.x + 19 < world.w ? c.x + 19 : world.w - 1);
-  const right = wet(c.x - 3, world.w - 1);
-  const goLeft = left + c.x * 0.02 <= right + (world.w - c.x) * 0.02;
-  const x0 = goLeft ? 0 : c.x - 3;
-  const x1 = goLeft ? Math.min(world.w - 1, c.x + 19) : world.w - 1;
-  for (let x = x0; x <= x1; x++) for (let y = rowA; y <= rowA + 1; y++) set(x, y, T.PATH, 60);
-  world.gate = { x: goLeft ? 0.5 : world.w - 0.5, y: rowA + 0.5 };
+  const reach = flip ? 19 : 19;
+  const low = wet(0, pos + reach < along ? pos + reach : along - 1);
+  const high = wet(pos - 3, along - 1);
+  const goLow = low + pos * 0.02 <= high + (along - pos) * 0.02;
+  const a0 = goLow ? 0 : pos - 3;
+  const a1 = goLow ? Math.min(along - 1, pos + reach) : along - 1;
+  for (let a = a0; a <= a1; a++) for (let l = lane; l <= lane + 1; l++) set(flip ? l : a, flip ? a : l, T.PATH, 60);
+  world.gate = flip ? { x: lane + 0.5, y: goLow ? 0.5 : world.h - 0.5 } : { x: goLow ? 0.5 : world.w - 0.5, y: lane + 0.5 };
   world.clubhouse = { x: c.x, y: c.y };
+  world.clubFlip = flip;
   computeZones(world);
   world.version++;
+  return null;
+}
+
+/** Why the standing clubhouse cannot move to this corner and orientation, or null when it can. Anything of the player's in the way has to be moved first. */
+export function relocateProblem(world: World, c: Pt, flip: boolean): string | null {
+  const old = world.clubhouse;
+  if (!old) return 'There is no clubhouse yet.';
+  const why = clubhouseProblem(world, c, flip);
+  if (why) return why;
+  const lot = clubLot(c, flip);
+  const mine = new Set<number>();
+  const oldStamp = clubStamp(old, !!world.clubFlip);
+  for (const p of [...oldStamp.building, ...oldStamp.paths]) if (inBounds(world, p.x, p.y)) mine.add(idx(world, p.x, p.y));
+  const newStamp = clubStamp(c, flip);
+  for (const p of newStamp.building) {
+    if (!inBounds(world, p.x, p.y)) return 'Too close to the edge of the map.';
+    const t = world.terrain[idx(world, p.x, p.y)];
+    if (!mine.has(idx(world, p.x, p.y)) && t !== T.ROUGH && t !== T.PATH) return 'Something is built there. Pick open ground.';
+  }
+  for (let y = lot.y0; y <= lot.y1; y++)
+    for (let x = lot.x0; x <= lot.x1; x++) {
+      if (!inBounds(world, x, y)) continue;
+      const t = world.terrain[idx(world, x, y)];
+      if (t === T.FAIRWAY || t === T.GREEN || t === T.TEE || t === T.BUNKER || t === T.BRIDGE) return 'A hole is in the way. The clubhouse needs its lawn, car park and road clear.';
+      if (world.items?.some((it) => x >= it.x && y >= it.y && x < it.x + (ITEMS[it.k].w ?? 1) && y < it.y + (ITEMS[it.k].h ?? 1))) return 'A building or object stands in the way. Move it first.';
+    }
+  return null;
+}
+
+/** Take the clubhouse and its grounds up and put them down at a new corner and orientation. Free. The old ground goes back to rough. */
+export function relocateClubhouse(world: World, c: Pt, flip: boolean): string | null {
+  const old = world.clubhouse;
+  const why = relocateProblem(world, c, flip);
+  if (why || !old) return why;
+  const wasFlip = !!world.clubFlip;
+  // the old forecourt, building and road back to ordinary rough
+  const stamp = clubStamp(old, wasFlip);
+  const back = (x: number, y: number) => {
+    if (!inBounds(world, x, y)) return;
+    const i = idx(world, x, y);
+    world.terrain[i] = T.ROUGH;
+    world.cond[i] = 66;
+    world.dirty.add(i);
+  };
+  for (const p of [...stamp.building, ...stamp.paths]) back(p.x, p.y);
+  // the old entrance road: its two lanes, from the gate to the grounds
+  const lane = wasFlip ? old.x + 6 : old.y + 6;
+  const len = wasFlip ? world.h : world.w, pos = wasFlip ? old.y : old.x;
+  const wentLow = (wasFlip ? world.gate.y : world.gate.x) < len / 2;
+  for (let a = wentLow ? 0 : pos - 3; a <= (wentLow ? Math.min(len - 1, pos + 19) : len - 1); a++)
+    for (let l = lane; l <= lane + 1; l++) {
+      const x = wasFlip ? l : a, y = wasFlip ? a : l;
+      if (inBounds(world, x, y) && world.terrain[idx(world, x, y)] === T.PATH) back(x, y);
+    }
+  world.clubhouse = null;
+  const bad = placeClubhouse(world, c, flip);
+  if (bad) return bad;
+  delete world.lots;
+  reserveLots(world);
   return null;
 }
 

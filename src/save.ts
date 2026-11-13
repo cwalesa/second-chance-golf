@@ -42,6 +42,7 @@ export function serialize(g: Game): string {
       holes: w.holes,
       parcels: Array.from(w.parcels),
       clubhouse: w.clubhouse,
+      clubFlip: !!w.clubFlip,
       gate: w.gate,
       landSeed: w.landSeed,
       items: w.items ?? [],
@@ -104,6 +105,7 @@ export function deserialize(text: string): LoadedSave | null {
     if (d.world.clubhouse !== null && !okPt(d.world.clubhouse)) return null;
     if (!okPt(d.world.gate)) return null;
     world.clubhouse = d.world.clubhouse ? { x: d.world.clubhouse.x, y: d.world.clubhouse.y } : null;
+    world.clubFlip = d.world.clubFlip === true;
     world.gate = { x: d.world.gate.x, y: d.world.gate.y };
     world.landSeed = d.world.landSeed;
     world.items = Array.isArray(d.world.items)

@@ -267,6 +267,7 @@ body.menu-closing #nav { animation: sink 170ms var(--ease-in) forwards; pointer-
 #tools .ph-tools .tool em { font: 700 10px/1 var(--font); font-style: normal; color: var(--title-2); }
 #tools .ph-bld .tool, #tools .ph-fun .tool { width: 84px; }
 #tools .ph-bld .tool span, #tools .ph-fun .tool span { white-space: normal; text-align: center; font-size: 10.5px; line-height: 1.1; }
+#tools .club-tile { display: grid; place-items: center; height: 46px; font-size: 46px; line-height: 1; }
 #tools .ph-tools .tool.on { background: #cfe3cf; border-color: #173a1e; box-shadow: inset 1px 1px 3px rgba(0, 0, 0, .35), inset 0 0 0 2px var(--accent); transform: translateY(1px); color: #14301a; }
 #tools .tray-done { flex: none; min-width: 64px; padding: 0 12px; font-weight: 700; color: #fff; background: linear-gradient(#3f8d4c, #2c7138); border-color: #1b3d22; box-shadow: inset 1px 1px 0 #7fc08a, inset -1px -1px 0 #1d4a27; text-shadow: 0 1px 0 rgba(0, 0, 0, .25); }
 #tools .tray-done:active { background: #2f7a3c; box-shadow: inset 1px 1px 3px rgba(0, 0, 0, .5); }

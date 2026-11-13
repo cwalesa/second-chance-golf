@@ -1,6 +1,6 @@
 import { Experience, freshExperience, awardExperience, constructionFactor } from './experience';
 import type { Feedback } from './feedback';
-import { createWilderness, newLandSeed, placeClubhouse, suggestClubhouse } from './wilderness';
+import { createWilderness, newLandSeed, placeClubhouse, relocateClubhouse, suggestClubhouse } from './wilderness';
 import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
@@ -228,9 +228,9 @@ export class Game {
   }
 
   /** Blank-canvas start: put the clubhouse where the player chose. It is the club's first gift, so it costs nothing. */
-  buildClubhouse(at: { x: number; y: number }): boolean {
+  buildClubhouse(at: { x: number; y: number }, flip = false): boolean {
     if (this.world.clubhouse) return false;
-    const why = placeClubhouse(this.world, at);
+    const why = placeClubhouse(this.world, at, flip);
     if (why) {
       this.notify('bad', why);
       return false;
@@ -238,6 +238,19 @@ export class Game {
     reserveLots(this.world); // space for the putting green and the range, kept clear from the start
     this.onFeedback('build');
     this.notify('good', `Clubhouse built. Golfers arrive by the entrance road.`);
+    this.dirtySave = true;
+    return true;
+  }
+
+  /** Pick the clubhouse up and put it down at another corner or turned the other way. Free; anything in the way has to be moved first. */
+  moveClubhouse(at: { x: number; y: number }, flip: boolean): boolean {
+    const why = relocateClubhouse(this.world, at, flip);
+    if (why) {
+      this.notify('bad', why);
+      return false;
+    }
+    this.onFeedback('build');
+    this.notify('good', 'Clubhouse moved. Golfers arrive by the new entrance road.');
     this.dirtySave = true;
     return true;
   }
@@ -559,7 +572,7 @@ export class Game {
       this.today.arrivals++;
       this.earn('fees', fee, `${band.name} tee time, ${g.name}`);
       const door = this.world.clubhouse;
-      if (door) this.sim.pop('coin', door.x + 3.5, door.y + 1, `+$${Math.round(fee)}`);
+      if (door) this.sim.pop('coin', door.x + (this.world.clubFlip ? 1 : 3.5), door.y + (this.world.clubFlip ? 3.5 : 1), `+$${Math.round(fee)}`);
       if (this.upgrades.carts && this.rng.next() < cartRentalRate(this.cartFee) * this.fleetFactor) {
         this.earn('fees', this.cartFee, `Cart rental, ${g.name}`);
         // the renter drives a cart from the barn, if one is free (the rental is the same either way)

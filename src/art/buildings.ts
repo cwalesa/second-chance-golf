@@ -11,6 +11,8 @@ export interface Painter {
   ctx: CanvasRenderingContext2D;
   ts: number;
   toScreen(x: number, y: number): Pt;
+  /** The picture is drawn mirrored left to right (a turned clubhouse): lettering is turned back so it still reads. */
+  mirror?: boolean;
 }
 
 // ---------- small drawing helpers ----------
@@ -88,6 +90,7 @@ function wallText(p: Painter, text: string, x: number, y: number, z: number, siz
   ctx.font = `bold ${Math.max(5, size)}px ${font}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  if (p.mirror) ctx.scale(-1, 1);
   ctx.fillText(text, 0, 0);
   ctx.restore();
 }

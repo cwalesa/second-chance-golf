@@ -9,7 +9,7 @@ import { Game } from './game';
 import { Golfer, cartDriving, cartOut } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
-import { CLUB_H, CLUB_W, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
+import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
 import { reliefAt, clubLot } from './wilderness';
 import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
@@ -76,13 +76,13 @@ export interface Overlay {
   /** Pins an unbuilt tee/cup/dogleg/new-hole plan would move. */
   ghost: { tee?: Pt; cup?: Pt; bend?: Pt; bends?: Pt[]; /** whole route as tile corners, tee to cup */ route?: Pt[]; par: number; notes?: string[] } | null;
   /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
-  club: { x: number; y: number; problem: string | null } | null;
+  club: { x: number; y: number; problem: string | null; flip?: boolean } | null;
   /** Where the tutorial suggests putting a tee and a green. */
   hint: { tee?: Pt; cup?: Pt; club?: Pt } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
   hold: { x: number; y: number; t0: number; ms?: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
-  bGhost: { x: number; y: number; k: string; ok: boolean; sell: boolean } | null;
+  bGhost: { x: number; y: number; k: string; ok: boolean; sell: boolean; move?: number } | null;
 }
 
 export class Renderer {
@@ -228,7 +228,14 @@ export class Renderer {
     this.addFx({ kind: 'cost', dur: 1000, x, y, text: `${refund ? '+' : '\u2212'}$${Math.round(amount).toLocaleString('en-US')}`, good: refund, key: 'cost' });
   }
   /** Draw `draw` scaled up from the ground at (ax, ay) while its rise effect runs. */
-  private withRise(key: string, ax: number, ay: number, draw: () => void) {
+  /** Buildings and objects shrink a little when the map is zoomed far out, so they stay small against the trees and ground instead of dominating the view. */
+  private farScale() {
+    const z = this.cam.zoom;
+    return z >= Renderer.OVERVIEW_ZOOM ? 1 : 0.58 + 0.42 * Math.max(0, (z - Renderer.MIN_ZOOM) / (Renderer.OVERVIEW_ZOOM - Renderer.MIN_ZOOM));
+  }
+  private withRise(key: string, ax: number, ay: number, draw0: () => void) {
+    const fs = this.farScale();
+    const draw = fs >= 1 ? draw0 : () => { const c = this.ctx; c.save(); c.translate(ax, ay); c.scale(fs, fs); c.translate(-ax, -ay); draw0(); c.restore(); };
     const f = this.buildFx.find((o) => o.kind === 'rise' && o.key === key);
     if (!f) { draw(); return; }
     const k = Math.min(1, (performance.now() - f.t0) / f.dur), e = 1 - Math.pow(1 - k, 3);
@@ -987,33 +994,79 @@ export class Renderer {
       b.imageSmoothingEnabled = true;
       b.imageSmoothingQuality = 'high';
       b.drawImage(this.ovCv, 0, 0, w.w * S, w.h * S);
-      const crowns: RGB[] = [[58, 122, 62], [74, 140, 66], [46, 104, 62], [88, 150, 70]];
-      b.fillStyle = 'rgba(20,50,30,0.35)';
-      for (let i = 0; i < w.terrain.length; i++) {
-        if (!w.tree[i]) continue;
-        const x = i % w.w, y = (i - x) / w.w;
-        b.beginPath();
-        b.arc((x + 0.3 + hash2(x, y, 71) * 0.4 + 0.22) * S, (y + 0.3 + hash2(x, y, 72) * 0.4 + 0.22) * S, S * 0.5, 0, Math.PI * 2);
-        b.fill();
-      }
-      for (let i = 0; i < w.terrain.length; i++) {
-        if (!w.tree[i]) continue;
-        const x = i % w.w, y = (i - x) / w.w;
-        const cxp = (x + 0.3 + hash2(x, y, 71) * 0.4) * S, cyp = (y + 0.3 + hash2(x, y, 72) * 0.4) * S;
-        const col = crowns[Math.floor(hash2(x, y, 73) * crowns.length)];
-        b.fillStyle = css(col);
-        b.beginPath();
-        b.arc(cxp, cyp, S * (0.42 + hash2(x, y, 74) * 0.14), 0, Math.PI * 2);
-        b.fill();
-        b.fillStyle = css(mix(col, [200, 230, 130], 0.35));
-        b.beginPath();
-        b.arc(cxp - S * 0.12, cyp - S * 0.12, S * 0.2, 0, Math.PI * 2);
-        b.fill();
-      }
     }
     this.ctx.imageSmoothingEnabled = true;
     this.ctx.imageSmoothingQuality = 'medium';
     this.ctx.drawImage(this.ovBig, 0, 0, w.w * TS, w.h * TS);
+  }
+
+
+  // ---- far trees ----
+  // Zoomed far out the real tree sprites would be thousands of tiny draws every frame, so they are painted once onto a
+  // transparent layer at a fixed scale (the same look as the detailed view) and that picture is shrunk to fit. It is repainted
+  // only when the trees change, so the far view keeps the forest instead of turning into flat colour.
+  private static readonly FAR_BAKE = 0.3;
+  private farCv: HTMLCanvasElement | null = null;
+  private farSig = '';
+  private farAt = 0;
+  private farSigAt = 0;
+  private farCam = { x: 0, y: 0, cw: 0, ch: 0 };
+  private farTreeSig(game: Game) {
+    const w = game.world;
+    let a = 0, b = 0, n = 0;
+    for (let i = 0; i < w.tree.length; i++) if (w.tree[i]) { n++; a = (a + i * 31 + w.tree[i]) | 0; b = (b ^ (i * 2654435761)) | 0; }
+    return `${w.w}x${w.h}:${n}:${a}:${b}:${game.season.index}`;
+  }
+  private drawFarTrees(game: Game, w: World) {
+    const now = performance.now();
+    if (!this.farCv || (now - this.farSigAt > 600)) {
+      this.farSigAt = now;
+      const sig = this.farTreeSig(game);
+      if (!this.farCv || (sig !== this.farSig && now - this.farAt > 1500)) { this.farSig = sig; this.farAt = now; this.bakeFarTrees(game, w); }
+    }
+    const L = this.farCv;
+    if (!L) return;
+    const z = this.cam.zoom, k = z / Renderer.FAR_BAKE, c = this.farCam;
+    const dx = (-c.cw / 2 / Renderer.FAR_BAKE + c.x - this.cam.x) * z + this.cw / 2;
+    const dy = (-c.ch / 2 / Renderer.FAR_BAKE + c.y - this.cam.y) * z + this.ch / 2;
+    const ctx = this.ctx;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(L, dx, dy, c.cw * k, c.ch * k);
+  }
+  private bakeFarTrees(game: Game, w: World) {
+    const Z = Renderer.FAR_BAKE;
+    const corners = [projectGround(0, 0), projectGround(w.w * TS, 0), projectGround(0, w.h * TS), projectGround(w.w * TS, w.h * TS)];
+    const x0 = Math.min(...corners.map((p) => p.x)), x1 = Math.max(...corners.map((p) => p.x));
+    const y0 = Math.min(...corners.map((p) => p.y)) - 90, y1 = Math.max(...corners.map((p) => p.y)) + 20;
+    const pad = 40;
+    const cw = Math.ceil(((x1 - x0) * Z) + pad * 2), ch = Math.ceil(((y1 - y0) * Z) + pad * 2);
+    const dpr = Math.min(this.dpr, 1.5);
+    if (!this.farCv) this.farCv = document.createElement('canvas');
+    const L = this.farCv;
+    L.width = Math.round(cw * dpr);
+    L.height = Math.round(ch * dpr);
+    const saved = { ctx: this.ctx, cam: this.cam, cw: this.cw, ch: this.ch, dpr: this.dpr, built: this.builtFor };
+    this.farCam = { x: (x0 + x1) / 2, y: (y0 + y1) / 2, cw, ch };
+    this.ctx = L.getContext('2d')!;
+    this.cam = { x: this.farCam.x, y: this.farCam.y, zoom: Z };
+    this.cw = cw; this.ch = ch; this.dpr = dpr; this.builtFor = w;
+    try {
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.ctx.clearRect(0, 0, cw, ch);
+      // back to front along the diagonals, so a tree in front covers the one behind it
+      for (let d = 0; d <= w.w + w.h - 2; d++) {
+        const xa = Math.max(0, d - (w.h - 1)), xb = Math.min(w.w - 1, d);
+        for (let x = xa; x <= xb; x++) {
+          const y = d - x, i = y * w.w + x;
+          if (!w.tree[i]) continue;
+          const hh = hash2(x, y, 400);
+          this.drawTree(x, y, this.treeVariant(game, x, y, i, hh), hh);
+        }
+      }
+    } finally {
+      this.ctx = saved.ctx; this.cam = saved.cam; this.cw = saved.cw; this.ch = saved.ch; this.dpr = saved.dpr; this.builtFor = saved.built;
+    }
   }
 
   /** Compose the chunks an edit touched. Chunks on pages that are not resident are simply marked unbuilt. */
@@ -1627,6 +1680,7 @@ export class Renderer {
       this.drawPages(visible);
     }
     ctx.restore();
+    if (far) this.drawFarTrees(game, w);
     ctx.imageSmoothingQuality = 'low';
     this.drawGroundFx(w);
     const ts = this.ts;
@@ -1667,15 +1721,15 @@ export class Renderer {
     this.drawHoleMarkers(game, time);
     this.drawClubEnhancements(game, time);
     const club = game.world.clubhouse;
-    if (club && this.nearScreen(club.x + 4, club.y + 3, 16)) drawClubGround(this.clubPainter(club), game);
+    if (club && this.nearScreen(club.x + 4, club.y + 3, 16)) { const fl = !!w.clubFlip; this.withClubFlip(club, fl, () => drawClubGround(this.clubPainter(club, fl), game)); }
 
     // y-sorted: trees + golfers
     type Item = { y: number; draw: () => void };
     const items: Item[] = club
       ? [
           // depth keys are x + y like everything else, so golfers and trees behind the clubhouse stay behind it
-          { y: club.x + club.y + 8, draw: () => this.drawBuilding(game, time) },
-          { y: club.x + club.y + 14, draw: () => this.drawStructures(game, time) },
+          { y: club.x + club.y + 8, draw: () => this.faintIf(!!ov.club, () => this.drawBuilding(game, time)) },
+          { y: club.x + club.y + 14, draw: () => this.faintIf(!!ov.club, () => this.drawStructures(game, time)) },
         ]
       : [];
     // trees that would hide a marker, a handle or ground being edited fade out while the edit is open, and come back after
@@ -1714,7 +1768,8 @@ export class Renderer {
       const lw = ITEMS[k].w ?? 1, lh = ITEMS[k].h ?? 1;
       items.push({ y: -1e9 + lot.x + lot.y - 1, draw: () => drawLot(this.facilityPainter(), LOT_LABEL[k], lot.x, lot.y, lw, lh) });
     }
-    for (const it of w.items ?? []) {
+    for (const [ii, it] of (w.items ?? []).entries()) {
+      if (ov.bGhost?.move === ii) continue; // picked up: only the ghost shows
       if (it.x < x0 - 4 || it.x > x1 + 1 || it.y < y0 - 3 || it.y > y1 + 1) continue;
       const d = ITEMS[it.k];
       // the putting green and the range are ground, so people and trees are drawn over them
@@ -1963,7 +2018,7 @@ export class Renderer {
     for (const i of ov.changed) area.push(i);
     if (ov.tool !== 'inspect' && ov.tool !== 'pan' && ov.hoverTiles.length > 0 && ov.hoverTiles.length <= 40) for (const i of ov.hoverTiles) area.push(i);
     const foot: { x: number; y: number; w: number; h: number }[] = [];
-    if (ov.club) foot.push({ x: ov.club.x, y: ov.club.y, w: CLUB_W, h: CLUB_H });
+    if (ov.club) { const dm = clubDims(ov.club.flip); foot.push({ x: ov.club.x, y: ov.club.y, w: dm.w, h: dm.h }); }
     if (ov.bGhost) { const d = ITEMS[ov.bGhost.k as ItemKind]; foot.push({ x: ov.bGhost.x, y: ov.bGhost.y, w: d.w ?? 1, h: d.h ?? 1 }); }
     if (!marks.length && !area.length && !foot.length) return null;
     const zone = new Set<number>();
@@ -2047,7 +2102,7 @@ export class Renderer {
   private drawGolfer(g: Golfer, selected: boolean, now: number, putt: boolean, aim: number) {
     const ctx = this.ctx;
     const calm = Renderer.reducedMotion; // no waggles, hops or gestures; the swing itself stays
-    const u = Math.max(this.ts, 18);
+    const u = this.ts >= 18 ? this.ts : 4.5 + this.ts * 0.75; // shrinks with the map instead of staying at phone size when zoomed out
     const k = u * 1.32; // figure scale: a little larger than a tile so people read at phone zoom
     const rides = cartDriving(g);
     // When the target is to the left on screen the golfer stands on the right of the ball and faces left, so the ball never
@@ -2620,24 +2675,45 @@ export class Renderer {
     const r = radiusTiles * this.ts * 1.2;
     return p.x > -r && p.x < this.cw + r && p.y > -r * 1.4 && p.y < this.ch + r;
   }
-  /** The clubhouse art is drawn for the classic course's spot; this shifts it to wherever the player put the clubhouse. */
-  private clubPainter(at: Pt): Painter {
-    const dx = at.x - CLUB_ART_ORIGIN.x;
-    const dy = at.y - CLUB_ART_ORIGIN.y;
-    return { ctx: this.ctx, ts: this.ts, toScreen: (x: number, y: number) => this.toScreen(x + dx, y + dy) };
+  /** The clubhouse art is drawn for the classic course's spot; this shifts it to wherever the player put the clubhouse. The art is drawn for the unturned clubhouse. Turned, the same picture is drawn with the origin shifted so its centre lands on the turned footprint's centre, then mirrored left to right about that centre: in the ground plan that is a mirror across the diagonal. */
+  private clubPainter(at: Pt, flip = false): Painter {
+    const o = flip ? { x: at.x - 1, y: at.y + 1 } : at;
+    const dx = o.x - CLUB_ART_ORIGIN.x;
+    const dy = o.y - CLUB_ART_ORIGIN.y;
+    return { ctx: this.ctx, ts: this.ts, toScreen: (x: number, y: number) => this.toScreen(x + dx, y + dy), mirror: flip };
+  }
+  private withClubFlip(at: Pt, flip: boolean, draw: () => void) {
+    if (!flip) { draw(); return; }
+    const ctx = this.ctx, X0 = this.toScreen(at.x + 2.5, at.y + 3.5).x;
+    ctx.save();
+    ctx.translate(X0, 0);
+    ctx.scale(-1, 1);
+    ctx.translate(-X0, 0);
+    draw();
+    ctx.restore();
+  }
+  /** While the clubhouse is picked up the standing one is drawn faint, and the ghost shows where it will go. */
+  private faintIf(on: boolean, draw: () => void) {
+    if (!on) { draw(); return; }
+    const c = this.ctx;
+    c.save();
+    c.globalAlpha *= 0.3;
+    draw();
+    c.restore();
   }
   private drawBuilding(game: Game, time: number) {
     const c = game.world.clubhouse;
-    if (c && this.nearScreen(c.x + 4, c.y + 3, 16)) { const a = this.toScreen(c.x + 3.5, c.y + 5); this.withRise('club', a.x, a.y, () => drawCountryClub(this.clubPainter(c), game, time)); }
+    if (c && this.nearScreen(c.x + 4, c.y + 3, 16)) { const fl = !!game.world.clubFlip; const a = this.toScreen(c.x + (fl ? 2.5 : 3.5), c.y + (fl ? 7 : 5)); this.withRise('club', a.x, a.y, () => this.withClubFlip(c, fl, () => drawCountryClub(this.clubPainter(c, fl), game, time))); }
   }
   private drawStructures(game: Game, time: number) {
     const c = game.world.clubhouse;
-    if (c && this.nearScreen(c.x + 12, c.y, 14)) drawVillageAmenities(this.clubPainter(c), game);
+    if (c && this.nearScreen(c.x + 12, c.y, 14)) { const fl = !!game.world.clubFlip; const a = this.toScreen(c.x + (fl ? 2.5 : 3.5), c.y + (fl ? 7 : 5)); this.withRise('amenities', a.x, a.y, () => this.withClubFlip(c, fl, () => drawVillageAmenities(this.clubPainter(c, fl), game))); }
     void time;
   }
   /** The clubhouse the player is placing: a translucent building on a coloured lot, red when the ground will not do. */
-  private drawClubGhost(game: Game, spot: { x: number; y: number; problem: string | null }, time: number) {
+  private drawClubGhost(game: Game, spot: { x: number; y: number; problem: string | null; flip?: boolean }, time: number) {
     const ctx = this.ctx;
+    const fl = !!spot.flip, dim = clubDims(fl);
     const bad = !!spot.problem;
     const poly = (x0: number, y0: number, x1: number, y1: number) => {
       const a = this.toScreen(x0, y0), b = this.toScreen(x1, y0), c = this.toScreen(x1, y1), d = this.toScreen(x0, y1);
@@ -2648,7 +2724,7 @@ export class Renderer {
       ctx.lineTo(d.x, d.y);
       ctx.closePath();
     };
-    const lot = clubLot(spot);
+    const lot = clubLot(spot, fl);
     poly(lot.x0, lot.y0, lot.x1 + 1, lot.y1 + 1);
     ctx.fillStyle = bad ? 'rgba(220,70,50,.10)' : 'rgba(250,236,170,.10)';
     ctx.fill();
@@ -2657,7 +2733,7 @@ export class Renderer {
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.setLineDash([]);
-    poly(spot.x, spot.y, spot.x + CLUB_W, spot.y + CLUB_H);
+    poly(spot.x, spot.y, spot.x + dim.w, spot.y + dim.h);
     ctx.fillStyle = bad ? 'rgba(220,70,50,.5)' : 'rgba(255,226,140,.45)';
     ctx.fill();
     ctx.strokeStyle = bad ? '#ff8a6a' : '#ffe27a';
@@ -2666,10 +2742,10 @@ export class Renderer {
     if (!bad) {
       ctx.save();
       ctx.globalAlpha = 0.72 + 0.1 * Math.sin(time * 4);
-      drawCountryClub(this.clubPainter(spot), game, time);
+      this.withClubFlip(spot, fl, () => drawCountryClub(this.clubPainter(spot, fl), game, time));
       ctx.restore();
     }
-    const label = this.toScreen(spot.x + CLUB_W / 2, spot.y + CLUB_H / 2);
+    const label = this.toScreen(spot.x + dim.w / 2, spot.y + dim.h / 2);
     ctx.font = '700 12px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
