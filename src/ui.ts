@@ -807,8 +807,8 @@ export class UI {
     const finish = () => { g.pendingRecap = null; this.recapShowing = false; g.dirtySave = true; this.closeModal(); };
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
-      finish(); this.tab = 'journey'; this.journalView = 'projects';
-      if (!g.designMode) g.toggleDesignMode(); this.refresh(true); this.onInsets();
+      // planning holds the clock (the chip offers Resume) and opens Goals, where the next job has a Show me button
+      finish(); g.pause(); this.tab = 'journey'; this.sheet = 'half'; this.cache.delete('side'); this.refresh(true); this.onInsets();
     };
   }
 

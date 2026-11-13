@@ -2,12 +2,12 @@ import type { Game } from './game';
 import { CFG } from './config';
 import { EditPlan, TileEdit, planPaint } from './editing';
 import { T, holePath, polyDist, holeCondition, center, isOwned } from './terrain';
-import { GOALS } from './campaign';
+import { currentGoal } from './campaign';
 
 export const CAREER = [
   { xp: 0, title: 'Course caretaker', perk: 'Restore the basics and welcome your first regulars.' },
-  { xp: 160, title: 'Course builder', perk: 'Unlock smart irrigation for your current and future courses.' },
-  { xp: 650, title: 'Club steward', perk: 'Unlock the clubhouse terrace and its extra shop income.' },
+  { xp: 160, title: 'Course builder', perk: 'Your course is making a name for itself.' },
+  { xp: 650, title: 'Club steward', perk: 'Golfers are starting to talk about your club.' },
   { xp: 1800, title: 'Course architect', perk: 'A permanent 5% discount on terrain construction.' },
   { xp: 4500, title: 'Resort designer', perk: 'A permanent 10% discount on terrain construction.' },
 ];
@@ -103,13 +103,14 @@ export function commissionProject(g: Game, id: string): boolean {
   g.onFeedback('build');
   return true;
 }
+/** The one thing the day report points to next: something the player can actually do from the menu today. */
 export function nextSuggestion(g: Game): { title: string; description: string; action: string } {
-  const ready = GOALS.find(o => !g.campaign.claimed.includes(o.id) && o.value(g) >= o.target);
-  if (ready) return { title: 'A goal is ready to collect', description: ready.title, action: 'progress' };
-  if (greenProject(g)) return { title: 'Start with the greens', description: 'A reliable putting surface gives golfers a reason to come back.', action: 'projects' };
-  if (g.world.holes.some(h => !h.open)) return { title: 'Bring another hole back into play', description: 'More open holes mean more tee times and a better day out.', action: 'projects' };
-  if (!g.experience.site.garden) return { title: 'Give your clubhouse a proper welcome', description: 'Add a garden to lift guest satisfaction and make the entrance your own.', action: 'projects' };
-  return { title: 'Watch your guests, then refine', description: 'Follow a golfer or test your own holes. Their scores tell you where to improve.', action: 'course' };
+  if (g.world.holes.length && !g.world.holes.some(h => h.open)) return { title: 'Open a hole', description: 'No holes are open, so no golfers can play. Tap a hole on the map, then Open hole.', action: 'course' };
+  const goal = currentGoal(g);
+  if (goal) return { title: goal.title, description: goal.how, action: 'progress' };
+  const closed = g.world.holes.find(h => !h.open);
+  if (closed) return { title: `Reopen ${closed.name}`, description: 'More open holes mean more tee times and a better day out.', action: 'course' };
+  return { title: 'Watch your guests, then refine', description: 'Follow a golfer or send test golfers round a hole. Their scores tell you where to improve.', action: 'course' };
 }
 
 export function useOperatingReserve(g: Game): boolean {
