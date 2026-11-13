@@ -1004,3 +1004,11 @@ body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px);
 #goalbar.alert { min-height: 52px; padding-right: 6px; cursor: default; }
 #goalbar .k.closed { background: #d0442b; color: #fff; }
 #goalbar .gb-act { flex: none; min-height: 40px; padding: 0 12px; font-size: 13px; }
+
+/* ---- seven destinations in the menu: Settings shares the last row in portrait; landscape uses seven columns ---- */
+#nav .mset { grid-column: span 2; min-height: 0; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.menu-open #nav { max-width: 700px; grid-template-columns: repeat(7, 1fr); }
+  #nav .mspeed { grid-column: span 3; }
+  #nav .mset { grid-column: span 4; }
+}

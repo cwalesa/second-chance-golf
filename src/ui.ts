@@ -31,7 +31,7 @@ import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } fr
 type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
-const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'journey'];
+const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'events', 'journey'];
 /** Plain help for each tool, the first time it is picked. */
 const TOOL_TIPS: Partial<Record<string, string>> = {
   build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust (on touch, press and hold it first). Nothing is built until you tap Build.',
@@ -392,7 +392,7 @@ export class UI {
   }
 
   private buildNav() {
- const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
+    const tabs = ['build', 'course', 'guests', 'money', 'club', 'events', 'journey'];
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
     // Phone: the destinations live in a menu window that the corner button opens, under a title bar with its own close control.
     this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mhead"><b>Menu</b><button class="mclose" data-m="close" aria-label="Close menu">${icon('close')}</button></div><div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
