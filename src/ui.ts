@@ -7,6 +7,7 @@ const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { panelControl } from './panel-click';
 import { nextStep, scoreText } from './first-round';
+import { MomentKind, MomentState, nextMoment } from './moments';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb, isFacilityKind } from './art/facilities';
@@ -767,12 +768,14 @@ export class UI {
     m.querySelectorAll<HTMLInputElement>('[data-pref]').forEach(input => { input.onchange = () => { (this.game.preferences as unknown as Record<string, boolean>)[input.dataset.pref!] = input.checked; this.game.dirtySave = true; }; });
     (m.querySelector('#settingsDone') as HTMLElement).onclick = () => this.closeModal();
   }
+  private recapShowing = false;
   private showRecap() {
     const g = this.game, d = g.pendingRecap; if (!d) return;
+    this.recapShowing = true;
     const history = g.days.slice(-7), max = Math.max(1, ...history.map(d => Math.abs(d.profit)));
     const suggestion = nextSuggestion(g);
     const m = this.modal(`<div class="day-report"><span class="eyebrow">Day ${d.day}</span><h2>Day report</h2><div class="report-profit ${d.profit < 0 ? 'loss' : ''}"><span>${d.profit >= 0 ? '+' : ''}${fmtMoney(d.profit)}</span><small>Operating profit</small></div><div class="report-kpis"><div><b>${d.rounds}</b><small>Rounds</small></div><div><b>${d.rounds ? Math.round(d.avgSat) + '%' : '—'}</b><small>Golfer satisfaction</small></div><div><b>${g.members.length}</b><small>Members</small></div></div><div class="ledger-rows"><div><span>Green fees and shop sales</span><b>${fmtMoney(d.fees + d.shop)}</b></div><div><span>Maintenance and wages</span><b>−${fmtMoney(d.maintenance)}</b></div><div><span>Construction (not in profit)</span><b>${fmtMoney(d.construction)}</b></div></div><div class="report-chart" aria-label="Recent daily operating profit">${history.map(x => `<div title="Day ${x.day}: ${fmtMoney(x.profit)}"><i class="${x.profit < 0 ? 'negative' : ''}" style="height:${Math.max(5, Math.abs(x.profit) / max * 60)}px"></i><small>${x.day}</small></div>`).join('')}</div><div class="report-next"><span class="eyebrow">NEXT ON YOUR COURSE</span><b>${suggestion.title}</b><small>${suggestion.description}</small></div><div class="report-actions"><button class="btn" id="recapPlan">Plan improvements</button><button class="btn primary" id="recapContinue">Start day ${g.day} →</button></div></div>`);
-    const finish = () => { g.pendingRecap = null; g.dirtySave = true; this.closeModal(); };
+    const finish = () => { g.pendingRecap = null; this.recapShowing = false; g.dirtySave = true; this.closeModal(); };
     (m.querySelector('#recapContinue') as HTMLElement).onclick = () => { finish(); this.refresh(true); };
     (m.querySelector('#recapPlan') as HTMLElement).onclick = () => {
       finish(); this.tab = 'journey'; this.journalView = 'projects';
@@ -868,22 +871,36 @@ export class UI {
     if (this.roundCard) this.roundCard.hidden = true;
     document.body.classList.remove('has-roundcard');
   }
-  /** Only when nothing else has the player's attention: no panel, menu, dialog, edit or practice round. Until then it waits. */
-  private roundCardMoment(): boolean {
-    const e = this.editor;
-    return this.tab === 'none' && !this.menuOpen && !this.modalOpen && !this.introOpen && !this.game.owner.active && !this.game.pendingRecap
-      && !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost && !document.getElementById('goalpop');
+  /** A snapshot of what else has the player's attention, for the moment queue. */
+  private momentState(): MomentState {
+    const e = this.editor, g = this.game, fr = g.firstRound;
+    const open: MomentKind | null = this.roundCard && !this.roundCard.hidden ? 'round' : document.getElementById('goalpop') ? 'goal' : this.recapShowing && this.modalOpen ? 'recap' : null;
+    return {
+      open,
+      pending: { round: fr.done && !fr.shown && !!fr.result, goal: !!g.goalJustDone || g.cheers.length > 0, recap: !!g.pendingRecap },
+      blocked: document.body.classList.contains('coaching') || this.menuOpen || (this.modalOpen && open !== 'recap') || this.introOpen || g.owner.active,
+      calm: !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost,
+      panelOpen: this.tab !== 'none' && this.tab !== 'build', // the build tray sits below the map; the cards ride above it
+    };
   }
-  private renderRoundCard() {
+  /** Run once a tick: let at most one waiting moment appear, and step the first-round card aside if something else needs the player. */
+  private runMoments() {
     const el = this.roundCard, fr = this.game.firstRound;
-    if (!el) return;
-    if (!el.hidden) {
-      // Something else needs the player (a dialog, an edit): step aside. A card that was not on screen long enough to be read stays queued.
-      if (!this.roundCardMoment()) { this.hideRoundCard(); return; }
+    const s = this.momentState();
+    if (el && !el.hidden) {
+      // The card steps aside for a dialog, an edit or a panel. One that was not on screen long enough to be read stays queued.
+      if (s.blocked || !s.calm || s.panelOpen) { this.hideRoundCard(); return; }
       if (!fr.shown && performance.now() - this.roundCardAt >= 1500) this.markRoundSeen();
       return;
     }
-    if (!fr.done || fr.shown || !fr.result || !this.roundCardMoment()) return;
+    const m = nextMoment(s);
+    if (m === 'goal') this.showGoalMoment();
+    else if (m === 'recap') this.showRecap();
+    else if (m === 'round') this.showRoundCard();
+  }
+  private showRoundCard() {
+    const el = this.roundCard, fr = this.game.firstRound;
+    if (!el || !fr.result) return;
     const r = fr.result, over = r.strokes - r.par, step = nextStep(this.game.world.holes);
     el.innerHTML = `<div class="rc-head"><span class="rc-k">First round complete</span><button class="rc-x" data-rc="x" aria-label="Dismiss">&times;</button></div>
       <div class="rc-name">${escapeHtml(r.name)} finished</div>
@@ -976,7 +993,6 @@ export class UI {
   // ---------- dynamic ----------
   refresh(force = false) {
     const g = this.game;
-    if (g.pendingRecap && this.$('modal').hidden) this.showRecap();
     const set = (id: string, v: string) => {
       if (this.cache.get(id) !== v) {
         this.cache.set(id, v);
@@ -1077,7 +1093,7 @@ export class UI {
     document.body.dataset.sheet = sideOpen && this.portraitSheet ? this.sheet : '';
     this.reveal(this.$('tools'), !this.mobile || this.tab === 'build');
     this.updateConfirm();
-    this.renderRoundCard();
+    this.runMoments();
     (this.$('view') as HTMLElement).classList.toggle('pan', this.editor.tool === 'pan');
 
     this.renderPill();
@@ -1159,8 +1175,10 @@ export class UI {
       this.cache.set('goalbar', html);
       this.$('goalbar').innerHTML = html;
     }
-    // celebrate big moments once the tutorial and any dialog are out of the way, one at a time
-    if (document.body.classList.contains('coaching') || this.modalOpen || document.getElementById('goalpop')) return;
+  }
+  /** Goal and reward pop-ups: shown by the moment queue (see moments.ts), one at a time. */
+  private showGoalMoment() {
+    const g = this.game;
     const done = g.goalJustDone;
     if (done) {
       g.goalJustDone = null;
