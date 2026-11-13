@@ -657,13 +657,19 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 }
 
 /* ================= a browser window wider than a phone ================= */
+/* The map fills the window. The controls stay in a comfortable column in the middle of the bottom edge and top, as on a phone,
+   so nothing stretches across a wide screen; the start screen keeps its phone-sized card. */
 @media (min-width: 640px) and (pointer: fine) {
   html, body { background: radial-gradient(120% 90% at 50% 10%, #3f7a45, #16301c 72%); }
-  #app { left: 50%; right: auto; width: 430px; transform: translateX(-50%); box-shadow: 0 0 0 10px #0f1f12, 0 30px 80px rgba(0, 0, 0, .55); }
   #start { left: 50%; right: auto; width: 430px; transform: translateX(-50%); }
+  #top, #coach, #tip, #confirm, #tools, #side, #toasts, #roundcard { max-width: 520px; margin-left: auto; margin-right: auto; }
+  #goalbar { left: max(8px, calc(50% - 252px)); }
+  #brushbar { left: max(10px, calc(50% - 250px)); }
+  #fab { right: 24px; }
+  body.confirming-plan #confirm, body.confirming-plan[data-tab="build"] #confirm { left: 8px; right: 8px; }
 }
 @media (min-width: 640px) and (min-height: 760px) and (pointer: fine) {
-  #app, #start { top: 50%; bottom: auto; height: min(932px, calc(100vh - 48px)); transform: translate(-50%, -50%); border-radius: 40px; }
+  #start { top: 50%; bottom: auto; height: min(932px, calc(100vh - 48px)); transform: translate(-50%, -50%); border-radius: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 #tstate[data-hold="unopened"] .ts-act { font-size: 12.5px; }
@@ -963,3 +969,32 @@ body.has-proposal #tip p, body.coaching #tip p { margin: 0; display: -webkit-box
 body.has-proposal #tip button, body.coaching #tip button { min-height: 40px; }
 /* a practice round keeps its notifications at the top as well, clear of the swing controls */
 body.owner-playing #toasts { top: calc(var(--hdr) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
+
+/* warnings and instructions wrap in full; a tall panel scrolls instead of cutting its words off */
+#confirm { max-height: min(46dvh, 380px); overflow-y: auto; }
+#confirm .cf-sub, #confirm.placing .cf-sub { display: block; -webkit-line-clamp: unset; overflow: visible; }
+#confirm .cf-note { display: block; -webkit-line-clamp: unset; overflow: visible; margin-top: 2px; line-height: 1.35; }
+body.has-proposal #coach .coach-short { display: block; -webkit-line-clamp: unset; overflow: visible; }
+body.has-proposal #tip p, body.coaching #tip p { display: block; -webkit-line-clamp: unset; overflow: visible; }
+
+/* the first paying round: a short card that rides above the bottom edge and never takes the map away */
+#roundcard {
+  position: absolute; z-index: 12; left: 8px; right: calc(76px + var(--sar)); bottom: calc(var(--dock) + 12px); padding: 10px 12px 12px;
+  border: 4px solid var(--edge); border-radius: 16px; background: #fff; box-shadow: var(--shadow-win); animation: cardin .26s var(--ease-out);
+}
+@keyframes cardin { from { transform: translateY(14px) scale(.97); opacity: 0; } }
+#roundcard .rc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#roundcard .rc-k { font: 700 10px var(--label); letter-spacing: .04em; color: var(--ink-2); text-transform: uppercase; }
+#roundcard .rc-x { min-width: 44px; min-height: 36px; border: 0; background: none; font: 900 22px/1 var(--font); color: var(--ink-2); }
+#roundcard .rc-name { font: 900 18px/1.2 var(--font); margin-top: 2px; }
+#roundcard .rc-score { font: 800 15px/1.3 var(--font); margin-top: 2px; }
+#roundcard .rc-score span, #roundcard .rc-fee span { font-weight: 700; color: var(--ink-2); }
+#roundcard .rc-fee { margin-top: 4px; padding: 5px 9px; border: 3px solid var(--edge); border-radius: 10px; background: #dcf7d2; font: 900 14px/1.3 var(--font); }
+#roundcard .rc-fee span { color: var(--good); font-weight: 800; }
+#roundcard .rc-say { margin: 8px 0 0; font: 700 14px/1.35 var(--font); color: var(--ink); }
+#roundcard .rc-actions { display: flex; gap: 8px; margin-top: 10px; }
+#roundcard .rc-actions .btn { flex: 1; }
+body.has-proposal #roundcard, body.menu-open #roundcard { display: none; }
+
+/* while the result card is up, notifications move to the top so they never sit on it */
+body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }

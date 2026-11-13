@@ -86,7 +86,7 @@ const holeEnsure = (c: Ctx) => {
     const spot = st === 1 ? s.tee : s.cup;
     const p = c.r.toScreen(spot.x + 0.5, spot.y + 0.5), ins = c.r.insets;
     const inside = p.x > ins.l + 24 && p.x < c.r.cw - ins.r - 24 && p.y > ins.t + 24 && p.y < c.r.ch - ins.b - 24;
-    if (!inside && !c.mark[key] && !c.r.cameraMoving) { c.mark[key] = true; c.e.focusPoints([s.tee, s.cup]); }
+    if (!inside && !c.mark[key] && !c.r.cameraMoving && !c.e.interacting) { c.mark[key] = true; c.e.focusPoints([s.tee, s.cup]); }
   }
 };
 const holeHint = (c: Ctx) => {

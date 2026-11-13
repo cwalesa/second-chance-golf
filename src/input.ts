@@ -597,16 +597,35 @@ export class Editor {
     this.r.pulse(t.x + 0.5, t.y + 0.5);
     return true;
   }
+  /** True while a finger or the mouse is down on the map, or a handle is held: the camera must not move then. */
+  get interacting() {
+    return this.mode !== 'none' || !!this.drag || this.pointers.size > 0;
+  }
   /** If any pin of the route is hidden (off screen, or under the Build bar once it has grown), frame the route. Waits a moment for the bar to settle. */
-  private keepInView(pts: Pt[]) {
+  private keepInView(pts: Pt[], tries = 0) {
     window.setTimeout(() => {
+      // never move the camera under a placement or a drag: try again once the pointer is up
+      if (this.interacting) { if (tries < 8) this.keepInView(pts, tries + 1); return; }
       const ins = this.r.insets;
       const hidden = pts.some((q) => {
         const g = this.r.pinGeom({ x: q.x + 0.5, y: q.y + 0.5 });
         return g.base.x < ins.l + 14 || g.base.x > this.r.cw - ins.r - 14 || g.head.y - g.r < ins.t || g.base.y > this.r.ch - ins.b - 6;
       });
-      if (hidden && this.shaping) this.focusPoints(pts, Math.max(0.45, Math.min(0.95, this.r.cam.zoom)));
+      if (hidden && (this.shaping || this.buildTee)) this.focusPoints(pts, Math.max(0.45, Math.min(0.95, this.r.cam.zoom)));
     }, 280);
+  }
+  /** Painted ground waiting to be built: if it is off screen or under the panel, slide the map (without zooming) so it shows above the panel. */
+  private keepAreaInView(tries = 0) {
+    window.setTimeout(() => {
+      if (this.interacting) { if (tries < 8) this.keepAreaInView(tries + 1); return; }
+      if (!this.batch.size) return;
+      const w = this.game.world, ins = this.r.insets;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const i of this.batch.keys()) { const x = i % w.w, y = Math.floor(i / w.w); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
+      const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => this.r.toScreen(x, y));
+      const hidden = corners.some((c) => c.x < ins.l + 8 || c.x > this.r.cw - ins.r - 8 || c.y < ins.t + 8 || c.y > this.r.ch - ins.b - 8);
+      if (hidden) this.r.focus((x0 + x1) / 2, (y0 + y1) / 2, this.r.cam.zoom, w);
+    }, 300);
   }
   /** Add a bend in the middle of the longest leg, ready to drag. */
   addBend() {
@@ -1096,6 +1115,7 @@ export class Editor {
     this.lastTile = null;
     this.preview = null;
     this.onChange();
+    if (this.batch.size) this.keepAreaInView();
   }
 
   /** Describe a pending or hovered hole plan on the map: footprint, changed tiles and the pins it would move. */
@@ -1163,6 +1183,7 @@ export class Editor {
         this.r.pulse(t.x + 0.5, t.y + 0.5);
         this.hover = t;
         this.updateHover();
+        this.keepInView([t]);
         return;
       }
       const plan = this.newHolePlan(this.buildTee, t);

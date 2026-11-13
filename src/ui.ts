@@ -6,6 +6,7 @@ import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { panelControl } from './panel-click';
+import { nextStep, scoreText } from './first-round';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb, isFacilityKind } from './art/facilities';
@@ -98,6 +99,7 @@ export class UI {
     document.addEventListener('pointerup', release);
     document.addEventListener('pointercancel', release);
     document.addEventListener('pointerdown', () => window.clearTimeout(releaseT), true);
+    this.buildRoundCard();
     this.buildTools();
     this.buildTop();
     this.buildSide();
@@ -607,13 +609,14 @@ export class UI {
     const problem = ui?.drag?.problem;
     const dragHint = shaping && !problem && !(sel >= 0 && sel < bends.length) ? `<span class="cf-hint">${bends.length ? (coarse ? 'Press and hold a bend, then drag it.' : 'Drag a bend to shape the hole.') : 'Add a bend, then drag it where the turn should be.'}${this.editor.tool === 'bend' ? ' Tap empty ground to add one.' : ''}</span>` : '';
     const badLine = problem ? `<span class="cf-sub bad">${escapeHtml(problem)}</span>` : '';
-    const noteLine = p?.notes?.length ? `<span class="cf-note" title="${escapeHtml(p.notes.join(' '))}">${escapeHtml(p.notes[0])}${p.notes.length > 1 ? ` (+${p.notes.length - 1} more)` : ''}</span>` : '';
+    // every caution is shown in full, one under another: they wrap instead of being cut off
+    const noteLine = p?.notes?.length ? p.notes.map((n) => `<span class="cf-note">${escapeHtml(n)}</span>`).join('') : '';
     const costText = p ? `<span class="cf-cost">${fmtMoney(p.cost)}</span>` : '<span class="dim">No change yet</span>';
     const html = p || bendTool ? `<span class="cf-text"><b>${escapeHtml(p ? p.label : `Shape hole ${hn}`)}</b><span class="cf-sub">${route}${bendTool ? '' : `${what} · `}${costText}${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${badLine}${dragHint}${noteLine}${parBar}</span><button class="btn" id="${p ? 'cfNo' : 'cfStop'}" ${p ? '' : 'aria-label="Stop shaping"'}>Cancel</button><button class="btn primary" id="cfOk" ${!p || short > 0 ? 'disabled' : ''}>Build</button>`
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
     // while a hole is being placed or shaped the toolbox steps aside, so the one panel at the bottom is all there is
     const showing = !!(p || placing || bendTool);
-    document.body.classList.toggle('confirming-plan', showing && this.editor.isPlacement);
+    document.body.classList.toggle('confirming-plan', showing && !this.editor.bGhost);
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;
@@ -827,6 +830,74 @@ export class UI {
   }
   private sideKey = '';
   /** Expandable panel sections the player has opened, kept open across refreshes. */
+  // ---- the first paying round: a short, non-blocking result card ----
+  private roundCard: HTMLElement | null = null;
+  private roundCardT = 0;
+  private buildRoundCard() {
+    const el = document.createElement('div');
+    el.id = 'roundcard';
+    el.hidden = true;
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.getElementById('app')!.append(el);
+    this.roundCard = el;
+    el.addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-rc]');
+      if (!b) return;
+      const step = nextStep(this.game.world.holes);
+      this.markRoundSeen(); // answering the card means it has been seen
+      this.hideRoundCard();
+      if (b.dataset.rc !== 'go') return;
+      if (step.id === 'secondHole') { this.editor.setTool('build'); this.tab = 'build'; }
+      else if (step.id === 'openHole') { if (step.holeId) this.editor.selectHole(step.holeId); this.tab = 'course'; }
+      else this.tab = 'guests';
+      this.refresh(true);
+      this.onInsets();
+    });
+  }
+  private roundCardAt = 0;
+  private markRoundSeen() {
+    const fr = this.game.firstRound;
+    if (fr.shown) return;
+    fr.shown = true; // from here on a reload never shows it again
+    this.game.dirtySave = true;
+  }
+  private hideRoundCard() {
+    window.clearTimeout(this.roundCardT);
+    if (this.roundCard) this.roundCard.hidden = true;
+    document.body.classList.remove('has-roundcard');
+  }
+  /** Only when nothing else has the player's attention: no panel, menu, dialog, edit or practice round. Until then it waits. */
+  private roundCardMoment(): boolean {
+    const e = this.editor;
+    return this.tab === 'none' && !this.menuOpen && !this.modalOpen && !this.introOpen && !this.game.owner.active && !this.game.pendingRecap
+      && !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost && !document.getElementById('goalpop');
+  }
+  private renderRoundCard() {
+    const el = this.roundCard, fr = this.game.firstRound;
+    if (!el) return;
+    if (!el.hidden) {
+      // Something else needs the player (a dialog, an edit): step aside. A card that was not on screen long enough to be read stays queued.
+      if (!this.roundCardMoment()) { this.hideRoundCard(); return; }
+      if (!fr.shown && performance.now() - this.roundCardAt >= 1500) this.markRoundSeen();
+      return;
+    }
+    if (!fr.done || fr.shown || !fr.result || !this.roundCardMoment()) return;
+    const r = fr.result, over = r.strokes - r.par, step = nextStep(this.game.world.holes);
+    el.innerHTML = `<div class="rc-head"><span class="rc-k">First round complete</span><button class="rc-x" data-rc="x" aria-label="Dismiss">&times;</button></div>
+      <div class="rc-name">${escapeHtml(r.name)} finished</div>
+      <div class="rc-score"><b>${scoreText(over)}</b> <span>over ${r.holes} hole${r.holes === 1 ? '' : 's'} · ${r.strokes} strokes</span></div>
+      <div class="rc-fee">Green fee ${fmtMoney(r.fee)} <span>already collected</span></div>
+      <p class="rc-say">${escapeHtml(r.reaction)}</p>
+      <div class="rc-actions"><button class="btn primary" data-rc="go">${escapeHtml(step.label)}</button><button class="btn" data-rc="x">Not now</button></div>`;
+    el.hidden = false;
+    document.body.classList.add('has-roundcard');
+    this.roundCardAt = performance.now();
+    this.game.onFeedback('reward');
+    window.clearTimeout(this.roundCardT);
+    this.roundCardT = window.setTimeout(() => this.hideRoundCard(), 30000);
+  }
   private openSecs = new Set<string>();
   private sideAt = 0;
   /** Which control inside the panel has focus, described by what it is rather than where it sits, so it can be found again after a rebuild. */
@@ -1006,6 +1077,7 @@ export class UI {
     document.body.dataset.sheet = sideOpen && this.portraitSheet ? this.sheet : '';
     this.reveal(this.$('tools'), !this.mobile || this.tab === 'build');
     this.updateConfirm();
+    this.renderRoundCard();
     (this.$('view') as HTMLElement).classList.toggle('pan', this.editor.tool === 'pan');
 
     this.renderPill();

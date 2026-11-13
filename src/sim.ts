@@ -84,6 +84,8 @@ export interface Golfer {
   swingT: number;
   /** A small, purely visual reaction to the last shot (a fist pump, a head shake). Never read by the simulation. */
   react?: { kind: 'good' | 'poor'; t0: number; v: number };
+  /** Sim time of a small cheer on the way home (the first paying round). Drawing only. */
+  cheer?: number;
   trail: Pt[];
   bubble: { text: string; t: number } | null;
   lastSay: number;

@@ -25,6 +25,7 @@ export function serialize(g: Game): string {
     daily: g.daily,
     practice: g.practice,
     tutorial: g.tutorial,
+    firstRound: g.firstRound,
     experience: g.experience,
     preferences: g.preferences,
     pendingRecap: g.pendingRecap,
@@ -142,6 +143,11 @@ export function deserialize(text: string): LoadedSave | null {
     // so a real course saved by an older version is past it and its step numbers mean nothing now.
     if (g.tutorial.v !== TUTORIAL_VERSION && !g.practice) g.tutorial = { step: 0, done: true, v: TUTORIAL_VERSION };
     else if (g.tutorial.v !== TUTORIAL_VERSION) g.tutorial.step = 0;
+    // The first-round payoff: kept as saved. A course from before it existed that has already seen rounds has had its first one.
+    const fr = d.firstRound;
+    g.firstRound = fr && typeof fr.done === 'boolean'
+      ? { done: fr.done, shown: !!fr.shown, result: fr.result && typeof fr.result.name === 'string' ? fr.result : null }
+      : { done: (d.stats?.rounds ?? 0) > 0, shown: (d.stats?.rounds ?? 0) > 0, result: null };
     g.staff = { ...g.staff, ...(d.staff ?? {}) };
     g.members = Array.isArray(d.members) ? d.members : [];
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];

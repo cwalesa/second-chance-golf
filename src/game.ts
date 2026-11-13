@@ -5,6 +5,7 @@ import { assessDesign, designEnjoyment } from './design';
 import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
 import { reserveLots, lotFor } from './lots';
+import { FirstRoundState, firstRoundResult, freshFirstRound, isPayingRound } from './first-round';
 import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNear, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
@@ -161,6 +162,8 @@ export class Game {
   get dirtySave() { return this._dirtySave; }
   set dirtySave(v: boolean) { this._dirtySave = v; if (v) this.onStateChanged?.(); }
   private _dirtySave = false;
+  /** The payoff for the first paying guest to finish a round: recorded once per course, shown once. */
+  firstRound: FirstRoundState = freshFirstRound();
   /** Called whenever the committed game state changes (an edit built, undone, a hole opened, the clubhouse placed). */
   onStateChanged: (() => void) | null = null;
   bookings: Booking[] = [];
@@ -573,6 +576,13 @@ export class Game {
       const diff = r.strokes - r.par;
       this.notify('info', `Test golfer ${r.name} finished hole ${hole}: ${r.strokes} strokes (${diff === 0 ? 'par' : (diff > 0 ? '+' : '') + diff}).`);
       return diff <= 0 ? 'Lovely layout. Is it open to the public?' : 'Tough but fair.';
+    }
+    // The first paying guest to finish gets a result card. Their fee was already collected when they teed off; nothing is paid here.
+    if (!this.firstRound.done && !this.practice && isPayingRound(r)) {
+      this.firstRound = { done: true, shown: false, result: firstRoundResult(r) };
+      const golfer = this.sim.golfers.find((x) => x.id === r.golferId);
+      if (golfer) golfer.cheer = this.sim.now; // a small cheer as they head home (drawing only)
+      this.dirtySave = true;
     }
     const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades) + this.club.sat);
     const designBonus = r.holes ? (r.designSum ?? 0) / r.holes : 0;

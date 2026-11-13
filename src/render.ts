@@ -1678,12 +1678,24 @@ export class Renderer {
           { y: club.x + club.y + 14, draw: () => this.drawStructures(game, time) },
         ]
       : [];
+    // trees that would hide a marker, a handle or ground being edited fade out while the edit is open, and come back after
+    const zone = this.fadeZone(ov, w);
+    const dtF = Math.min(0.1, Math.max(0, time - this.fadeAt));
+    this.fadeAt = time;
+    const settle = (a: number, target: number) => (Renderer.reducedMotion ? target : target < a ? Math.max(target, a - dtF * 5) : Math.min(target, a + dtF * 4));
+    for (const [i, a] of this.treeFade) {
+      const n = settle(a, zone?.has(i) ? Renderer.FADE_TO : 1);
+      if (n >= 1) this.treeFade.delete(i); else this.treeFade.set(i, n);
+    }
     if (!far) for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * w.w + x;
         if (!w.tree[i]) continue;
         const hh = hash2(x, y, 400);
         const variant = this.treeVariant(game, x, y, i, hh);
+        let fade = this.treeFade.get(i) ?? 1;
+        if (zone?.has(i)) { const n = settle(fade, Renderer.FADE_TO); if (n < 1) this.treeFade.set(i, n); fade = n; }
+        if (fade < 1) { const f = fade; items.push({ y: x + y + 1, draw: () => { const pa = this.ctx.globalAlpha; this.ctx.globalAlpha = pa * f; this.drawTree(x, y, variant, hh); this.ctx.globalAlpha = pa; } }); continue; }
         items.push({ y: x + y + 1, draw: () => this.drawTree(x, y, variant, hh) });
       }
     if (!far) for (const d of this.decor) {
@@ -1931,6 +1943,36 @@ export class Renderer {
     if (!w) return false;
     return x + 1 < w.w && y + 1 < w.h && w.tree[(y + 1) * w.w + x + 1] === 1 && w.tree[y * w.w + x + 1] === 1;
   }
+  /** How see-through a faded tree gets. */
+  private static readonly FADE_TO = 0.26;
+  private treeFade = new Map<number, number>();
+  private fadeAt = 0;
+  /**
+   * The tiles whose trees should fade: around the markers, handles and clubhouse spot being placed, and over ground waiting to be built.
+   * Markers also clear the few tiles in front of them, since that is where a tree stands to hide one. Null when nothing is being edited.
+   */
+  private fadeZone(ov: Overlay, w: World): Set<number> | null {
+    const marks: Pt[] = [];
+    const ui = ov.bendUi;
+    if (ui) { marks.push(ui.tee, ui.cup, ...ui.bends); if (ui.drag?.engaged) marks.push({ x: Math.floor(ui.drag.tip.x), y: Math.floor(ui.drag.tip.y) }); }
+    if (ov.buildTee) marks.push(ov.buildTee);
+    if (ov.buildLine) marks.push(ov.buildLine.to);
+    if (ov.hint) for (const p of [ov.hint.tee, ov.hint.cup]) if (p) marks.push(p);
+    const area: number[] = [];
+    for (const i of ov.staged) area.push(i);
+    for (const i of ov.changed) area.push(i);
+    if (ov.tool !== 'inspect' && ov.tool !== 'pan' && ov.hoverTiles.length > 0 && ov.hoverTiles.length <= 40) for (const i of ov.hoverTiles) area.push(i);
+    const foot: { x: number; y: number; w: number; h: number }[] = [];
+    if (ov.club) foot.push({ x: ov.club.x, y: ov.club.y, w: CLUB_W, h: CLUB_H });
+    if (ov.bGhost) { const d = ITEMS[ov.bGhost.k as ItemKind]; foot.push({ x: ov.bGhost.x, y: ov.bGhost.y, w: d.w ?? 1, h: d.h ?? 1 }); }
+    if (!marks.length && !area.length && !foot.length) return null;
+    const zone = new Set<number>();
+    const add = (x: number, y: number) => { if (x >= 0 && y >= 0 && x < w.w && y < w.h) zone.add(y * w.w + x); };
+    for (const m of marks) for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 3; dx++) add(m.x + dx, m.y + dy);
+    for (const f of foot) for (let dy = -1; dy <= f.h + 1; dy++) for (let dx = -1; dx <= f.w + 1; dx++) add(f.x + dx, f.y + dy);
+    for (const i of area.length > 3000 ? area.slice(0, 3000) : area) { const x = i % w.w, y = (i - x) / w.w; for (let dy = -1; dy <= 2; dy++) for (let dx = -1; dx <= 2; dx++) add(x + dx, y + dy); }
+    return zone;
+  }
   private drawTree(x: number, y: number, v: number, hh: number) {
     const ctx = this.ctx;
     const ts = this.ts;
@@ -2130,6 +2172,12 @@ export class Renderer {
       lean = 0.02;
       hands = { x: 0.08, y: -0.28 + 0.006 * Math.sin(idle * 2 + g.id) };
       ang = 1.35;
+    }
+    // the first paying guest cheers on the way home: an arm up and a couple of small hops, for under two seconds
+    if (g.cheer !== undefined && !calm && now >= g.cheer && now - g.cheer < 1.8 && (g.phase === 'toExit' || g.phase === 'leave')) {
+      lift = 0.035 * Math.abs(Math.sin((now - g.cheer) * 9));
+      armUp = 1;
+      ang = 1.2;
     }
     // a small reaction to how the last shot turned out, in the first moments of the walk to the ball
     const rt = g.react && !calm && g.phase === 'toBall' ? now - g.react.t0 : -1;
