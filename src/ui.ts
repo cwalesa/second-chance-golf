@@ -128,7 +128,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor ph-bld">${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">&#8962;</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}<button class="tool" data-buycart="1" aria-label="Buy a golf cart"><canvas class="decor-thumb" data-decorthumb="cart" width="96" height="72"></canvas><span>Golf cart</span><em id="cartTile">$${CART_PRICE}</em></button></div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -163,6 +163,7 @@ export class UI {
       if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
       if (b.dataset.buycart) { if (!this.game.upgrades.carts) this.game.buyUpgrade('carts'); else this.game.buyCart(); this.refresh(true); return; }
       if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
+      if (b.dataset.moveclub) { this.editor.setTool('decor'); this.editor.startMoveClub(); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
       if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
       if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
@@ -555,13 +556,18 @@ export class UI {
     if (choosingClub) {
       const spot = this.editor.clubSpot;
       const ok = !!spot && !spot.problem && this.editor.clubLocked;
-      const msg = !spot ? 'Tap or click the ground to place it.' : spot.problem ? spot.problem : this.editor.clubLocked ? 'Trees will be cleared. An entrance road is included.' : 'Tap or click to choose this spot.';
-      const html = `<span class="cf-text"><b>Place your clubhouse</b><span class="cf-sub ${spot?.problem ? 'bad' : ''}">${escapeHtml(msg)}</span></span><button class="btn" id="clubSuggest">Suggest a spot</button><button class="btn primary" id="clubOk" ${ok ? '' : 'disabled'}>Build here</button>`;
+      const moving = this.editor.relocClub;
+      const msg = !spot ? 'Tap or click the ground to place it.' : spot.problem ? spot.problem : this.editor.clubLocked ? (moving ? 'Tap elsewhere to move it. Rotate turns it the other way. The entrance road moves with it.' : 'Trees will be cleared. An entrance road is included.') : 'Tap or click to choose this spot.';
+      const html = `<span class="cf-text"><b>${moving ? 'Move your clubhouse' : 'Place your clubhouse'}</b><span class="cf-sub ${spot?.problem ? 'bad' : ''}">${escapeHtml(msg)}</span></span><button class="btn" id="clubRot" aria-label="Rotate the clubhouse">Rotate</button>${moving ? '<button class="btn" id="clubNo">Cancel</button>' : '<button class="btn" id="clubSuggest">Suggest a spot</button>'}<button class="btn primary" id="clubOk" ${ok ? '' : 'disabled'}>${moving ? 'Move here' : 'Build here'}</button>`;
       if (this.cache.get('confirm') !== html) {
         this.cache.set('confirm', html);
         el.innerHTML = html;
         el.style.display = 'flex';
-        (this.$('clubSuggest') as HTMLElement).onclick = () => this.editor.suggestClub();
+        const sg = el.querySelector<HTMLElement>('#clubSuggest');
+        if (sg) sg.onclick = () => this.editor.suggestClub();
+        const cn = el.querySelector<HTMLElement>('#clubNo');
+        if (cn) cn.onclick = () => { this.editor.cancelClub(); this.refresh(true); };
+        (this.$('clubRot') as HTMLElement).onclick = () => this.editor.rotateClub();
         (this.$('clubOk') as HTMLElement).onclick = () => this.editor.confirmClub();
       }
       return;
@@ -571,14 +577,20 @@ export class UI {
     if (bg) {
       const d = ITEMS[bg.k];
       const prob = this.editor.bProblem;
-      const sub = bg.sell ? `Sell back for $${d.cost.toLocaleString('en-US')}.` : prob ?? `${d.hint}${d.upkeep ? ` Upkeep $${d.upkeep} a day.` : ''}`;
-      const html = `<span class="cf-text"><b>${d.label} · $${d.cost.toLocaleString('en-US')}</b><span class="cf-sub ${prob ? 'bad' : ''}">${escapeHtml(sub)}</span><span class="cf-hint">Tap elsewhere to move it.</span></span><button class="btn" id="bgNo">${bg.sell ? 'Keep' : 'Cancel'}</button><button class="btn primary" id="bgOk" ${prob ? 'disabled' : ''}>${bg.sell ? 'Sell' : 'Build'}</button>`;
+      const moving = bg.move !== undefined;
+      const unchanged = moving && !!bg.from && bg.from.x === bg.x && bg.from.y === bg.y;
+      const sub = moving ? prob ?? (unchanged ? 'Tap where it should go. Moving is free.' : 'Moving is free.') : bg.sell ? `Sell back for $${d.cost.toLocaleString('en-US')}.` : prob ?? `${d.hint}${d.upkeep ? ` Upkeep $${d.upkeep} a day.` : ''}`;
+      const html = moving
+        ? `<span class="cf-text"><b>${d.label}</b><span class="cf-sub ${prob ? 'bad' : ''}">${escapeHtml(sub)}</span></span><button class="btn warn" id="bgSell">Sell $${d.cost.toLocaleString('en-US')}</button><button class="btn" id="bgNo">Cancel</button><button class="btn primary" id="bgOk" ${prob || unchanged ? 'disabled' : ''}>Move here</button>`
+        : `<span class="cf-text"><b>${d.label} · $${d.cost.toLocaleString('en-US')}</b><span class="cf-sub ${prob ? 'bad' : ''}">${escapeHtml(sub)}</span><span class="cf-hint">Tap elsewhere to move it.</span></span><button class="btn" id="bgNo">${bg.sell ? 'Keep' : 'Cancel'}</button><button class="btn primary" id="bgOk" ${prob ? 'disabled' : ''}>${bg.sell ? 'Sell' : 'Build'}</button>`;
       if (this.cache.get('confirm') !== html) {
         this.cache.set('confirm', html);
         el.innerHTML = html;
         el.style.display = 'flex';
         el.classList.remove('placing');
         (this.$('bgNo') as HTMLElement).onclick = () => this.editor.cancelGhost();
+        const bs = el.querySelector<HTMLElement>('#bgSell');
+        if (bs) bs.onclick = () => this.editor.sellPicked();
         (this.$('bgOk') as HTMLElement).onclick = () => this.editor.confirmGhost();
       }
       document.body.classList.add('has-proposal');

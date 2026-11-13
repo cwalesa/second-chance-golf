@@ -141,3 +141,38 @@ export function beautyNear(w: World, p: Pt, r = 7): number {
   for (const it of w.items ?? []) if (Math.hypot(it.x - p.x, it.y - p.y) <= r) b += ITEMS[it.k].beauty;
   return b;
 }
+
+/** Why the placed thing at index `i` cannot stand with its top-left tile here, or null when it can. Moving costs nothing, so only the ground and its neighbours count. */
+export function moveProblem(w: World, i: number, x: number, y: number): string | null {
+  const it = w.items?.[i];
+  if (!it) return 'That is gone.';
+  const d = ITEMS[it.k];
+  for (let yy = y; yy < y + (d.h ?? 1); yy++)
+    for (let xx = x; xx < x + (d.w ?? 1); xx++) {
+      const why = itemProblem(w, xx, yy, it.k);
+      if (why) return why.startsWith('Not on the fairway') ? 'Fairway is for golfers. Pick rough beside it.' : why;
+      const other = itemAt(w, xx, yy);
+      if (other >= 0 && other !== i) return 'Something is already there.';
+      if (isAmenity(it.k) && w.terrain[idx(w, xx, yy)] === T.PATH) return 'Keep it off the paths and the clubhouse forecourt.';
+    }
+  return null;
+}
+
+/** Pick a placed building or object up and put it down at another tile. Free. */
+export function moveItem(g: Game, i: number, to: Pt): { ok: boolean; message?: string } {
+  const w = g.world;
+  const it = w.items?.[i];
+  if (!it) return { ok: false, message: 'That is gone.' };
+  const why = moveProblem(w, i, to.x, to.y);
+  if (why) return { ok: false, message: why };
+  const d = ITEMS[it.k];
+  const mark = (x0: number, y0: number) => { for (let yy = y0; yy < y0 + (d.h ?? 1); yy++) for (let xx = x0; xx < x0 + (d.w ?? 1); xx++) if (inBounds(w, xx, yy)) w.dirty.add(idx(w, xx, yy)); };
+  mark(it.x, it.y);
+  it.x = to.x;
+  it.y = to.y;
+  for (let yy = to.y; yy < to.y + (d.h ?? 1); yy++) for (let xx = to.x; xx < to.x + (d.w ?? 1); xx++) w.tree[idx(w, xx, yy)] = 0;
+  mark(to.x, to.y);
+  w.version++;
+  g.dirtySave = true;
+  return { ok: true };
+}

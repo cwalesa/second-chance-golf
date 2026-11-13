@@ -143,6 +143,6 @@ export function drawLot(p: Painter, label: string, x: number, y: number, w: numb
   c.fillStyle = 'rgba(40,34,22,0.82)';
   c.beginPath(); c.roundRect(s.x - tw / 2 + p.ts * 0.4, s.y - fs * 0.95, tw, fs * 1.5, fs * 0.3); c.fill();
   c.fillStyle = '#f4efd8'; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText(label, s.x + p.ts * 0.4, s.y - fs * 0.2);
+  if (p.mirror) { c.save(); c.translate(s.x + p.ts * 0.4, s.y - fs * 0.2); c.scale(-1, 1); c.fillText(label, 0, 0); c.restore(); } else c.fillText(label, s.x + p.ts * 0.4, s.y - fs * 0.2);
   c.textAlign = 'left'; c.textBaseline = 'alphabetic';
 }

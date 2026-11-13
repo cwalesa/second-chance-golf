@@ -33,7 +33,7 @@ function findSpot(w: World, k: LotKind, taken: { at: Pt; k: LotKind }[]): Pt | n
   const c = w.clubhouse;
   if (!c) return null;
   const s = size(k);
-  const cx = c.x + 3.5, cy = c.y + 2.5;
+  const fl = !!w.clubFlip, cx = c.x + (fl ? 2.5 : 3.5), cy = c.y + (fl ? 3.5 : 2.5);
   const spots: { x: number; y: number; d: number }[] = [];
   for (let y = c.y - 12; y <= c.y + 22; y++)
     for (let x = c.x - 12; x <= c.x + 28; x++) {
@@ -42,7 +42,7 @@ function findSpot(w: World, k: LotKind, taken: { at: Pt; k: LotKind }[]): Pt | n
       spots.push({ x, y, d: Math.hypot(x + s.w / 2 - cx, y + s.h / 2 - cy) + behind });
     }
   spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
-  const club = { x: c.x - 3, y: c.y - 3 }, clubSize = { w: 14, h: 12 }; // the clubhouse, its lawn and its entrance road
+  const club = { x: c.x - 3, y: c.y - 3 }, clubSize = fl ? { w: 12, h: 14 } : { w: 14, h: 12 }; // the clubhouse, its lawn and its entrance road
   for (const p of spots) {
     if (!inBounds(w, p.x, p.y)) continue;
     if (overlaps(p, s, club, clubSize)) continue;

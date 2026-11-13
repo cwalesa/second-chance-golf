@@ -1,12 +1,12 @@
 import { projectGround } from './isometric';
 import { Game, fmtMoney } from './game';
 import { Renderer, Overlay, BendUi } from './render';
-import { ITEMS, ItemKind, buildingProblem, isAmenity, isBuilding, itemAt, toggleItem } from './items';
+import { ITEMS, ItemKind, buildingProblem, isAmenity, isBuilding, itemAt, moveItem, moveProblem, toggleItem } from './items';
 import { lotFor } from './lots';
 import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, bendProblem, moveBendTo, removeBendAt, suggestBend, planBends, routeStats, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
 import { CFG } from './config';
-import { CLUB_H, CLUB_W, Hole, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
-import { clubhouseProblem, suggestClubhouse } from './wilderness';
+import { clubDims, Hole, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
+import { clubhouseProblem, relocateProblem, suggestClubhouse } from './wilderness';
 
 export interface Preview {
   tool: ToolId;
@@ -88,13 +88,14 @@ export class Editor {
   /** Called after a plan is built, so the interface can offer a quick Undo. */
   onBuilt: (label: string, cost: number) => void = () => {};
   /** A building waiting for Build (or Sell, when tapping one already standing). */
-  bGhost: { x: number; y: number; k: ItemKind; sell: boolean } | null = null;
+  bGhost: { x: number; y: number; k: ItemKind; sell: boolean; /** index of the placed thing being moved */ move?: number; from?: Pt } | null = null;
   bProblem: string | null = null;
   syncGhost() {
     const g = this.bGhost;
-    if (g && !g.sell) this.bProblem = buildingProblem(this.game.world, g.x, g.y, g.k) ?? (this.game.cash < ITEMS[g.k].cost ? `You need $${(ITEMS[g.k].cost - this.game.cash).toLocaleString('en-US')} more.` : null);
+    if (g && g.move !== undefined) this.bProblem = moveProblem(this.game.world, g.move, g.x, g.y);
+    else if (g && !g.sell) this.bProblem = buildingProblem(this.game.world, g.x, g.y, g.k) ?? (this.game.cash < ITEMS[g.k].cost ? `You need $${(ITEMS[g.k].cost - this.game.cash).toLocaleString('en-US')} more.` : null);
     else this.bProblem = null;
-    this.overlay.bGhost = g ? { x: g.x, y: g.y, k: g.k, ok: g.sell || !this.bProblem, sell: g.sell } : null;
+    this.overlay.bGhost = g ? { x: g.x, y: g.y, k: g.k, ok: g.sell || !this.bProblem, sell: g.sell, move: g.move } : null;
     this.onChange();
   }
   cancelGhost() { this.bGhost = null; this.syncGhost(); }
@@ -107,9 +108,40 @@ export class Editor {
     this.syncGhost();
     return lot;
   }
+  /** Pick a placed thing up: the ghost starts where it stands and follows each tap until the player drops it. */
+  pickUp(i: number) {
+    const it = this.game.world.items?.[i];
+    if (!it) return;
+    this.decorKind = it.k;
+    this.bGhost = { x: it.x, y: it.y, k: it.k, sell: false, move: i, from: { x: it.x, y: it.y } };
+    this.syncGhost();
+  }
+  /** Sell the thing being moved back for what it cost. */
+  sellPicked() {
+    const g = this.bGhost;
+    if (!g || g.move === undefined || !g.from) return;
+    const r = toggleItem(this.game, g.from, g.k);
+    if (!r.ok) { this.game.notify('bad', r.message ?? 'Not there.'); return; }
+    this.game.onFeedback('build');
+    this.r.cost(g.from.x + (ITEMS[g.k].w ?? 1) / 2, g.from.y + (ITEMS[g.k].h ?? 1) / 2, ITEMS[g.k].cost, true);
+    this.game.notify('good', `${ITEMS[g.k].label} sold.`);
+    this.bGhost = null;
+    this.syncGhost();
+  }
   confirmGhost() {
     const g = this.bGhost;
     if (!g || this.bProblem) return;
+    if (g.move !== undefined) {
+      if (g.from && g.from.x === g.x && g.from.y === g.y) return;
+      const r = moveItem(this.game, g.move, { x: g.x, y: g.y });
+      if (!r.ok) { this.game.notify('bad', r.message ?? 'Not there.'); return; }
+      this.game.onFeedback('build');
+      this.r.rise(`item:${g.x},${g.y}`);
+      this.game.notify('good', `${ITEMS[g.k].label} moved.`);
+      this.bGhost = null;
+      this.syncGhost();
+      return;
+    }
     const r = toggleItem(this.game, { x: g.x, y: g.y }, g.k);
     if (!r.ok) { this.game.notify('bad', r.message ?? 'Not there.'); return; }
     this.game.onFeedback('build');
@@ -251,6 +283,7 @@ export class Editor {
     // Picking anything that edits the course starts designing: the business clock holds until the player resumes.
     if (t !== 'inspect' && t !== 'pan') this.game.enterDesign();
     if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
+    if (t !== 'decor' && this.relocClub) this.cancelClub();
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
     if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.overlay.buildTee = null; this.overlay.buildLine = null; }
@@ -1144,6 +1177,20 @@ export class Editor {
       const w0 = this.game.world;
       const hit = itemAt(w0, t.x, t.y);
       const existing = hit >= 0 ? w0.items![hit] : null;
+      // the clubhouse can be picked up and turned too
+      const cl = w0.clubhouse;
+      if (cl && !this.bGhost) {
+        const dm = clubDims(w0.clubFlip);
+        if (t.x >= cl.x && t.y >= cl.y && t.x < cl.x + dm.w && t.y < cl.y + dm.h) { this.startMoveClub(); return; }
+      }
+      // tapping something already standing picks it up; tap another tile to put it down, or sell it
+      if (existing && hit >= 0) { this.pickUp(hit); return; }
+      if (this.bGhost?.move !== undefined) {
+        const mv = ITEMS[this.bGhost.k];
+        this.bGhost = { ...this.bGhost, x: t.x - Math.floor((mv.w ?? 1) / 2), y: t.y - Math.floor((mv.h ?? 1) / 2) };
+        this.syncGhost();
+        return;
+      }
       if (isBuilding(this.decorKind) || (existing && isBuilding(existing.k))) {
         // buildings are priced in thousands: preview first, then confirm or sell
         if (existing && isBuilding(existing.k)) this.bGhost = { x: existing.x, y: existing.y, k: existing.k, sell: true };
@@ -1220,18 +1267,24 @@ export class Editor {
     this.onChange();
   }
 
-  /** True until the player has chosen where the clubhouse goes. */
+  /** True until the player has chosen where the clubhouse goes, and again while a standing clubhouse is picked up to be moved or turned. */
   get placingClub() {
-    return this.game.world.clubhouse === null;
+    return this.game.world.clubhouse === null || this.relocClub;
   }
+  /** The standing clubhouse is lifted: the ghost is where it will go. */
+  relocClub = false;
+  /** Which way the clubhouse being placed is turned. */
+  clubFlip = false;
   /** Centre the clubhouse footprint on a tile and check the ground. */
   private aimClub(t: Pt, lock: boolean) {
     if (this.clubLocked && !lock) return;
-    const c = { x: t.x - Math.floor(CLUB_W / 2), y: t.y - Math.floor(CLUB_H / 2) };
-    const problem = inBounds(this.game.world, c.x, c.y) && inBounds(this.game.world, c.x + CLUB_W, c.y + CLUB_H) ? clubhouseProblem(this.game.world, c) : 'Too close to the edge of the map.';
+    const dm = clubDims(this.clubFlip);
+    const c = { x: t.x - Math.floor(dm.w / 2), y: t.y - Math.floor(dm.h / 2) };
+    const w = this.game.world;
+    const problem = inBounds(w, c.x, c.y) && inBounds(w, c.x + dm.w, c.y + dm.h) ? (this.relocClub ? relocateProblem(w, c, this.clubFlip) : clubhouseProblem(w, c, this.clubFlip)) : 'Too close to the edge of the map.';
     this.clubSpot = { ...c, problem };
     if (lock) this.clubLocked = true;
-    this.overlay.club = this.clubSpot;
+    this.overlay.club = { ...this.clubSpot, flip: this.clubFlip };
     this.onChange();
   }
   /** Jump to the best-looking legal spot. */
@@ -1241,20 +1294,52 @@ export class Editor {
       this.game.notify('bad', 'No flat, dry spot found. Try scrolling to a meadow.');
       return;
     }
+    const dm = clubDims(this.clubFlip);
     this.clubLocked = false;
-    this.aimClub({ x: c.x + Math.floor(CLUB_W / 2), y: c.y + Math.floor(CLUB_H / 2) }, true);
-    this.r.focus(c.x + CLUB_W / 2, c.y + CLUB_H / 2, Math.max(this.r.cam.zoom, 0.7), this.game.world);
+    this.aimClub({ x: c.x + Math.floor(dm.w / 2), y: c.y + Math.floor(dm.h / 2) }, true);
+    this.r.focus(c.x + dm.w / 2, c.y + dm.h / 2, Math.max(this.r.cam.zoom, 0.7), this.game.world);
   }
-  /** Build the clubhouse where the ghost stands. */
+  /** Turn the clubhouse the other way, keeping its centre where it is. */
+  rotateClub() {
+    const before = clubDims(this.clubFlip);
+    const spot = this.clubSpot;
+    this.clubFlip = !this.clubFlip;
+    if (spot) this.aimClub({ x: spot.x + Math.floor(before.w / 2), y: spot.y + Math.floor(before.h / 2) }, true);
+    else this.onChange();
+  }
+  /** Pick the standing clubhouse up to move it or turn it. */
+  startMoveClub() {
+    const c = this.game.world.clubhouse;
+    if (!c || this.proposal) return;
+    this.cancelGhost();
+    this.relocClub = true;
+    this.clubFlip = !!this.game.world.clubFlip;
+    this.clubLocked = false;
+    const dm = clubDims(this.clubFlip);
+    this.aimClub({ x: c.x + Math.floor(dm.w / 2), y: c.y + Math.floor(dm.h / 2) }, true);
+  }
+  /** Put the clubhouse back where it was. */
+  cancelClub() {
+    this.relocClub = false;
+    this.clubSpot = null;
+    this.clubLocked = false;
+    this.overlay.club = null;
+    this.onChange();
+  }
+  /** Build the clubhouse where the ghost stands (or, when it was picked up, move it there). */
   confirmClub() {
     const c = this.clubSpot;
     if (!c || c.problem || !this.clubLocked) return;
-    if (this.game.buildClubhouse({ x: c.x, y: c.y })) {
+    const dm = clubDims(this.clubFlip);
+    const ok = this.relocClub ? this.game.moveClubhouse({ x: c.x, y: c.y }, this.clubFlip) : this.game.buildClubhouse({ x: c.x, y: c.y }, this.clubFlip);
+    if (ok) {
       this.r.rise('club');
+      const moved = this.relocClub;
+      this.relocClub = false;
       this.clubSpot = null;
       this.clubLocked = false;
       this.overlay.club = null;
-      this.r.focus(c.x + CLUB_W / 2 + 4, c.y + CLUB_H / 2, 0.7, this.game.world);
+      this.r.focus(c.x + dm.w / 2 + (moved ? 0 : 4), c.y + dm.h / 2, moved ? Math.max(this.r.cam.zoom, 0.5) : 0.7, this.game.world);
       this.onChange();
     }
   }
