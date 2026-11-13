@@ -93,6 +93,9 @@ export class Studio {
     document.body.classList.toggle('owner-playing', o.active);
     document.body.classList.toggle('designing', g.designMode);
     this.controls.querySelector('[data-camera="design"]')!.textContent = g.designMode ? '✓ Designing · paused' : 'Design mode';
+    // the map buttons only offer what exists: a clubhouse to go back to, a hole to find
+    this.controls.querySelector<HTMLElement>('[data-camera="club"]')!.hidden = !g.world.clubhouse;
+    this.controls.querySelector<HTMLElement>('[data-camera="home"]')!.hidden = !g.world.holes.some((h) => h.id === g.selectedHole);
     this.syncEditing();
     this.hud.hidden = !o.active;
     if (o.active) {

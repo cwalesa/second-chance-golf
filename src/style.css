@@ -558,7 +558,7 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 .swing-panel > small { font-size: 11px; }
 
 /* hidden on the phone layout */
-#map-controls, #minimap, #pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
+#minimap, #pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
 #goalbar .box { background: transparent; }
 
 /* ================= opening screen ================= */
@@ -1042,3 +1042,17 @@ body.menu-open #toasts { z-index: 19; }
 #tools .ph-undo[hidden] { display: none; }
 #tools .ph-undo:disabled { opacity: .4; }
 #tools .ph-redo { width: 46px; }
+
+/* ---- two map buttons above the menu button: back to the clubhouse, and find the selected hole ----
+   They show only on the plain map view (no panel, tray, menu, tutorial or placement), in both orientations. */
+#map-controls { display: none; }
+body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.owner-playing):not(.has-proposal):not(.placing-club):not(.placing-building) #map-controls {
+  display: flex; flex-direction: column; gap: 8px; position: absolute; z-index: 6; right: calc(16px + var(--sar)); bottom: calc(84px + var(--sab));
+}
+#map-controls button { display: none; }
+#map-controls button[data-camera="club"]:not([hidden]), #map-controls button[data-camera="home"]:not([hidden]) {
+  display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; padding: 0; border: 3px solid var(--edge); border-radius: 12px; background: #fff; color: var(--ink);
+  font: 800 22px/1 var(--font); box-shadow: var(--hard); cursor: pointer;
+}
+#map-controls button:active { transform: translateY(2px); box-shadow: none; }
+#map-controls button svg { width: 24px; height: 24px; }
