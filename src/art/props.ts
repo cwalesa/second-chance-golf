@@ -342,3 +342,129 @@ export function makeStatue(): Sprite {
     c.beginPath(); c.moveTo(34, 16); c.lineTo(40, 3); c.stroke();
   });
 }
+
+// ---------- more things to place ----------
+const oval = (c: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, fill: string) => { c.fillStyle = fill; c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); c.fill(); };
+const slab = (c: CanvasRenderingContext2D, pts: [number, number][], fill: string) => { c.fillStyle = fill; c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.fill(); };
+
+/** A stone bird bath with a small bird on the rim. */
+export function makeBirdbath(): Sprite {
+  return sprite(70, 84, 35, 70, (c) => {
+    groundShadow(c, 40, 70, 24, 7, 0.3);
+    oval(c, 35, 68, 16, 6, '#a9a293');
+    slab(c, [[29, 66], [41, 66], [38, 40], [32, 40]], '#cfc8b6');
+    oval(c, 35, 38, 26, 9, '#b9b2a2');
+    oval(c, 35, 35, 26, 9, '#dcd6c6');
+    oval(c, 35, 35, 20, 6.5, '#69c3d6');
+    oval(c, 30, 33.5, 8, 2, '#a9e4ee');
+    // a little bird
+    oval(c, 52, 27, 5.5, 4.2, '#d65a4a');
+    c.fillStyle = '#d65a4a'; c.beginPath(); c.arc(56.5, 23.5, 3.2, 0, Math.PI * 2); c.fill();
+    slab(c, [[59, 23], [63, 24.5], [59, 25.5]], '#f2c230');
+    slab(c, [[47, 27], [41, 24], [46, 30]], '#a83c30');
+  });
+}
+
+/** A picnic table with a checked cloth and two benches. */
+export function makePicnic(): Sprite {
+  return sprite(96, 76, 48, 64, (c) => {
+    groundShadow(c, 52, 64, 40, 9, 0.28);
+    // far bench and legs
+    slab(c, [[18, 46], [70, 36], [74, 42], [22, 52]], '#8a6038');
+    slab(c, [[26, 52], [30, 52], [30, 62], [26, 62]], '#6b4a2c');
+    slab(c, [[64, 42], [68, 41], [68, 56], [64, 57]], '#6b4a2c');
+    // table top with cloth
+    slab(c, [[14, 36], [66, 24], [84, 34], [32, 47]], '#b98650');
+    slab(c, [[18, 36], [64, 26], [78, 34], [32, 44]], '#e9503f');
+    c.save(); c.beginPath(); c.moveTo(18, 36); c.lineTo(64, 26); c.lineTo(78, 34); c.lineTo(32, 44); c.closePath(); c.clip();
+    c.strokeStyle = '#fff4ea'; c.lineWidth = 2.4;
+    for (let k = -2; k < 10; k++) { c.beginPath(); c.moveTo(18 + k * 8, 46); c.lineTo(40 + k * 8, 20); c.stroke(); c.beginPath(); c.moveTo(14 + k * 8, 24); c.lineTo(48 + k * 8, 50); c.stroke(); }
+    c.restore();
+    // near bench
+    slab(c, [[24, 54], [74, 43], [80, 51], [30, 62]], '#9a7048');
+    slab(c, [[30, 62], [36, 61], [36, 70], [30, 70]], '#6b4a2c');
+    slab(c, [[72, 50], [78, 49], [78, 66], [72, 66]], '#6b4a2c');
+  });
+}
+
+/** A tall white flagpole flying the club's green and gold. */
+export function makeFlagpole(): Sprite {
+  return sprite(64, 124, 32, 112, (c) => {
+    groundShadow(c, 36, 112, 18, 5, 0.3);
+    oval(c, 32, 110, 12, 5, '#a9a293');
+    slab(c, [[27, 110], [37, 110], [35, 100], [29, 100]], '#cfc8b6');
+    c.strokeStyle = '#f4f1e6'; c.lineWidth = 3.4; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(32, 102); c.lineTo(32, 12); c.stroke();
+    oval(c, 32, 10, 3.4, 3.4, '#f2c230');
+    slab(c, [[34, 16], [60, 20], [58, 30], [60, 40], [34, 38]], '#2f8a47');
+    slab(c, [[34, 25], [60, 28], [59, 31], [34, 30]], '#f2c230');
+  });
+}
+
+/** A small raked-gravel garden with boulders and grass tufts. */
+export function makeRockGarden(): Sprite {
+  return sprite(92, 70, 46, 56, (c) => {
+    oval(c, 46, 48, 40, 14, '#b9ad8a');
+    oval(c, 46, 46, 36, 11.5, '#e4d9b4');
+    c.strokeStyle = 'rgba(150,134,96,0.7)'; c.lineWidth = 1.2;
+    for (let k = 0; k < 4; k++) { c.beginPath(); c.ellipse(46, 46, 30 - k * 6, 9 - k * 1.8, 0, 0, Math.PI * 2); c.stroke(); }
+    const rock = (x: number, y: number, r: number) => { blob(c, x, y, r, '#c9c9c4', '#8e908e', '#5a5c5e'); };
+    rock(34, 40, 11); rock(58, 44, 8); rock(48, 34, 6);
+    c.strokeStyle = '#3f8a3c'; c.lineWidth = 2; c.lineCap = 'round';
+    for (const [x, y] of [[22, 36], [70, 50], [64, 36]] as [number, number][]) for (let k = -2; k <= 2; k++) { c.beginPath(); c.moveTo(x, y); c.lineTo(x + k * 3, y - 11 - Math.abs(k)); c.stroke(); }
+  });
+}
+
+/** A half barrel overflowing with flowers. */
+export function makePlanter(): Sprite {
+  return sprite(64, 72, 32, 60, (c) => {
+    groundShadow(c, 36, 60, 22, 6, 0.28);
+    slab(c, [[16, 38], [48, 38], [45, 60], [19, 60]], '#9a6a3c');
+    oval(c, 32, 60, 13, 4, '#7d5230');
+    oval(c, 32, 38, 16, 5.5, '#6b4a2c');
+    c.strokeStyle = '#3a3a40'; c.lineWidth = 2.4;
+    for (const y of [44, 54]) { c.beginPath(); c.moveTo(17.5 + (y - 38) * 0.1, y); c.lineTo(46.5 - (y - 38) * 0.1, y); c.stroke(); }
+    blob(c, 32, 30, 15, '#6cc060', '#3f9a48', '#2a6c36');
+    const cols = ['#e8503f', '#f2c230', '#f4f0f8', '#d65ab0', '#e8503f'];
+    [[22, 26], [32, 20], [42, 27], [27, 33], [38, 33]].forEach(([x, y], i) => { oval(c, x, y, 4.4, 4.4, cols[i]); oval(c, x, y, 1.5, 1.5, '#f6d96a'); });
+  });
+}
+
+/** A white arch wound with roses, for a path or a green. */
+export function makeArch(): Sprite {
+  return sprite(86, 96, 43, 84, (c) => {
+    groundShadow(c, 48, 84, 36, 8, 0.28);
+    c.strokeStyle = '#f4f1e6'; c.lineWidth = 5; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(16, 82); c.lineTo(16, 38); c.quadraticCurveTo(43, -6, 70, 38); c.lineTo(70, 82); c.stroke();
+    c.strokeStyle = '#3f9a48'; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(14, 80); c.quadraticCurveTo(22, 56, 15, 38); c.quadraticCurveTo(43, -2, 71, 38); c.quadraticCurveTo(64, 56, 72, 80); c.stroke();
+    const cols = ['#e8503f', '#f4a0c0', '#f2c230'];
+    for (let k = 0; k < 11; k++) {
+      const t = k / 10;
+      const x = 14 + t * 58 + Math.sin(k * 2.1) * 3;
+      const y = 76 - Math.sin(t * Math.PI) * 74 + (t < 0.2 || t > 0.8 ? 0 : 10);
+      oval(c, x, Math.max(8, y), 4.6, 4.6, cols[k % 3]);
+      oval(c, x, Math.max(8, y), 1.6, 1.6, '#fff0b0');
+    }
+  });
+}
+
+/** A trimmed hedge block. */
+export function makeHedge(): Sprite {
+  return sprite(88, 62, 44, 50, (c) => {
+    groundShadow(c, 50, 50, 38, 8, 0.28);
+    slab(c, [[8, 36], [8, 24], [48, 12], [80, 24], [80, 36], [44, 48]], '#2f7a38');
+    slab(c, [[8, 24], [48, 12], [80, 24], [44, 36]], '#58b04c');
+    slab(c, [[8, 24], [44, 36], [44, 48], [8, 36]], '#3a8a42');
+    c.fillStyle = 'rgba(190,240,150,0.5)';
+    for (const [x, y] of [[30, 24], [48, 20], [60, 26], [40, 30], [22, 28]] as [number, number][]) { c.beginPath(); c.arc(x, y, 2.4, 0, Math.PI * 2); c.fill(); }
+  });
+}
+
+/** Every placeable decoration's sprite, built once for the map and for the tray thumbnails. */
+export function placedSprites(): Record<string, Sprite> {
+  return {
+    flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(),
+    birdbath: makeBirdbath(), picnic: makePicnic(), flagpole: makeFlagpole(), rockgarden: makeRockGarden(), planter: makePlanter(), arch: makeArch(), hedge: makeHedge(),
+  };
+}

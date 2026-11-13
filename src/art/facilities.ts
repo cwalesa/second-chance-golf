@@ -687,16 +687,244 @@ function buildHalfway() {
   halfwayMesh = m;
 }
 
-/** Height of each building, for the cast shadow. */
-const BUILT = { barn: 2.4, shed: 1.9, halfway: 2.0 };
+// =====================================================================================================
+// More buildings: pro shop, grill room, garden pavilion, greenhouse and rain shelter. They share the clubhouse's
+// cream walls and terracotta roofs so the property still looks like one place.
+// =====================================================================================================
+const meshes = new Map<string, Mesh>();
+
+/** Corner posts, a front window, awning, door and sign: the pro shop. 4 x 2 tiles. */
+function buildProShop(): Mesh {
+  const m = new Mesh();
+  const x0 = 0.2, x1 = 3.7, y0 = 0.2, y1 = 1.32, h = 1.36;
+  const wall = '#f0e7cf', trim = '#2f5c44', roof = ROOF;
+  m.box(0.04, 0.04, 0, 3.96, 1.96, 0.05, '#cbc6ba', { grad: false });
+  m.box(x0, y0, 0.05, x1, y1, 0.2, '#a69b7e', { grad: false });
+  m.box(x0, y0, 0.2, x1, y1, h, wall);
+  for (let z = 0.3; z < h - 0.04; z += 0.1) m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(130,112,74,0.28)', 0.012, [0, 1, 0]);
+  m.box(x1 - 0.02, y1 - 0.02, 0.2, x1 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  m.box(x0 - 0.03, y1 - 0.02, 0.2, x0 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  // big shop window with a display: a golf bag, a pair of shoes and a folded sweater
+  const w0 = 0.46, w1 = 2.3, z0 = 0.4, z1 = 1.02;
+  m.quad([[w0 - 0.06, y1 + 0.01, z0 - 0.06], [w1 + 0.06, y1 + 0.01, z0 - 0.06], [w1 + 0.06, y1 + 0.01, z1 + 0.05], [w0 - 0.06, y1 + 0.01, z1 + 0.05]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[w0, y1 + 0.014, z0], [w1, y1 + 0.014, z0], [w1, y1 + 0.014, z1], [w0, y1 + 0.014, z1]], [0, 1, 0], '#46606a', { lit: false, edge: null, bias: 0.014 });
+  m.quad([[w0, y1 + 0.016, z1 - 0.12], [w1, y1 + 0.016, z1 - 0.12], [w1, y1 + 0.016, z1], [w0, y1 + 0.016, z1]], [0, 1, 0], 'rgba(255,255,255,0.25)', { lit: false, edge: null, bias: 0.016 });
+  m.quad([[w0 + 0.22, y1 + 0.02, z0], [w0 + 0.46, y1 + 0.02, z0], [w0 + 0.46, y1 + 0.02, z0 + 0.4], [w0 + 0.22, y1 + 0.02, z0 + 0.4]], [0, 1, 0], '#2f8a47', { lit: false, edge: null, bias: 0.02 });
+  m.quad([[w0 + 0.28, y1 + 0.022, z0 + 0.4], [w0 + 0.4, y1 + 0.022, z0 + 0.4], [w0 + 0.4, y1 + 0.022, z0 + 0.5], [w0 + 0.28, y1 + 0.022, z0 + 0.5]], [0, 1, 0], '#d9d4c6', { lit: false, edge: null, bias: 0.022 });
+  m.quad([[w0 + 0.7, y1 + 0.02, z0], [w0 + 1.0, y1 + 0.02, z0], [w0 + 1.0, y1 + 0.02, z0 + 0.12], [w0 + 0.7, y1 + 0.02, z0 + 0.12]], [0, 1, 0], '#f4efe0', { lit: false, edge: null, bias: 0.02 });
+  m.quad([[w0 + 1.2, y1 + 0.02, z0], [w0 + 1.6, y1 + 0.02, z0], [w0 + 1.6, y1 + 0.02, z0 + 0.2], [w0 + 1.2, y1 + 0.02, z0 + 0.2]], [0, 1, 0], '#e2503f', { lit: false, edge: null, bias: 0.02 });
+  m.line([(w0 + w1) / 2, y1 + 0.018, z0], [(w0 + w1) / 2, y1 + 0.018, z1], 'rgba(240,240,230,0.7)', 0.02, [0, 1, 0], 0.018);
+  // door
+  const d0 = 2.7, d1 = 3.2, dz = 1.06;
+  m.quad([[d0 - 0.05, y1 + 0.01, 0.2], [d1 + 0.05, y1 + 0.01, 0.2], [d1 + 0.05, y1 + 0.01, dz + 0.05], [d0 - 0.05, y1 + 0.01, dz + 0.05]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[d0, y1 + 0.014, 0.2], [d1, y1 + 0.014, 0.2], [d1, y1 + 0.014, dz], [d0, y1 + 0.014, dz]], [0, 1, 0], '#3f6a54', { bias: 0.014, grad: true });
+  m.quad([[d0 + 0.08, y1 + 0.018, 0.6], [d1 - 0.08, y1 + 0.018, 0.6], [d1 - 0.08, y1 + 0.018, 0.96], [d0 + 0.08, y1 + 0.018, 0.96]], [0, 1, 0], '#6a8a92', { lit: false, edge: null, bias: 0.018 });
+  m.box(d0 - 0.1, y1, 0, d1 + 0.1, y1 + 0.2, 0.2, '#bdb8ad', { grad: false });
+  // striped awning over window and door
+  const a0 = w0 - 0.1, a1 = d1 + 0.14, az0 = 1.2, ay = 0.42, az1 = 0.98, stripes = 9;
+  for (let k = 0; k < stripes; k++) {
+    const s0 = a0 + ((a1 - a0) * k) / stripes, s1 = a0 + ((a1 - a0) * (k + 1)) / stripes;
+    m.quad([[s0, y1 + 0.01, az0], [s1, y1 + 0.01, az0], [s1, y1 + ay, az1], [s0, y1 + ay, az1]], [0, az0 - az1, ay], k % 2 ? '#f3ecdc' : '#c0392b', { edge: null, bias: 0.03 });
+    m.quad([[s0, y1 + ay, az1], [s1, y1 + ay, az1], [s1, y1 + ay, az1 - 0.06], [(s0 + s1) / 2, y1 + ay, az1 - 0.1], [s0, y1 + ay, az1 - 0.06]], [0, 1, 0], k % 2 ? '#e4dcc8' : '#a83024', { edge: null, bias: 0.031 });
+  }
+  // side window
+  m.quad([[x1 + 0.006, 0.4, 0.5], [x1 + 0.006, 1.0, 0.5], [x1 + 0.006, 1.0, 1.0], [x1 + 0.006, 0.4, 1.0]], [1, 0, 0], trim, { bias: 0.01 });
+  m.quad([[x1 + 0.01, 0.45, 0.55], [x1 + 0.01, 0.95, 0.55], [x1 + 0.01, 0.95, 0.95], [x1 + 0.01, 0.45, 0.95]], [1, 0, 0], '#4a6168', { lit: false, edge: null, bias: 0.012 });
+  const { zR } = m.gableX(x0, x1, y0, y1, h, 0.6, roof, '#efe6cf', { ex: 0.16, ey: 0.2, t: 0.07, wall, courses: 'shingle' });
+  // painted sign above the awning, on the gable wall
+  m.box(1.0, y1 + 0.01, h - 0.02, 2.9, y1 + 0.08, h + 0.3, trim, { grad: false });
+  m.text([1.95, y1 + 0.086, h + 0.16], [1, 0, 0], [0, 0, 1], 'PRO SHOP', 0.17, '#f6ecc8', [0, 1, 0]);
+  void zR;
+  // a bag stand and a bench by the door
+  m.cyl(3.5, 1.6, 0.0, 0.1, 0.5, 'z', '#2f6a8a', { sides: 8 });
+  m.cyl(3.5, 1.6, 0.5, 0.06, 0.22, 'z', '#d9d4c6', { sides: 6, edge: null });
+  m.box(0.4, 1.6, 0.14, 1.2, 1.82, 0.2, '#9a7048', { grad: false });
+  m.box(0.46, 1.62, 0, 0.5, 1.8, 0.14, '#3c3a36', { grad: false, edge: null });
+  m.box(1.1, 1.62, 0, 1.14, 1.8, 0.14, '#3c3a36', { grad: false, edge: null });
+  return m;
+}
+
+/** A porch dining room: a main house, a deck with parasols, a chimney. 4 x 3 tiles. */
+function buildGrill(): Mesh {
+  const m = new Mesh();
+  const x0 = 0.2, x1 = 3.8, y0 = 0.2, y1 = 1.3, h = 1.5;
+  const wall = '#f1e8d2', trim = '#7a3b2e', roof = ROOF;
+  // deck
+  m.box(0.05, 0.05, 0, 3.95, 2.95, 0.07, '#b58d62', { grad: false });
+  for (let y = 0.2; y < 2.94; y += 0.12) m.line([0.05, y, 0.072], [3.95, y, 0.072], 'rgba(80,50,26,0.28)', 0.012, [0, 0, 1]);
+  m.box(x0, y0, 0.07, x1, y1, 0.22, '#a69b7e', { grad: false });
+  m.box(x0, y0, 0.22, x1, y1, h, wall);
+  for (let z = 0.34; z < h - 0.04; z += 0.1) {
+    m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(130,112,74,0.28)', 0.012, [0, 1, 0]);
+    m.line([x1 + 0.004, y0, z], [x1 + 0.004, y1, z], 'rgba(90,76,50,0.28)', 0.012, [1, 0, 0]);
+  }
+  m.box(x1 - 0.02, y1 - 0.02, 0.22, x1 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  m.box(x0 - 0.03, y1 - 0.02, 0.22, x0 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  // tall windows with shutters, and a pair of glass doors
+  for (const wx of [0.5, 1.2, 2.3, 3.0]) {
+    m.quad([[wx, y1 + 0.012, 0.5], [wx + 0.4, y1 + 0.012, 0.5], [wx + 0.4, y1 + 0.012, 1.18], [wx, y1 + 0.012, 1.18]], [0, 1, 0], '#f6f0dc', { bias: 0.012 });
+    m.quad([[wx + 0.04, y1 + 0.016, 0.54], [wx + 0.36, y1 + 0.016, 0.54], [wx + 0.36, y1 + 0.016, 1.14], [wx + 0.04, y1 + 0.016, 1.14]], [0, 1, 0], '#4a6a72', { lit: false, edge: null, bias: 0.016 });
+    m.line([wx + 0.2, y1 + 0.018, 0.54], [wx + 0.2, y1 + 0.018, 1.14], '#f6f0dc', 0.02, [0, 1, 0], 0.018);
+    m.quad([[wx - 0.1, y1 + 0.014, 0.5], [wx - 0.02, y1 + 0.014, 0.5], [wx - 0.02, y1 + 0.014, 1.18], [wx - 0.1, y1 + 0.014, 1.18]], [0, 1, 0], trim, { edge: null, bias: 0.014 });
+    m.quad([[wx + 0.42, y1 + 0.014, 0.5], [wx + 0.5, y1 + 0.014, 0.5], [wx + 0.5, y1 + 0.014, 1.18], [wx + 0.42, y1 + 0.014, 1.18]], [0, 1, 0], trim, { edge: null, bias: 0.014 });
+  }
+  m.quad([[1.74, y1 + 0.012, 0.22], [2.12, y1 + 0.012, 0.22], [2.12, y1 + 0.012, 1.08], [1.74, y1 + 0.012, 1.08]], [0, 1, 0], trim, { bias: 0.012 });
+  m.quad([[1.78, y1 + 0.016, 0.26], [2.08, y1 + 0.016, 0.26], [2.08, y1 + 0.016, 1.04], [1.78, y1 + 0.016, 1.04]], [0, 1, 0], '#5b7e84', { lit: false, edge: null, bias: 0.016 });
+  m.line([1.93, y1 + 0.018, 0.26], [1.93, y1 + 0.018, 1.04], trim, 0.02, [0, 1, 0], 0.018);
+  // side window
+  m.quad([[x1 + 0.006, 0.4, 0.62], [x1 + 0.006, 0.92, 0.62], [x1 + 0.006, 0.92, 1.1], [x1 + 0.006, 0.4, 1.1]], [1, 0, 0], trim, { bias: 0.01 });
+  m.quad([[x1 + 0.01, 0.45, 0.66], [x1 + 0.01, 0.87, 0.66], [x1 + 0.01, 0.87, 1.06], [x1 + 0.01, 0.45, 1.06]], [1, 0, 0], '#4a6168', { lit: false, edge: null, bias: 0.012 });
+  // brick chimney
+  m.box(3.0, 0.3, h - 0.05, 3.28, 0.58, h + 0.75, '#a85f48', { grad: false });
+  m.box(2.96, 0.26, h + 0.7, 3.32, 0.62, h + 0.8, '#8a4a38', { grad: false });
+  const { ym } = m.gableX(x0, x1, y0, y1, h, 0.62, roof, '#efe6cf', { ex: 0.18, ey: 0.2, t: 0.07, wall, courses: 'shingle' });
+  m.text([x1 + 0.008, ym, h + 0.2], [0, -1, 0], [0, 0, 1], 'G', 0.22, trim, [1, 0, 0]);
+  // three tables with parasols on the deck
+  const R = 0.5;
+  [[0.9, 2.1, '#c0392b'], [2.0, 2.3, '#2f5c44'], [3.1, 2.0, '#c0392b']].forEach(([tx, ty, col]) => {
+    const x = tx as number, y = ty as number;
+    m.cyl(x, y, 0.07, 0.04, 0.32, 'z', '#3a3a36', { sides: 6 });
+    m.cyl(x, y, 0.39, 0.24, 0.04, 'z', '#ede4cf', { sides: 14 });
+    for (const [sx, sy] of [[x - 0.36, y + 0.06], [x + 0.3, y + 0.24]]) { m.cyl(sx, sy, 0.07, 0.03, 0.2, 'z', '#3a3a36', { sides: 6 }); m.cyl(sx, sy, 0.27, 0.1, 0.04, 'z', '#9a7048', { sides: 8 }); }
+    m.line([x, y, 0.4], [x, y, 1.3], '#d9d4c6', 0.03, null, 0.2);
+    const apex: V3 = [x, y, 1.26];
+    for (let k = 0; k < 8; k++) {
+      const t0 = (k / 8) * Math.PI * 2, t1 = ((k + 1) / 8) * Math.PI * 2, tm = (t0 + t1) / 2;
+      m.quad([[x + Math.cos(t0) * R, y + Math.sin(t0) * R, 1.02], [x + Math.cos(t1) * R, y + Math.sin(t1) * R, 1.02], apex], [Math.cos(tm) * 0.24, Math.sin(tm) * 0.24, R], k % 2 ? '#f3ecdc' : (col as string), { edge: 'rgba(30,40,30,0.25)', bias: 0.2 });
+    }
+  });
+  return m;
+}
+
+/** An open pavilion on four posts under a pointed copper-green roof. 3 x 3 tiles. */
+function buildPavilion(): Mesh {
+  const m = new Mesh();
+  const x0 = 0.3, x1 = 2.7, y0 = 0.3, y1 = 2.7, pz = 1.5, cx = 1.5, cy = 1.5;
+  const white = '#f4f1e6', roof = '#3f8a6a';
+  m.box(0.1, 0.1, 0, 2.9, 2.9, 0.06, '#c9c3b2', { grad: false });
+  m.box(x0 - 0.06, y0 - 0.06, 0.06, x1 + 0.06, y1 + 0.06, 0.16, '#e0d9c6', { grad: false });
+  // low rail on the back and left sides, open at the front and right
+  m.box(x0, y0, 0.16, x1, y0 + 0.05, 0.62, white, { grad: false });
+  m.box(x0, y0, 0.16, x0 + 0.05, y1, 0.62, white, { grad: false });
+  for (let t = 0.5; t < 2.7; t += 0.32) {
+    m.box(t, y0, 0.16, t + 0.03, y0 + 0.05, 0.62, '#d4cfbf', { grad: false, edge: null });
+    m.box(x0, t, 0.16, x0 + 0.05, t + 0.03, 0.62, '#d4cfbf', { grad: false, edge: null });
+  }
+  // bench inside against the rail
+  m.box(0.6, 0.5, 0.16, 2.0, 0.78, 0.3, '#9a7048', { grad: false });
+  // posts
+  for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) m.box(px - 0.06, py - 0.06, 0.16, px + 0.06, py + 0.06, pz, white, { grad: false });
+  // beam ring
+  m.box(x0 - 0.08, y0 - 0.08, pz, x1 + 0.08, y0 + 0.06, pz + 0.1, white, { grad: false });
+  m.box(x0 - 0.08, y0 - 0.08, pz, x0 + 0.06, y1 + 0.08, pz + 0.1, white, { grad: false });
+  m.box(x0 - 0.08, y1 - 0.06, pz, x1 + 0.08, y1 + 0.08, pz + 0.1, white, { grad: false });
+  m.box(x1 - 0.06, y0 - 0.08, pz, x1 + 0.08, y1 + 0.08, pz + 0.1, white, { grad: false });
+  // pointed roof: four slopes, an overhang, a lantern at the top
+  const ov = 0.28, X0 = x0 - ov, X1 = x1 + ov, Y0 = y0 - ov, Y1 = y1 + ov, zb = pz + 0.1, zt = pz + 1.0;
+  const apex: V3 = [cx, cy, zt];
+  const rise = zt - zb, run = (X1 - X0) / 2;
+  m.quad([[X0, Y1, zb], [X1, Y1, zb], apex], [0, rise, run], roof);
+  m.quad([[X1, Y0, zb], [X1, Y1, zb], apex], [rise, 0, run], roof);
+  m.quad([[X0, Y0, zb], [X1, Y0, zb], apex], [0, -rise, run], roof);
+  m.quad([[X0, Y0, zb], [X0, Y1, zb], apex], [-rise, 0, run], roof);
+  m.quad([[X0, Y1, zb], [X1, Y1, zb], [X1, Y1, zb - 0.06], [X0, Y1, zb - 0.06]], [0, 1, 0], white, { bias: 0.003 });
+  m.quad([[X1, Y0, zb], [X1, Y1, zb], [X1, Y1, zb - 0.06], [X1, Y0, zb - 0.06]], [1, 0, 0], white, { bias: 0.003 });
+  for (let k = 1; k < 6; k++) {
+    const t = k / 6;
+    m.line([X0 + (cx - X0) * t * 0.9, Y1 + (cy - Y1) * t * 0.9, zb + rise * t * 0.9 + 0.004], [X1 + (cx - X1) * t * 0.9, Y1 + (cy - Y1) * t * 0.9, zb + rise * t * 0.9 + 0.004], 'rgba(20,50,40,0.28)', 0.02, [0, rise, run]);
+  }
+  m.cyl(cx, cy, zt - 0.02, 0.1, 0.22, 'z', white, { sides: 8 });
+  const t2: V3 = [cx, cy, zt + 0.52];
+  for (let k = 0; k < 4; k++) {
+    const a0 = (k / 4) * Math.PI * 2 + Math.PI / 4, a1 = ((k + 1) / 4) * Math.PI * 2 + Math.PI / 4, am = (a0 + a1) / 2;
+    m.quad([[cx + Math.cos(a0) * 0.16, cy + Math.sin(a0) * 0.16, zt + 0.2], [cx + Math.cos(a1) * 0.16, cy + Math.sin(a1) * 0.16, zt + 0.2], t2], [Math.cos(am), Math.sin(am), 0.6], roof, { bias: 0.1 });
+  }
+  m.cyl(cx, cy, zt + 0.5, 0.012, 0.18, 'z', '#f2c230', { sides: 4, edge: null });
+  // hanging flower baskets at two posts
+  for (const [px, py] of [[x1, y1], [x0, y1]]) {
+    m.cyl(px, py, pz - 0.28, 0.1, 0.1, 'z', '#7d5a3c', { sides: 8 });
+    for (let k = 0; k < 4; k++) m.cyl(px + Math.cos(k * 1.6) * 0.05, py + Math.sin(k * 1.6) * 0.05, pz - 0.18, 0.04, 0.06, 'z', ['#e8503f', '#f2c230', '#f4a0c0', '#e8503f'][k], { sides: 6, edge: null });
+  }
+  return m;
+}
+
+/** A glass house on a low brick footing, with plant benches inside. 3 x 2 tiles. */
+function buildNursery(): Mesh {
+  const m = new Mesh();
+  const x0 = 0.2, x1 = 2.8, y0 = 0.2, y1 = 1.8, h = 0.95;
+  const frame = '#f4f1e6';
+  m.box(0.06, 0.06, 0, 2.94, 1.94, 0.05, '#cbc6ba', { grad: false });
+  m.box(x0, y0, 0.05, x1, y1, 0.24, '#b0644c');
+  for (let z = 0.1; z < 0.24; z += 0.06) m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(60,24,16,0.25)', 0.012, [0, 1, 0]);
+  // inside: two plant benches with seedlings, seen through the glass
+  const plants = ['#e8503f', '#f2c230', '#f4a0c0', '#9fd86a', '#e8503f', '#f4f0f8'];
+  for (const by of [0.55, 1.3]) {
+    m.box(0.45, by, 0.24, 2.55, by + 0.34, 0.5, '#9a7048', { grad: false });
+    for (let k = 0; k < 8; k++) {
+      m.cyl(0.58 + k * 0.26, by + 0.17, 0.5, 0.075, 0.16, 'z', '#3f9a48', { sides: 6, edge: null });
+      m.cyl(0.58 + k * 0.26, by + 0.17, 0.66, 0.06, 0.05, 'z', plants[(k + (by > 1 ? 2 : 0)) % plants.length], { sides: 6, edge: null });
+    }
+  }
+  // glass walls: translucent panes between white frames
+  const pane = 'rgba(190,226,232,0.34)';
+  m.quad([[x0, y1, 0.24], [x1, y1, 0.24], [x1, y1, h], [x0, y1, h]], [0, 1, 0], pane, { lit: false, edge: null, bias: 0.1 });
+  m.quad([[x1, y0, 0.24], [x1, y1, 0.24], [x1, y1, h], [x1, y0, h]], [1, 0, 0], pane, { lit: false, edge: null, bias: 0.1 });
+  for (let x = x0; x <= x1 + 0.01; x += 0.5) m.line([x, y1 + 0.004, 0.24], [x, y1 + 0.004, h], frame, 0.03, [0, 1, 0], 0.12);
+  for (let y = y0; y <= y1 + 0.01; y += 0.4) m.line([x1 + 0.004, y, 0.24], [x1 + 0.004, y, h], frame, 0.03, [1, 0, 0], 0.12);
+  m.line([x0, y1 + 0.004, h], [x1, y1 + 0.004, h], frame, 0.05, [0, 1, 0], 0.12);
+  m.line([x0, y1 + 0.004, 0.5], [x1, y1 + 0.004, 0.5], frame, 0.025, [0, 1, 0], 0.12);
+  // door on the front
+  m.quad([[1.3, y1 + 0.01, 0.24], [1.7, y1 + 0.01, 0.24], [1.7, y1 + 0.01, 0.86], [1.3, y1 + 0.01, 0.86]], [0, 1, 0], 'rgba(244,241,230,0.9)', { lit: false, bias: 0.14, edge: null });
+  m.line([1.5, y1 + 0.012, 0.24], [1.5, y1 + 0.012, 0.86], '#8a8a80', 0.02, [0, 1, 0], 0.15);
+  // glass gable roof
+  const ym = (y0 + y1) / 2, run = (y1 - y0) / 2, rise = 0.5, zR = h + rise, ex = 0.06;
+  m.quad([[x1, y0, h], [x1, y1, h], [x1, ym, zR]], [1, 0, 0], 'rgba(190,226,232,0.4)', { lit: false, edge: frame, bias: 0.1 });
+  const roofC = '#d3ecf0';
+  m.quad([[x0 - ex, ym, zR], [x1 + ex, ym, zR], [x1 + ex, y1 + 0.1, h - 0.04], [x0 - ex, y1 + 0.1, h - 0.04]], [0, rise, run], roofC, { edge: frame, bias: 0.12 });
+  m.quad([[x0 - ex, ym, zR], [x1 + ex, ym, zR], [x1 + ex, y0 - 0.1, h - 0.04], [x0 - ex, y0 - 0.1, h - 0.04]], [0, -rise, run], roofC, { edge: frame, bias: 0.12 });
+  for (let x = x0; x <= x1 + 0.01; x += 0.5) m.line([x, ym, zR + 0.004], [x, y1 + 0.1, h - 0.04 + 0.004], frame, 0.025, [0, rise, run], 0.14);
+  m.box(x0 - ex, ym - 0.04, zR - 0.02, x1 + ex, ym + 0.04, zR + 0.05, frame, { grad: false });
+  // a watering can and a pot by the door
+  m.cyl(2.2, 1.95, 0.0, 0.09, 0.2, 'z', '#3f8aa8', { sides: 8 });
+  m.cyl(0.6, 1.95, 0.0, 0.1, 0.18, 'z', '#b0644c', { sides: 8 });
+  m.cyl(0.6, 1.95, 0.18, 0.1, 0.06, 'z', '#3f9a48', { sides: 8, edge: null });
+  return m;
+}
+
+/** A small roofed hut on four posts with a bench. 2 x 2 tiles. */
+function buildShelter(): Mesh {
+  const m = new Mesh();
+  const white = '#f4efe0';
+  m.box(0.1, 0.1, 0, 1.9, 1.9, 0.05, '#b58d62', { grad: false });
+  m.box(0.22, 1.5, 0.05, 1.78, 1.78, 0.05 + 0.02, '#9a7048', { grad: false, edge: null });
+  // bench against the back
+  m.box(0.4, 0.34, 0.05, 1.6, 0.6, 0.28, '#9a7048', { grad: false });
+  m.box(0.4, 0.3, 0.28, 1.6, 0.36, 0.7, '#9a7048', { grad: false });
+  for (const [px, py] of [[0.28, 0.28], [1.72, 0.28], [0.28, 1.72], [1.72, 1.72]]) m.box(px - 0.05, py - 0.05, 0.05, px + 0.05, py + 0.05, 1.3, white, { grad: false });
+  // back wall boards
+  m.box(0.26, 0.24, 0.05, 1.74, 0.3, 1.3, '#c9b48a', { grad: false });
+  m.gableX(0.24, 1.76, 0.24, 1.76, 1.3, 0.5, ROOF, '#efe6cf', { ex: 0.14, ey: 0.2, t: 0.06, wall: '#f0e7cf', courses: 'shingle' });
+  m.cyl(1.72, 1.9, 0.0, 0.08, 0.28, 'z', '#7d5a3c', { sides: 8 });
+  m.cyl(1.72, 1.9, 0.28, 0.07, 0.06, 'z', '#e8503f', { sides: 6, edge: null });
+  return m;
+}
+
+export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter';
+export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter'];
+export const isFacilityKind = (k: string): k is FacilityKind => (FACILITY_KINDS as string[]).includes(k);
+/** Footprint in tiles and height, for the stamp bounds, the shadow and the tray thumbnail. */
+const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2] };
+const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter };
+const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7 };
 
 /** Draw a placed facility with its top-left tile at (x, y). Interior carts in the barn go between its two halves. */
-export function drawFacility(P: Painter, kind: 'barn' | 'shed' | 'halfway', x: number, y: number, alpha = 1, inside = 0) {
+export function drawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha = 1, inside = 0) {
   const n = kind === 'barn' ? Math.min(3, inside) : 0;
-  const ext: [number, number, number, number] = kind === 'barn' ? [-0.3, -0.4, 6.0, 2.4] : [-0.3, -0.4, 4.8, 2.4];
-  cached(P, `${kind}:${n}`, x, y, ext, kind === 'barn' ? 3.1 : 2.4, alpha, (Q) => rawFacility(Q, kind, 0, 0, 1, n));
+  const [w, h, tall] = SIZE[kind];
+  const ext: [number, number, number, number] = kind === 'barn' ? [-0.3, -0.4, 6.0, 2.4] : kind === 'shed' || kind === 'halfway' ? [-0.3, -0.4, 4.8, 2.4] : [-0.3, -0.4, w + 1.8, h + 0.4];
+  cached(P, `${kind}:${n}`, x, y, ext, tall, alpha, (Q) => rawFacility(Q, kind, 0, 0, 1, n));
 }
-function rawFacility(P: Painter, kind: 'barn' | 'shed' | 'halfway', x: number, y: number, alpha = 1, inside = 0) {
+function rawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha = 1, inside = 0) {
   if (kind === 'barn') {
     if (!barnBack) buildBarn();
     groundShadow(P, BW.x0, BW.y0, BW.x1, BW.y1, BUILT.barn, x, y, alpha);
@@ -710,18 +938,24 @@ function rawFacility(P: Painter, kind: 'barn' | 'shed' | 'halfway', x: number, y
     if (!shedMesh) buildShed();
     groundShadow(P, 0.16, 0.18, 2.84, 1.3, BUILT.shed, x, y, alpha);
     draw(P, prepare('shed', shedMesh!, 0), x, y, alpha);
-  } else {
+  } else if (kind === 'halfway') {
     if (!halfwayMesh) buildHalfway();
     groundShadow(P, 0.24, 0.22, 1.86, 1.12, BUILT.halfway, x, y, alpha * 0.9);
     draw(P, prepare('halfway', halfwayMesh!, 0), x, y, alpha);
+  } else {
+    let mesh = meshes.get(kind);
+    if (!mesh) { mesh = BUILDERS[kind]!(); meshes.set(kind, mesh); }
+    const [w, h] = SIZE[kind];
+    groundShadow(P, 0.2, 0.2, w - 0.2, h - 0.5, BUILT[kind], x, y, alpha * 0.9);
+    draw(P, prepare(kind, mesh, 0), x, y, alpha);
   }
 }
 
 /** A tray thumbnail drawn with the same models. */
-export function drawFacilityThumb(canvas: HTMLCanvasElement, kind: 'barn' | 'shed' | 'halfway' | 'cart') {
+export function drawFacilityThumb(canvas: HTMLCanvasElement, kind: FacilityKind | 'cart') {
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const [fw, fh, tall] = kind === 'barn' ? [4, 2, 2.5] : kind === 'cart' ? [1.6, 1.6, 1.3] : [3, 2, 2.1];
+  const [fw, fh, tall] = kind === 'cart' ? [1.6, 1.6, 1.3] : SIZE[kind];
   const ts = Math.min(canvas.width / ((fw + fh) * ISO_X * 1.05), canvas.height / ((fw + fh) * ISO_Y + tall * 1.05));
   const cx = canvas.width / 2, base = canvas.height - 4;
   const toScreen = (x: number, y: number) => ({ x: cx + (x - y - (fw - fh) / 2) * ISO_X * ts, y: base - (fw + fh) * ISO_Y * ts + (x + y) * ISO_Y * ts });

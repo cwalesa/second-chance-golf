@@ -7,9 +7,9 @@ const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, countOf, isAmenity, isBuilding } from './items';
 import { flagMark, icon, pic } from './icons';
-import { drawFacilityThumb } from './art/facilities';
+import { drawFacilityThumb, isFacilityKind } from './art/facilities';
 import { drawAmenityThumb } from './art/amenities';
-import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
+import { Sprite, placedSprites } from './art/props';
 import { claimable, rollDay } from './daily';
 import { levelXp, playerLevel } from './experience';
 import type { Cheer } from './game';
@@ -138,10 +138,10 @@ export class UI {
     });
     this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-thumbnail]').forEach(c => paintToolTile(c,c.dataset.thumbnail as ToolId));
     {
-      const sprites: Record<string, Sprite> = { flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue() };
+      const sprites: Record<string, Sprite> = placedSprites();
       this.$('tools').querySelectorAll<HTMLCanvasElement>('canvas[data-decorthumb]').forEach((c) => {
         const kk = c.dataset.decorthumb!;
-        if (kk === 'barn' || kk === 'shed' || kk === 'halfway' || kk === 'cart') { drawFacilityThumb(c, kk); return; }
+        if (isFacilityKind(kk) || kk === 'cart') { drawFacilityThumb(c, kk as never); return; }
         if (kk === 'puttingGreen' || kk === 'range') { drawAmenityThumb(c, kk); return; }
         const sp = sprites[kk];
         const x = c.getContext('2d')!;
