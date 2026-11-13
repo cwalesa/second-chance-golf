@@ -1069,3 +1069,21 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
   #tip, body.has-proposal #tip { left: auto; right: calc(8px + var(--sar)); top: calc(8px + var(--sat)); width: min(390px, calc(100% - 460px - var(--sal) - var(--sar))); padding: 6px 8px 6px 10px; gap: 8px; }
   #tip p { font-size: 12px; line-height: 1.3; }
 }
+
+/* ---- start screen: everything needed to begin is on screen without scrolling ---- */
+.guide-head .banner { height: 44px; }
+.guide-body { padding: 6px 12px 8px; }
+.guide-foot .check-line { margin: 0 0 6px; min-height: 40px; }
+.guide-foot .check-line input { width: 22px; height: 22px; flex: none; }
+@media (orientation: landscape) and (max-height: 600px) {
+  /* the club on the left under the name, the places on the right, Start along the bottom */
+  .guide { grid-template-columns: 280px 1fr; grid-template-rows: auto 1fr auto; }
+  .guide-head { grid-row: 1; grid-column: 1; display: block; }
+  .guide-head .banner { display: none; }
+  .guide-body { display: contents; }
+  .guide-places { grid-column: 2; grid-row: 1 / span 2; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 12px 8px; }
+  .guide-club { grid-column: 1; grid-row: 2; overflow-y: auto; padding: 2px 12px 8px; border-right: 4px solid var(--edge); }
+  .guide-foot { grid-row: 3; padding-top: 6px; padding-bottom: calc(6px + var(--sab)); }
+  .guide-foot .check-line { margin: 0; flex: 1; }
+  .guide-foot p { display: none; }
+}
