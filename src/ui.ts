@@ -532,7 +532,7 @@ export class UI {
           t: r('top').bottom - this.appRect.top + 10, b: this.tab === 'build' ? el('tools').offsetHeight + 16 : 12 };
       }
       const sheet = this.tab !== 'none' && this.tab !== 'build' ? r('side').height : this.tab === 'build' ? r('tools').height : 0;
-      return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet + (this.tab === 'build' ? this.barH : 0) };
+      return { l: 0, r: 0, t: r('top').bottom - this.appRect.top + 8, b: nav.height + sheet + this.barH };
     }
     return { l: 12, r: this.tab !== 'none' && this.tab !== 'build' ? r('side').width + 24 : 12, t: r('top').bottom + 12, b: r('tools').height + 24 };
   }
@@ -605,6 +605,9 @@ export class UI {
     const costText = p ? `<span class="cf-cost">${fmtMoney(p.cost)}</span>` : '<span class="dim">No change yet</span>';
     const html = p || bendTool ? `<span class="cf-text"><b>${escapeHtml(p ? p.label : `Shape hole ${hn}`)}</b><span class="cf-sub">${route}${bendTool ? '' : `${what} · `}${costText}${short > 0 ? ` · need ${fmtMoney(short)} more` : ''}</span>${badLine}${dragHint}${noteLine}${parBar}</span><button class="btn" id="${p ? 'cfNo' : 'cfStop'}" ${p ? '' : 'aria-label="Stop shaping"'}>Cancel</button><button class="btn primary" id="cfOk" ${!p || short > 0 ? 'disabled' : ''}>Build</button>`
       : placing ? `<span class="cf-text"><b>${TOOL_INFO[this.editor.tool].label}</b><span class="cf-sub">${hint}. Nothing is built until you confirm.</span>${parBar}</span><button class="btn" id="cfStop">Cancel</button>` : '';
+    // while a hole is being placed or shaped the toolbox steps aside, so the one panel at the bottom is all there is
+    const showing = !!(p || placing || bendTool);
+    document.body.classList.toggle('confirming-plan', showing && this.editor.isPlacement);
     if (this.cache.get('confirm') === html) return;
     this.cache.set('confirm', html);
     el.innerHTML = html;

@@ -141,6 +141,8 @@ export class Editor {
   /** A marker of the planned new hole being dragged: its tee, its green or one of its turning points. */
   private pointers = new Map<number, Pt>();
   private start: Pt = { x: 0, y: 0 };
+  /** The tile under the pointer when it went down: a tap places there even if the camera has moved since. */
+  private startTile: Pt = { x: 0, y: 0 };
   private moved = false;
   private limited = false;
   private skipCost = 0;
@@ -362,6 +364,7 @@ export class Editor {
   }
   /** Re-plan the pending new hole after its par or turning points changed. */
   private replanNew() {
+    if (!this.buildTee || !this.buildCup) return; // nothing placed yet: the par just waits for the tee and green
     const why = this.tryReplan();
     if (why) this.game.notify('bad', why);
   }
@@ -718,6 +721,7 @@ export class Editor {
     }
     if (this.mode === 'pinch') return; // a finger left over from a pinch must lift before anything else happens
     this.start = p;
+    this.startTile = this.tileAt(p); // the tile the finger actually landed on, whatever the camera does next
     this.moved = false;
     this.touch = e.pointerType !== 'mouse';
     if (this.game.owner.active) { this.mode = 'inspect'; return; }
@@ -726,6 +730,12 @@ export class Editor {
     if (handle && !(e.button === 1 || e.button === 2 || this.space)) {
       this.mode = 'handle';
       this.beginDrag(p, handle, this.touch);
+      return;
+    }
+    // While the camera is gliding to frame something, the ground under a finger is moving: a tap then must not place anything on it.
+    // The touch still pans (and stops the glide); a placement tap is simply not taken.
+    if ((this.placingClub || this.isPlacement || this.tool === 'land' || this.tool === 'decor') && this.r.cameraMoving) {
+      this.mode = 'pan';
       return;
     }
     const panByButton = e.button === 1 || e.button === 2 || this.space || this.tool === 'pan';
@@ -892,15 +902,12 @@ export class Editor {
       if (over && this.isPaint) {
         this.startStroke(this.start);
         this.endStroke();
-      } else if (over) this.commitPlace(this.tileAt(this.start));
+      } else if (over) this.commitPlace(this.startTile);
     } else if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
       this.game.owner.aim = this.r.toWorld(p.x, p.y);
     } else if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
     else if (this.mode === 'paint') this.endStroke();
-    else if (this.mode === 'place' && over) {
-      const t = this.tileAt(p);
-      this.commitPlace(t);
-    }
+    else if (this.mode === 'place' && over) this.commitPlace(this.moved ? this.tileAt(p) : this.startTile);
     this.mode = 'none';
     if (e.pointerType === 'mouse') this.updateHover();
     else this.clearHover();
@@ -1233,7 +1240,7 @@ export class Editor {
 
   private inspectAt(p: Pt) {
     if (this.placingClub) {
-      this.aimClub(this.tileAt(p), true);
+      this.aimClub(this.startTile, true);
       return;
     }
     const w = this.r.toWorld(p.x, p.y);

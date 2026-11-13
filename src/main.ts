@@ -142,6 +142,10 @@ async function boot() {
   // After any tap or click, bring the interface and the tutorial up to date on the next frame, rather than on the next
   // tick of the slower interface clock, so an instruction never lags behind what the player just did.
   const settle = () => requestAnimationFrame(() => { ui.refresh(); tutorial.update(); });
+  // and the moment the game or the editor changes, however it happened (a button, a key, a gesture, undo)
+  game.onStateChanged = () => tutorial.poke();
+  const baseChange = editor.onChange;
+  editor.onChange = () => { baseChange(); tutorial.poke(); };
   document.addEventListener('pointerup', settle, true);
   document.addEventListener('keyup', settle, true);
   // iOS only shows :active (the pressed look) when a touch listener exists
