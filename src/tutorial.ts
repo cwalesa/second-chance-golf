@@ -253,7 +253,7 @@ const STEPS: Step[] = [
 
 const indexOf = (id: string) => STEPS.findIndex((s) => s.id === id);
 
-/** The coach: one short instruction at a time, docked under the clock chip, with a ring on the control or glow on the map spot to use. */
+/** The coach: one short instruction at a time, docked under the status bar, with a ring on the control or glow on the map spot to use. */
 export class Tutorial {
   private card = document.createElement('div');
   private ctx: Ctx;
@@ -308,11 +308,11 @@ export class Tutorial {
     const step = STEPS[this.g.tutorial.step];
     if (step?.skipTo) this.goTo(indexOf(step.skipTo));
   }
-  /** Leave the walkthrough. The course stays exactly as it is, and the clock chip offers Open for business. */
+  /** Leave the walkthrough. The course stays exactly as it is, and the status bar offers Open for business. */
   exit() {
     STEPS[this.g.tutorial.step]?.leave?.(this.ctx);
     this.finish();
-    if (!this.g.settings.open) this.g.notify('info', this.g.world.clubhouse ? 'Tutorial closed. Finish your course, then tap Open for business on the clock chip.' : 'Tutorial closed. Place your clubhouse to begin.');
+    if (!this.g.settings.open) this.g.notify('info', this.g.world.clubhouse ? 'Tutorial closed. Finish your course, then tap Open for business in the status bar.' : 'Tutorial closed. Place your clubhouse to begin.');
   }
   private finish() {
     this.g.tutorial.done = true;
@@ -337,7 +337,7 @@ export class Tutorial {
       if (!this.card.hidden) { this.card.hidden = true; this.clearRing(); document.body.classList.remove('coaching'); }
       return;
     }
-    // Opening for business by any route (the chip, say) ends the tutorial.
+    // Opening for business by any route (the status bar, say) ends the tutorial.
     if (this.g.settings.open) { this.finish(); return; }
     document.body.classList.add('coaching');
     this.card.hidden = this.ui.modalOpen;
@@ -361,7 +361,7 @@ export class Tutorial {
     }
     const flash = performance.now() - this.doneFlash < 900;
     const manual = typeof step.manual === 'function' ? step.manual(this.ctx) : step.manual ?? !step.check;
-    const html = `<div class="coach-row"><span class="coach-count">${step.phase}/${PHASES}</span><p class="coach-short">${flash ? '✓ ' : ''}${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${step.nextLabel ?? 'Next'}</button>` : ''}</div><div class="coach-foot">${step.skipTo ? '<button class="coach-x" data-coach="skip">Skip this step</button>' : ''}<button class="coach-x" data-coach="exit">Exit tutorial</button></div>`;
+    const html = `<div class="coach-title"><b>Tutorial</b><span class="coach-count">Step ${step.phase} of ${PHASES}</span></div><div class="coach-row"><p class="coach-short">${flash ? '✓ ' : ''}${step.short(this.ctx)}</p>${manual ? `<button class="btn primary coach-next" data-coach="next">${step.nextLabel ?? 'Next'}</button>` : ''}</div><div class="coach-foot">${step.skipTo ? '<button class="coach-x" data-coach="skip">Skip this step</button>' : ''}<button class="coach-x" data-coach="exit">Exit tutorial</button></div>`;
     if (force || entering || html !== this.html) {
       this.html = html;
       this.card.innerHTML = html;
@@ -373,13 +373,11 @@ export class Tutorial {
     this.pointAt(step.target?.(this.ctx) ?? []);
   }
 
-  /** Phones: the top of the screen is free, so the coach sits under the clock chip and the bottom stays for building. */
+  /** Phones: the top of the screen is free, so the coach sits under the status bar and the bottom stays for building. */
   private dock() {
     if (!this.ui.mobile) { this.card.style.top = ''; this.card.style.bottom = ''; this.card.classList.remove('ontop'); return; }
     const hdr = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 56;
-    const chip = document.getElementById('timechip');
-    const below = chip && !chip.hidden ? chip.offsetTop + chip.offsetHeight + 6 : hdr + 8;
-    const top = `${Math.round(below)}px`;
+    const top = `${Math.round(hdr + 8)}px`;
     this.card.classList.add('ontop');
     if (this.card.style.top !== top || this.card.style.bottom !== 'auto') {
       this.card.style.top = top;

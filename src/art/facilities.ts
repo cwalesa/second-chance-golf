@@ -454,7 +454,9 @@ function rawCart(P: Painter, x: number, y: number, h: number, trim: number) {
 // Cart barn (4 x 2 tiles). Timber board-and-batten walls, three open bays facing +y, a shingled gable roof
 // with real eaves, a louvred cupola and a painted sign.
 // =====================================================================================================
-const BARN = { wood: '#8c5a3e', trim: '#efe6cf', roof: '#56504b', interior: '#2c221c', apron: '#cbc6ba', stone: '#a9a293' };
+// One property: the barn, shed and halfway house share the clubhouse's cream walls and terracotta roofs.
+const ROOF = '#8a4f3c';
+const BARN = { wood: '#e3d6ad', trim: '#f6f0dc', roof: ROOF, interior: '#2c221c', apron: '#cbc6ba', stone: '#a9a293' };
 const BW = { x0: 0.14, x1: 3.86, y0: 0.14, y1: 1.4, h: 1.58 };
 let barnBack: Mesh | null = null;
 let barnFront: Mesh | null = null;
@@ -543,7 +545,7 @@ let shedMesh: Mesh | null = null;
 function buildShed() {
   const m = new Mesh();
   const x0 = 0.16, x1 = 2.84, y0 = 0.18, y1 = 1.3, h = 1.4;
-  const wall = '#8a9b84', trim = '#ece8dc', roof = '#7d8784';
+  const wall = '#c9d2a8', trim = '#f1ecdc', roof = ROOF;
   // concrete pad in front of the door, a gravel strip along the side
   m.quad([[0.24, y1, 0.005], [1.9, y1, 0.005], [1.9, 1.96, 0.005], [0.24, 1.96, 0.005]], [0, 0, 1], '#cfcbc0', { edge: 'rgba(80,76,66,0.3)' });
   m.quad([[x1, 0.1, 0.004], [2.98, 0.1, 0.004], [2.98, 1.96, 0.004], [x1, 1.96, 0.004]], [0, 0, 1], '#b9b19c', { edge: null });
@@ -610,7 +612,7 @@ let halfwayMesh: Mesh | null = null;
 function buildHalfway() {
   const m = new Mesh();
   const x0 = 0.24, x1 = 1.86, y0 = 0.22, y1 = 1.12, h = 1.32;
-  const wall = '#efe6cc', trim = '#2f5c44', roof = '#93503c';
+  const wall = '#efe6cc', trim = '#2f5c44', roof = ROOF;
   // timber deck with planks, then a stone step
   m.box(0.08, 0.08, 0, 2.94, 1.94, 0.06, '#b58d62', { grad: false });
   for (let y = 0.2; y < 1.92; y += 0.12) m.line([0.08, y, 0.062], [2.94, y, 0.062], 'rgba(80,50,26,0.3)', 0.012, [0, 0, 1]);

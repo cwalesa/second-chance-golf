@@ -108,7 +108,7 @@ function foliage(c: CanvasRenderingContext2D, lobes: Lobe[], look: Look, seed: n
 }
 
 /** Shade the whole crown toward the lower right and darken the underside, clipped to the silhouette. */
-function shadeCrown(c: CanvasRenderingContext2D, cx: number, top: number, bottom: number, strength = 0.34) {
+function shadeCrown(c: CanvasRenderingContext2D, cx: number, top: number, bottom: number, strength = 0.27) {
   c.save();
   c.globalCompositeOperation = 'source-atop';
   const g = c.createLinearGradient(cx - 50, top, cx + 50, bottom);
@@ -129,8 +129,8 @@ function rim(c: CanvasRenderingContext2D) {
   cc.drawImage(c.canvas, 0, 0);
   c.save();
   c.globalCompositeOperation = 'destination-over';
-  c.globalAlpha = 0.5;
-  for (const [dx, dy] of [[1.4, 0], [-1.4, 0], [0, 1.4], [0, -1.4]]) c.drawImage(darken(copy), dx, dy);
+  c.globalAlpha = 0.34;
+  for (const [dx, dy] of [[1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]]) c.drawImage(darken(copy), dx, dy);
   c.restore();
 }
 
@@ -311,7 +311,7 @@ export function makeTree(v: number): HTMLCanvasElement {
   const lobes = lobesFor(v);
   if (v === 6) {
     foliage(c, lobes, look, 700 + v, 2.8);
-    shadeCrown(c, BASE_X, 120, BASE_Y, 0.3);
+    shadeCrown(c, BASE_X, 120, BASE_Y, 0.24);
     rim(c);
     return cv;
   }

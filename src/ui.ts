@@ -4,7 +4,7 @@ import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, 
 import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
 import { BUILDING_KINDS, CART_PRICE, ITEMS, ITEM_KINDS, ItemKind, isBuilding } from './items';
-import { flagMark, icon } from './icons';
+import { flagMark, icon, pic } from './icons';
 import { drawFacilityThumb } from './art/facilities';
 import { Sprite, makeBallWasher, makeBench, makeFlowers, makeFountain, makeLamp, makeShrub, makeStatue } from './art/props';
 import { claimable, rollDay } from './daily';
@@ -172,6 +172,7 @@ export class UI {
       <div class="lvl" id="lvlBox" title="Your level"><span class="k">Lvl</span><b id="lvlN">1</b><i><em id="lvlBar"></em></i></div>
       <div class="stat"><span class="k">Cash</span><span class="v cash" id="cash"></span></div>
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
+      <div id="tstate" role="status"></div>
       <div class="stat hide-m" title="Fee for the tee-time band running now. Set all three in the Money tab."><span class="k" id="feek">Tee time</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
       <div class="stat hide-m" id="starbox" title="Course rating"><span class="k">Rating</span><span class="v small stars" id="starsTxt"></span></div>
       <div class="stat hide-m" id="satbox" title="Average satisfaction of recent guests"><span class="k">Guests</span><span class="v small" id="sat"></span><div class="meter"><i id="satbar"></i></div></div>
@@ -303,48 +304,49 @@ export class UI {
     });
   }
 
-  /** A small status chip with the one button that matters: Resume, or Open for business. Visible whenever time is held. */
-  private chip = document.createElement('div');
+  /** The time-state control inside the status bar: Pause while running; Resume or Open for business while time is held. */
+  private tstate: HTMLElement | null = null;
   private buildChip() {
-    this.chip.id = 'timechip';
-    this.chip.setAttribute('role', 'status');
-    this.chip.hidden = true;
-    this.chip.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) { this.chipAction(); this.refresh(true); } });
-    // Touches on the chip never reach the course underneath.
-    this.chip.addEventListener('pointerdown', (e) => e.stopPropagation());
-    document.getElementById('app')!.append(this.chip);
+    this.tstate = this.$('tstate');
+    this.tstate.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('button:not(:disabled)')) return;
+      if (this.game.timeHold === null) this.game.pause(); else this.chipAction();
+      this.refresh(true);
+    });
+    // Touches on the bar never reach the course underneath.
+    this.tstate.addEventListener('pointerdown', (e) => e.stopPropagation());
   }
-  /** Label and button for whatever is holding time, or null when the clock is running. */
-  chipView(): { label: string; button: string | null; tone: 'design' | 'hold' } | null {
+  /** Caption and action for whatever is holding time, or for the running clock. */
+  chipView(): { cap: string; act: string; icon: string; hold: string; off: boolean } {
     const g = this.game;
     switch (g.timeHold) {
-      case 'design': return { label: 'Designing · Time paused', button: 'Resume', tone: 'design' };
-      case 'paused': return { label: 'Time paused', button: 'Resume', tone: 'hold' };
+      case 'design': return { cap: 'Designing · Time paused', act: 'Resume', icon: 'play', hold: 'design', off: false };
+      case 'paused': return { cap: 'Time paused', act: 'Resume', icon: 'play', hold: 'paused', off: false };
+      case 'owner': return { cap: 'Practice round', act: 'Playing', icon: 'play', hold: 'paused', off: true };
       case 'unopened': {
-        // While the tutorial is teaching, its own last step offers Open for business; the chip only labels the pause until then.
+        // While the tutorial is teaching, its own last step offers Open for business; the bar only labels the pause until then.
         const teaching = !g.tutorial.done && g.tutorial.step < TUTORIAL_STEPS - 1;
-        return { label: 'Setting up · Time paused', button: g.world.clubhouse && !teaching ? 'Open for business' : null, tone: 'design' };
+        const can = !!g.world.clubhouse && !teaching;
+        return { cap: 'Setting up · paused', act: can ? 'Open for business' : 'Paused', icon: can ? 'play' : 'pause', hold: 'unopened', off: !can };
       }
-      default: return null;
+      default: return { cap: `Playing · ${g.settings.speed}×`, act: 'Pause', icon: 'pause', hold: '', off: false };
     }
   }
   private updateChip() {
     const v = this.chipView();
-    const html = v ? `<span class="tc-dot" aria-hidden="true"></span><b>${v.label}</b>${v.button ? `<button class="tc-btn" type="button">${v.button}</button>` : ''}` : '';
+    const html = `<button type="button" ${v.off ? 'disabled' : ''}><span class="ts-cap">${v.cap}</span><span class="ts-act">${icon(v.icon)}${v.act}</span></button>`;
     if (this.cache.get('chip') !== html) {
       this.cache.set('chip', html);
-      this.chip.innerHTML = html;
-      this.chip.hidden = !v;
-      this.chip.dataset.tone = v?.tone ?? '';
+      this.tstate!.innerHTML = html;
+      if (v.hold) this.tstate!.dataset.hold = v.hold; else delete this.tstate!.dataset.hold;
     }
-    document.body.classList.toggle('time-held', !!v);
   }
 
   private buildNav() {
-    const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
-    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${icon(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
-    // Phone: the tabs live in a menu sheet that the round button opens, with a row of map shortcuts under them.
-    this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
+ const tabs = ['build', 'course', 'guests', 'money', 'club', 'journey'];
+    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
+    // Phone: the destinations live in a menu window that the corner button opens, under a title bar with its own close control.
+    this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mhead"><b>Menu</b><button class="mclose" data-m="close" aria-label="Close menu">${icon('close')}</button></div><div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
     this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
     const fab = document.createElement('button');
     fab.id = 'fab';
@@ -362,7 +364,8 @@ export class UI {
       if (b.dataset.mspeed !== undefined) { this.setTimeSpeed(Number(b.dataset.mspeed)); this.menuOpen = false; this.refresh(true); return; }
       if (b.dataset.m) {
         this.menuOpen = false;
-        if (b.dataset.m === 'settings') this.openMenu();
+        if (b.dataset.m === 'close') { /* just closes */ }
+        else if (b.dataset.m === 'settings') this.openMenu();
         else (document.querySelector(`#map-controls [data-camera="${b.dataset.m}"]`) as HTMLElement | null)?.click();
         this.refresh(true);
         return;
@@ -479,8 +482,6 @@ export class UI {
   /** Space taken by panels, so the map can centre itself in what is left. */
   insets() {
     const base = this.panelInsets();
-    const chip = document.getElementById('timechip');
-    if (chip && !chip.hidden && !this.landscape) base.t = Math.max(base.t, chip.offsetTop + chip.offsetHeight + 6);
     const coach = document.getElementById('coach');
     if (!coach || coach.hidden || !document.body.classList.contains('coaching')) return base;
     const c = coach.getBoundingClientRect(), a = this.appRect;

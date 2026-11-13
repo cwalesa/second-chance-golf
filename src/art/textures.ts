@@ -112,8 +112,8 @@ interface TurfRecipe {
 }
 
 const RECIPES: Record<TurfKind, TurfRecipe> = {
-  rough: { grain: 0.16, blades: 1500, bladeLen: [2.2, 4.4], bladeAlpha: 0.2, clumps: 260 },
-  fairway: { grain: 0.07, blades: 1100, bladeLen: [1.4, 2.6], bladeAlpha: 0.12, clumps: 0 },
+  rough: { grain: 0.1, blades: 1100, bladeLen: [2.2, 4.2], bladeAlpha: 0.13, clumps: 150 },
+  fairway: { grain: 0.05, blades: 800, bladeLen: [1.4, 2.4], bladeAlpha: 0.09, clumps: 0 },
   green: { grain: 0.035, blades: 900, bladeLen: [0.9, 1.6], bladeAlpha: 0.08, clumps: 0 },
   tee: { grain: 0.04, blades: 900, bladeLen: [0.9, 1.6], bladeAlpha: 0.09, clumps: 0 },
 };
@@ -154,11 +154,11 @@ export function makeTurfTexture(kind: TurfKind, size = 256): HTMLCanvasElement {
     const r = 1.6 + hash2(k, 25, seed) * 1.6;
     wrapDraw(size, x, y, 6, (dx, dy) => {
       // shade toward +x (away from the sun), lit cap toward -x
-      g.fillStyle = 'rgba(8,40,22,0.26)';
+      g.fillStyle = 'rgba(8,40,22,0.18)';
       g.beginPath();
       g.ellipse(x + dx + 0.8, y + dy + 0.4, r, r * 0.8, 0, 0, Math.PI * 2);
       g.fill();
-      g.fillStyle = 'rgba(190,224,130,0.16)';
+      g.fillStyle = 'rgba(190,224,130,0.12)';
       g.beginPath();
       g.ellipse(x + dx - 0.6, y + dy - 0.3, r * 0.6, r * 0.45, 0, 0, Math.PI * 2);
       g.fill();
