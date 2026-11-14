@@ -1092,3 +1092,17 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
 #tools .club-tile { font-size: 0; }
 #tools .club-tile svg.pic { width: 44px; height: 44px; }
 @media (orientation: landscape) and (max-height: 600px) { #confirm .cf-pars .mini { min-height: 40px; } }
+
+/* ---- practice round in landscape: a side panel on the right, with the swing buttons always in view ---- */
+@media (orientation: landscape) and (max-height: 600px) {
+  #owner-hud { left: auto; right: calc(6px + var(--sar)); top: calc(8px + var(--sat)); bottom: calc(6px + var(--sab)); width: min(340px, 42vw); max-height: none; padding: 8px 10px 0; }
+  #owner-hud .owner-top { margin-bottom: 4px; }
+  #owner-hud .owner-stats, #owner-hud .owner-clubs, #owner-hud .swing-panel { margin: 4px 0; }
+  #owner-hud .swing-panel { padding: 6px 8px; }
+  #owner-hud .swing-panel > small { display: none; }
+  #owner-hud > p { margin: 4px 0; font-size: 12px; }
+  #owner-hud > .btnrow { position: sticky; bottom: 0; margin: 0 -10px; padding: 6px 10px 8px; background: var(--panel-2); }
+}
+
+/* ---- a region where a full eighteen has been opened ---- */
+.place-done { display: inline-block; margin-left: 6px; padding: 2px 6px; border: 2px solid var(--edge); border-radius: 6px; background: var(--yellow); font: 800 10px/1.2 var(--font); font-style: normal; vertical-align: middle; white-space: nowrap; }

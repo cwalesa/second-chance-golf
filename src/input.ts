@@ -281,7 +281,8 @@ export class Editor {
   }
   setTool(t: ToolId) {
     // Picking anything that edits the course starts designing: the business clock holds until the player resumes.
-    if (t !== 'inspect' && t !== 'pan') this.game.enterDesign();
+    // Decorating, placing buildings and repairing turf are not design changes: guests keep playing while you do them.
+    if (t !== 'inspect' && t !== 'pan' && t !== 'decor' && t !== 'repair') this.game.enterDesign();
     if (t !== 'decor' && this.bGhost) { this.bGhost = null; this.syncGhost(); }
     if (t !== 'decor' && this.relocClub) this.cancelClub();
     this.cancelStroke();
@@ -1311,6 +1312,7 @@ export class Editor {
   startMoveClub() {
     const c = this.game.world.clubhouse;
     if (!c || this.proposal) return;
+    this.game.enterDesign(); // moving the clubhouse moves the entrance golfers use, so this one does hold time
     this.cancelGhost();
     this.relocClub = true;
     this.clubFlip = !!this.game.world.clubFlip;

@@ -1,4 +1,5 @@
 import type { Game } from './game';
+import { BUILDING_KINDS as BUILDINGS } from './items';
 
 /** `stage` and `completed` are legacy fields from the old chapter system; they are kept only so old saves still load. */
 export interface CampaignState { /** position in the goal chain (CHAIN) */ step?: number; /** id of the current goal, so the chain can change between versions */ goalId?: string; stage: number; claimed: string[]; completed: string[]; rounds: number; profit: number; events: number; medals: number; }
@@ -19,7 +20,7 @@ export const GOALS: Objective[] = [
 /**
  * The road from one hole to eighteen: one goal at a time, each paying a grant when it is reached.
  * Clubhouse upgrades unlock more holes (9, then 12, then 18), so they sit in the chain where they are needed.
- * After the last goal the game is a sandbox.
+ * After the eighteenth hole a few resort goals follow; after the last of those the game is a sandbox.
  */
 export interface ChainGoal {
   id: string;
@@ -67,7 +68,7 @@ export const CHAIN: ChainGoal[] = [
   cg('c-club1', 'Upgrade to a real clubhouse', 'Needs a 1-star rating. Upgrade it in the Clubhouse panel.', 800, 1, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
   cg('c-staff', 'Hire your first staff member', 'A greenkeeper keeps turf healthy and a ranger keeps play moving. Hire one in Clubhouse.', 600, 1, (g) => Object.values(g.staff).filter(Boolean).length, { go: 'club', guide: '[data-act="hire"]' }),
   cg('c-hole6', 'Open 6 holes', 'Keep building. Mix pars 3, 4 and 5 for variety.', 1100, 6, openHoles, { go: 'build', tool: 'build' }),
-  cg('c-amenity', 'Add an improvement', 'Improvements like a snack bar or carts earn money and please guests. Buy one in Finances.', 700, 1, (g) => Object.values(g.upgrades).filter(Boolean).length, { go: 'money', guide: '[data-act="buy"]' }),
+  cg('c-amenity', 'Add an improvement', 'Improvements like a snack bar or carts, and buildings like a halfway house, earn money and please guests. Finances lists them all.', 700, 1, (g) => Object.values(g.upgrades).filter(Boolean).length + (g.world.items?.filter((it) => !['puttingGreen', 'range'].includes(it.k) && BUILDINGS.includes(it.k)).length ?? 0), { go: 'money', guide: '[data-act="buy"]' }),
   cg('c-members3', 'Win 5 club members', 'Golfers who love their round may join and pay daily dues. Keep them happy.', 800, 5, (g) => g.members.length, { go: 'guests' }),
   cg('c-event1', 'Host an event', 'Book one in Events, then let the day play out.', 900, 1, (g) => g.stats.events, { go: 'events', guide: '[data-act="book"]' }),
   cg('c-hole9', 'Open 9 holes', 'A full nine. Golfers stay longer and pay more.', 1800, 9, openHoles, { go: 'build', tool: 'build' }),
@@ -77,11 +78,19 @@ export const CHAIN: ChainGoal[] = [
   cg('c-star35', 'Reach a 3.5-star rating', 'Keep turf in good shape, buy improvements and keep guests happy.', 3800, 3.5, (g) => g.stars, { go: 'club', unit: 'stars' }),
   cg('c-club3', 'Build the grand clubhouse', 'The grand clubhouse allows a full 18 holes.', 4500, 3, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
   cg('c-hole18', 'Open 18 holes', 'Finish the full championship course.', 7500, 18, openHoles, { go: 'build', tool: 'build' }),
+  // After the eighteenth hole the course is built; these last goals are about running it as a resort.
+  cg('c-members20', 'Build a club of 20 members', 'Members join after rounds they love. Keep turf repaired and fees fair; a club host helps.', 5000, 20, (g) => g.members.length, { go: 'guests' }),
+  cg('c-star45', 'Reach a 4.5-star rating', 'Every hole open, turf in fine condition, happy guests and a full set of improvements.', 8000, 4.5, (g) => g.stars, { go: 'club', unit: 'stars' }),
+  cg('c-club4', 'Build the resort lodge', 'The last clubhouse upgrade. It needs a 4.5-star rating.', 10000, 4, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
+  cg('c-wedding', 'Host a resort wedding party', 'Book it in Events once the lodge stands, then let the day play out.', 12000, 1, (g) => (g.lastEvent?.id === 'wedding' ? 1 : 0), { go: 'events', guide: '[data-act="book"]' }),
 ];
+/** Reaching this goal completes the region: the start screen marks it, and Goals offers a new course elsewhere. */
+export const REGION_GOAL = 'c-hole18';
+export const regionComplete = (g: Game) => chainStep(g) > CHAIN.findIndex((x) => x.id === REGION_GOAL);
 /** The first version of the chain, by position, so saves that stored only a number land on the same goal. */
 export const CHAIN_V1 = ['c-hole1', 'c-rounds10', 'c-hole3', 'c-profit1500', 'c-club1', 'c-hole6', 'c-members3', 'c-event1', 'c-hole9', 'c-star25', 'c-club2', 'c-hole12', 'c-star35', 'c-club3', 'c-hole18'];
 /** Goals taken out of the chain, and the goal a save that was standing on one continues with. */
-export const CHAIN_MOVED: Record<string, string> = { 'c-play': 'c-profit1500' };
+export const CHAIN_MOVED: Record<string, string> = { 'c-play': 'c-profit1500', done: 'c-members20' }; // 'done' was the end of the chain before the resort goals were added
 export const chainStep = (g: Game) => Math.min(CHAIN.length, g.campaign.step ?? 0);
 export const currentGoal = (g: Game): ChainGoal | null => CHAIN[chainStep(g)] ?? null;
 export function goalProgressText(goal: ChainGoal, g: Game): string {

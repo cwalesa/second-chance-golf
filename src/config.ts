@@ -27,7 +27,7 @@ export const CFG = {
       },
 
   upgrades: {
-    proShop: { name: 'Pro shop stock', cost: 700, upkeep: 2, satBonus: 0, blurb: 'Golfers spend about 60% more at the clubhouse.' },
+    proShop: { name: 'Clubhouse counter', cost: 700, upkeep: 2, satBonus: 0, blurb: 'Balls, gloves and caps at the clubhouse desk. Golfers spend about 60% more there.' },
     snackBar: { name: 'Snack bar', cost: 500, upkeep: 3, satBonus: 3, blurb: 'Adds about $4 of food and drink per round and pleases guests.' },
     puttingGreen: { name: 'Practice putting green', cost: 400, upkeep: 1, satBonus: 3, blurb: 'A small warm-up green. Guests rate their day higher.' },
     range: { name: 'Driving range', cost: 900, upkeep: 5, satBonus: 2, blurb: 'Draws about 15% more golfers to the course.' },
@@ -78,7 +78,7 @@ export const CFG = {
     floor: 8,
   },
 
-  wear: { teeShot: 1.1, fairwayShot: 0.7, putt: 0.28, cupRadius: 1.3 },
+  wear: { teeShot: 1.1, fairwayShot: 0.7, putt: 0.28, cupRadius: 1.3, cupShare: 0.3 }, // cupShare: how much of each putt's wear also falls on the tiles around the cup
 
   holes: { designCap: 9, zoneRadius: 7, maxOnHole: 4, teeInterval: 8, maxStrokesOverPar: 5, holeTimeout: 160, par3Max: 23, par4Max: 43 },
 
