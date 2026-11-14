@@ -167,7 +167,7 @@ export class Editor {
   clubLocked = false;
   inspectTile: Pt | null = null;
   onChange: () => void = () => {};
-  onSelect: (what: 'golfer' | 'hole') => void = () => {};
+  onSelect: (what: 'golfer' | 'hole' | 'club') => void = () => {};
 
   private mode: Mode = 'none';
   /** A marker of the planned new hole being dragged: its tee, its green or one of its turning points. */
@@ -1367,6 +1367,18 @@ export class Editor {
     const tx = Math.floor(w.x);
     const ty = Math.floor(w.y);
     if (!inBounds(this.game.world, tx, ty)) return;
+    // A tap on the clubhouse opens its panel. The building stands up from the ground, so its walls and roof cover the
+    // tiles just behind its footprint as well: those count too.
+    const club = this.game.world.clubhouse;
+    if (club) {
+      const dm = clubDims(this.game.world.clubFlip);
+      if (tx >= club.x - 2 && ty >= club.y - 2 && tx < club.x + dm.w && ty < club.y + dm.h) {
+        this.game.selectedGolfer = 0;
+        this.onSelect('club');
+        this.onChange();
+        return;
+      }
+    }
     this.inspectTile = { x: tx, y: ty };
     const z = this.game.world.zone[idx(this.game.world, tx, ty)];
     if (z) this.game.selectedHole = z;

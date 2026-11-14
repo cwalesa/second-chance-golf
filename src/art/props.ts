@@ -461,10 +461,37 @@ export function makeHedge(): Sprite {
   });
 }
 
+/** A clump of tall fescue: pale, wispy blades with seed heads, the rough of a links course. */
+export function makeTallGrass(): Sprite {
+  return sprite(60, 60, 30, 52, (c) => {
+    groundShadow(c, 34, 52, 22, 7, 0.28);
+    const cols = ['#b9b455', '#93a94a', '#6f9440', '#d6cc7c', '#a3b257'];
+    c.lineCap = 'round';
+    for (let k = 0; k < 30; k++) {
+      const x0 = 14 + hash2(k, 5, 61) * 32;
+      const h = 20 + hash2(k, 5, 62) * 24;
+      const lean = (hash2(k, 5, 63) - 0.5) * 22;
+      c.strokeStyle = cols[k % cols.length];
+      c.lineWidth = 2.6;
+      c.beginPath();
+      c.moveTo(x0, 52 - hash2(k, 5, 64) * 4);
+      c.quadraticCurveTo(x0 + lean * 0.2, 52 - h * 0.6, x0 + lean, 52 - h);
+      c.stroke();
+      if (k % 3 === 0) {
+        c.fillStyle = '#ead9a0';
+        c.beginPath();
+        c.ellipse(x0 + lean, 52 - h - 2, 2.2, 4.2, lean * 0.03, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+  });
+}
+
 /** Every placeable decoration's sprite, built once for the map and for the tray thumbnails. */
 export function placedSprites(): Record<string, Sprite> {
   return {
     flowers: makeFlowers(1), shrub: makeShrub(2), bench: makeBench(), lamp: makeLamp(), washer: makeBallWasher(), fountain: makeFountain(), statue: makeStatue(),
     birdbath: makeBirdbath(), picnic: makePicnic(), flagpole: makeFlagpole(), rockgarden: makeRockGarden(), planter: makePlanter(), arch: makeArch(), hedge: makeHedge(),
+    bush: makeShrub(1), wildflowers: makeFlowers(2), tallgrass: makeTallGrass(), reeds: makeReeds(1), boulder: makeRock(0),
   };
 }

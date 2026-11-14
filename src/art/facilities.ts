@@ -909,13 +909,63 @@ function buildShelter(): Mesh {
   return m;
 }
 
-export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter';
-export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter'];
+/** Restrooms: a small rendered block with two coloured doors under a blue seamed roof. */
+function buildRestroom(): Mesh {
+  const m = new Mesh();
+  m.box(0.1, 0.1, 0, 1.9, 1.9, 0.05, '#cbc6ba', { grad: false });
+  m.box(0.3, 0.3, 0.05, 1.7, 1.45, 1.2, '#f0e7cf', { grad: false });
+  m.box(0.3, 0.3, 0.05, 1.7, 1.47, 0.3, '#b9ad8a', { grad: false, edge: null });
+  m.box(0.48, 1.45, 0.05, 0.86, 1.48, 0.95, '#3f6f93', { grad: false });
+  m.box(1.14, 1.45, 0.05, 1.52, 1.48, 0.95, '#a44a5c', { grad: false });
+  m.box(0.6, 1.48, 0.62, 0.74, 1.5, 0.76, '#f6f0dc', { grad: false, edge: null });
+  m.box(1.26, 1.48, 0.62, 1.4, 1.5, 0.76, '#f6f0dc', { grad: false, edge: null });
+  m.gableX(0.3, 1.7, 0.3, 1.45, 1.2, 0.42, '#4f7f96', '#efe6cf', { ex: 0.12, ey: 0.18, t: 0.06, wall: '#f0e7cf', courses: 'seam' });
+  return m;
+}
+/** The starter's hut: a timber kiosk with a serving hatch, a shelf, and the club flag on a pole. */
+function buildStarter(): Mesh {
+  const m = new Mesh();
+  m.box(0.1, 0.1, 0, 1.9, 1.9, 0.05, '#b58d62', { grad: false });
+  m.box(0.4, 0.4, 0.05, 1.6, 1.4, 1.15, '#e3d6ad', { grad: false });
+  m.box(0.68, 1.4, 0.55, 1.32, 1.42, 0.98, '#2c221c', { grad: false });
+  m.box(0.6, 1.4, 0.48, 1.4, 1.58, 0.54, '#9a7048', { grad: false });
+  m.box(1.6, 0.7, 0.05, 1.62, 1.05, 0.9, '#7d5a3c', { grad: false });
+  m.gableX(0.4, 1.6, 0.4, 1.4, 1.15, 0.45, '#3f8a6a', '#f6f0dc', { ex: 0.14, ey: 0.24, t: 0.06, wall: '#e3d6ad', courses: 'shingle' });
+  m.cyl(0.26, 1.72, 0.05, 0.035, 2.0, 'z', '#f4efe0', { sides: 6 });
+  m.flat([[0.26, 1.72, 2.05], [0.26, 1.72, 1.7], [0.78, 1.72, 1.87]], '#e8503f');
+  return m;
+}
+/** A windmill: a white tower on a stone base, a red cap, and four sails facing the camera side. */
+function buildWindmill(): Mesh {
+  const m = new Mesh();
+  m.cyl(1, 1, 0, 0.66, 0.42, 'z', '#a9a293', { sides: 12 });
+  m.cyl(1, 1, 0.42, 0.56, 0.75, 'z', '#f4efe0', { sides: 12 });
+  m.cyl(1, 1, 1.17, 0.5, 0.75, 'z', '#f4efe0', { sides: 12 });
+  m.cyl(1, 1, 1.92, 0.44, 0.5, 'z', '#f4efe0', { sides: 12 });
+  m.cyl(1, 1, 2.42, 0.5, 0.2, 'z', ROOF, { sides: 12 });
+  m.cyl(1, 1, 2.62, 0.3, 0.2, 'z', ROOF, { sides: 12 });
+  m.box(0.86, 1.52, 0.42, 1.14, 1.6, 0.98, '#7d5a3c', { grad: false });
+  m.box(0.92, 1.44, 1.4, 1.08, 1.5, 1.62, '#3a4a5a', { grad: false });
+  // the sails: four flat arms in the plane facing +y, turned a little off the vertical
+  const hx = 1, hy = 1.66, hz = 2.2;
+  m.cyl(hx, 1.46, hz, 0.07, 0.24, 'y', '#7d5a3c', { sides: 8 });
+  for (let k = 0; k < 4; k++) {
+    const a = (25 + 90 * k) * Math.PI / 180;
+    const dx = Math.cos(a), dz = Math.sin(a), px = -dz, pz = dx;
+    const q = (t: number, s: number): [number, number, number] => [hx + dx * t + px * s, hy, hz + dz * t + pz * s];
+    m.flat([q(0.05, -0.03), q(1.35, -0.03), q(1.35, 0.03), q(0.05, 0.03)], '#7d5a3c');
+    m.flat([q(0.35, 0.03), q(1.3, 0.03), q(1.3, 0.3), q(0.35, 0.3)], '#f6f0dc');
+  }
+  return m;
+}
+
+export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'restroom' | 'starter' | 'windmill';
+export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill'];
 export const isFacilityKind = (k: string): k is FacilityKind => (FACILITY_KINDS as string[]).includes(k);
 /** Footprint in tiles and height, for the stamp bounds, the shadow and the tray thumbnail. */
-const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2] };
-const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter };
-const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7 };
+const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2], restroom: [2, 2, 2.2], starter: [2, 2, 2.6], windmill: [2, 2, 4.2] };
+const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter, restroom: buildRestroom, starter: buildStarter, windmill: buildWindmill };
+const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7, restroom: 1.6, starter: 1.6, windmill: 2.6 };
 
 /** Draw a placed facility with its top-left tile at (x, y). Interior carts in the barn go between its two halves. */
 export function drawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha = 1, inside = 0) {
