@@ -2,11 +2,11 @@ import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
 import { placedSprites, paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
-import { drawCart, drawFacility, isFacilityKind } from './art/facilities';
+import { drawCar, drawCart, drawFacility, isFacilityKind } from './art/facilities';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
-import { Golfer, cartDriving, cartOut } from './sim';
+import { Golfer, cartDriving, cartOut, inCar } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
 import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
@@ -1855,6 +1855,12 @@ export class Renderer {
       }
     }
     for (const g of game.sim.golfers) {
+      // on the entrance road they are in their car: it is the car that is drawn, not the golfer
+      if (inCar(g)) {
+        const h = g.heading ?? 0;
+        items.push({ y: g.rx + g.ry, draw: () => drawCar(this.facilityPainter(), g.rx, g.ry, h, g.id) });
+        continue;
+      }
       // a renter's cart: carrying them while they drive, parked beside them while they play the shot
       if (cartOut(g)) {
         const driving = cartDriving(g), h = g.heading ?? 0;

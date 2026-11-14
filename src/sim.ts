@@ -8,6 +8,11 @@ export const cartOut = (g: { cart?: number; phase: string }) => g.cart !== undef
 /** Golfers who rode in this one: driving between shots (the cart rolls with them). */
 export const cartDriving = (g: { cart?: number; phase: string }) => g.cart !== undefined && g.cart >= 0 && (g.phase === 'toTee' || g.phase === 'toBall' || g.phase === 'toExit');
 
+/** Arriving and leaving golfers are in their car on the entrance road: from the gate to the forecourt, and back out again. */
+export const inCar = (g: { phase: string; timer: number }) => (g.phase === 'arrive' && g.timer === 0) || (g.phase === 'leave' && g.timer === 1);
+/** How much faster a car covers the road than a golfer on foot. */
+const CAR_SPEED = 3;
+
 export type Phase = 'arrive' | 'toTee' | 'queue' | 'toBall' | 'address' | 'swing' | 'flight' | 'holed' | 'toExit' | 'leave';
 
 export interface Flight {
@@ -753,7 +758,7 @@ export class CourseSim {
     switch (g.phase) {
       case 'arrive':
         if (g.timer === 0) {
-          if (this.walk(g, this.sites.entry.x, this.sites.entry.y, dt) || g.phaseTime > 30) g.timer = 1;
+          if (this.walk(g, this.sites.entry.x, this.sites.entry.y, dt * CAR_SPEED) || g.phaseTime > 30) g.timer = 1;
         } else if (this.walk(g, this.sites.door.x, this.sites.door.y, dt) || g.phaseTime > 60) {
           g.x = this.sites.door.x;
           g.y = this.sites.door.y;
@@ -861,7 +866,7 @@ export class CourseSim {
       case 'leave':
         if (g.timer === 0) {
           if (this.walk(g, this.sites.entry.x, this.sites.entry.y, dt) || g.phaseTime > 30) g.timer = 1;
-        } else if (this.walk(g, this.sites.spawn.x, this.sites.spawn.y, dt) || g.phaseTime > 60) {
+        } else if (this.walk(g, this.sites.spawn.x, this.sites.spawn.y, dt * CAR_SPEED) || g.phaseTime > 60) {
           g.x = this.sites.spawn.x;
           g.y = this.sites.spawn.y;
         }
