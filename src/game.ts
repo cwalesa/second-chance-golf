@@ -604,7 +604,7 @@ export class Game {
     awardExperience(this, 2);
     const member = this.members.find(m => m.name === r.name);
     if (member) { member.visits++; member.happiness = Math.round(member.happiness * .5 + sc.total * .5); }
-    else if (sc.total >= (this.staff.host ? 70 : 76) && r.holes >= 2 && this.members.length < 30 && this.members.filter(m => m.joined === this.day).length < (this.staff.host ? 3 : 2)) {
+    else if (sc.total >= (this.staff.host ? 70 : 76) && r.holes >= 2 && this.members.length < 30 && this.members.filter(m => m.joined === this.day).length < (this.staff.host ? 2 : 1)) {
       this.members.push({ name: r.name, type: r.type, visits: 1, happiness: Math.round(sc.total), joined: this.day });
       awardExperience(this, 12, `${this.campaign.stage}:member:${r.name}`);
       this.notify('good', `${r.name} joined as a member. Members pay daily dues.`);

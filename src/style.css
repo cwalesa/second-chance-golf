@@ -558,7 +558,7 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 .swing-panel > small { font-size: 11px; }
 
 /* hidden on the phone layout */
-#minimap, #pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
+#pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
 #goalbar .box { background: transparent; }
 
 /* ================= opening screen ================= */
@@ -1164,3 +1164,19 @@ body.coaching #side .tabs { display: none; }
 .help-list { margin: 0 0 4px; padding-left: 18px; }
 .help-list li { font-size: 13.5px; line-height: 1.4; margin-bottom: 4px; }
 @media (orientation: portrait) { #tools .phonerow > .ph-decor { grid-auto-columns: 76px; } }
+
+/* ---- the course map: a third map button opens it; tap or drag on it to jump anywhere ---- */
+#minimap { display: none; }
+body.minimap-open[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.owner-playing):not(.has-proposal):not(.placing-club):not(.placing-building) #minimap {
+  display: block; position: absolute; z-index: 6; right: calc(74px + var(--sar)); bottom: calc(84px + var(--sab)); width: min(240px, calc(100% - 96px - var(--sal) - var(--sar))); height: auto; aspect-ratio: 3 / 2;
+  border: 3px solid var(--edge); border-radius: 12px; box-shadow: var(--hard); background: #fff; image-rendering: pixelated; cursor: crosshair;
+}
+#map-controls button[data-camera="map"] {
+  display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; padding: 0; border: 3px solid var(--edge); border-radius: 12px; background: #fff; color: var(--ink); box-shadow: var(--hard); cursor: pointer;
+}
+body.minimap-open #map-controls button[data-camera="map"] { background: var(--yellow); }
+/* ---- small action rows in panels ---- */
+.fee-all { margin: 0 0 10px; }
+.fee-all .btn { width: 100%; }
+/* the map sits above the message line, beside its button */
+body.minimap-open #minimap { bottom: calc(150px + var(--sab)) !important; }
