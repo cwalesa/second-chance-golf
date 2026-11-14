@@ -620,7 +620,20 @@ export class Game {
     this.today.satSum += sc.total;
     this.recent.push({ ...sc, rough: r.stats.shots ? r.stats.rough / r.stats.shots : 0, water: r.stats.water, wait: r.stats.wait, fee: r.fee, fair: this.fair, name: r.name });
     if (this.recent.length > CFG.satisfaction.window) this.recent.shift();
+    this.warnWornTurf();
     return farewellFor(sc);
+  }
+
+  private turfWarnDay = -9;
+  /** Worn turf drags satisfaction down slowly and out of sight (it gathers where golfers putt). Say so, with what to do, at most every few days. */
+  private warnWornTurf() {
+    const last = this.recent.slice(-6);
+    if (last.length < 6 || this.day - this.turfWarnDay < 3) return;
+    if (last.reduce((s, r) => s + r.cond, 0) / last.length >= 55) return;
+    this.turfWarnDay = this.day;
+    this.notify('bad', this.upgrades.crew || this.staff.gardener
+      ? 'Golfers say the greens are worn around the cups. Tap a hole and use Repair green.'
+      : 'Golfers say the greens are worn around the cups. Tap a hole and use Repair green, or buy the Grounds crew in Finances to keep turf healthy.');
   }
 
   private endDay() {
@@ -897,7 +910,9 @@ export class Game {
   /** Apply a planned edit. Charges exactly once, closes any open hole it touches, records undo. */
   commitEdit(plan: EditPlan, redo = false): { ok: boolean; message: string } {
     // Any edit made through a panel (not only the build tray) counts as designing: time holds until the player resumes.
-    if (plan.tiles.length || plan.hole || plan.newHole || plan.removedHole) this.enterDesign();
+    // Turf repair is the exception: it is upkeep, not design, so the hole stays open and the clock keeps running.
+    const upkeep = isUpkeep(plan);
+    if (!upkeep && (plan.tiles.length || plan.hole || plan.newHole || plan.removedHole)) this.enterDesign();
     if (!plan.tiles.length && !plan.hole && !plan.newHole && !plan.removedHole) return { ok: false, message: 'Nothing would change.' };
     if (plan.newHole) {
       const why = this.addHoleProblem();
@@ -920,7 +935,7 @@ export class Game {
     this.undoStack.push({ plan, cost: plan.cost });
     if (this.undoStack.length > 60) this.undoStack.shift();
     if (!redo) this.redoStack = [];
-    this.afterTerrainChange(touched, before);
+    this.afterTerrainChange(touched, before, upkeep);
     this.dirtySave = true;
     if (plan.newHole) {
       this.selectedHole = plan.newHole.id;
@@ -934,8 +949,9 @@ export class Game {
 
   undo(): boolean {
     const e = this.undoStack.pop();
-    if (e) this.enterDesign();
     if (!e) return false;
+    const upkeep = isUpkeep(e.plan);
+    if (!upkeep) this.enterDesign();
     const touched = touchedHoles(this.world, e.plan);
     if (e.plan.newHole) this.closeHole(e.plan.newHole.id, true);
     applyPlan(this.world, e.plan, 'undo');
@@ -943,7 +959,7 @@ export class Game {
     this.today.construction -= e.cost;
     this.redoStack.push(e);
     this.logEntry(`Undo: ${e.plan.label}`, e.cost);
-    this.afterTerrainChange(touched, null);
+    this.afterTerrainChange(touched, null, upkeep);
     if (!this.world.holes.some((h) => h.id === this.selectedHole)) this.selectedHole = e.plan.removedHole?.id ?? this.world.holes[0]?.id ?? 1;
     for (const id of touched) {
       const h = this.world.holes.find((x) => x.id === id);
@@ -964,12 +980,12 @@ export class Game {
     return r.ok;
   }
 
-  private afterTerrainChange(touched: number[], greenBefore: Map<number, number> | null) {
+  private afterTerrainChange(touched: number[], greenBefore: Map<number, number> | null, keepOpen = false) {
     computeZones(this.world);
     for (const id of touched) {
       const h = this.world.holes.find((x) => x.id === id);
       if (!h) continue;
-      if (h.open) {
+      if (h.open && !keepOpen) {
         this.closeHole(id, true);
         h.awaiting = true;
         this.notify('info', `Hole ${id} closed for work. Reopen it when you are done.`);
@@ -1106,5 +1122,8 @@ export class Game {
     return this.undoStack.length ? this.undoStack[this.undoStack.length - 1].plan : null;
   }
 }
+
+/** Reseeding turf: the ground keeps its kind and its trees, only its condition changes. Golfers can play straight through it. */
+const isUpkeep = (plan: EditPlan) => !plan.hole && !plan.newHole && !plan.removedHole && plan.tiles.length > 0 && plan.tiles.every((t) => t.before.t === t.after.t && t.before.tr === t.after.tr);
 
 export const fmtMoney = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');

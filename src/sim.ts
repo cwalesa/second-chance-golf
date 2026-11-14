@@ -532,11 +532,35 @@ export class CourseSim {
     this.wearDirty = true;
   }
 
+  /** The tee-box tiles around a ball on the tee: golfers tee up anywhere on the box, so it wears, and is judged, as a whole. */
+  private teeBox(x: number, y: number): number[] {
+    const out: number[] = [];
+    const tx = Math.floor(x), ty = Math.floor(y);
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if (inBounds(this.world, tx + dx, ty + dy) && this.world.terrain[idx(this.world, tx + dx, ty + dy)] === T.TEE) out.push(idx(this.world, tx + dx, ty + dy));
+    return out;
+  }
+
   private launch(g: Golfer, h: Hole) {
     const world = this.world;
     const lie = lieAt(world, g.ball.x, g.ball.y);
+    // On the tee the golfer's impression is of the whole box, not of the one tile at its centre (which every round would otherwise grind to dirt within days
+    // while the panel still showed a healthy tee).
+    const box = lie.kind === 'tee' ? this.teeBox(g.ball.x, g.ball.y) : [];
+    if (box.length) lie.cond = box.reduce((s, i) => s + world.cond[i], 0) / box.length;
     const cup = center(h.cup);
     const toCup = Math.hypot(cup.x - g.ball.x, cup.y - g.ball.y);
+    // The same on the green close to the hole: every round finishes on the cup's own tile, so the putting surface around the cup is
+    // judged, and worn, together. Otherwise that one tile goes bare in a week and every golfer rates the whole course by it.
+    const around: number[] = [];
+    if (lie.kind === 'green' && toCup <= CFG.wear.cupRadius + 0.5) {
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          const x = h.cup.x + dx, y = h.cup.y + dy;
+          if (Math.hypot(dx, dy) <= CFG.wear.cupRadius && inBounds(world, x, y) && world.terrain[idx(world, x, y)] === T.GREEN) around.push(idx(world, x, y));
+        }
+      if (around.length) lie.cond = around.reduce((s, i) => s + world.cond[i], 0) / around.length;
+    }
     g.stats.shots++;
     g.hs.shots++;
     if (lie.kind === 'rough') {
@@ -561,9 +585,11 @@ export class CourseSim {
         if (!isValidLie(world, end.x, end.y)) end = nearestValid(world, end.x, end.y);
       }
       g.flight = { from: { ...g.ball }, air: { ...g.ball }, end, t: 0, tAir: 0, tRoll: 0.4 + feet / 35, apex: 0, putt: true, holed, shot: null, penalty: 0 };
-      this.wearAt(g.ball.x, g.ball.y, CFG.wear.putt, g);
+      // a putt from beside the hole shares its own wear across that area; a longer one marks the spot it was struck from
+      if (around.length) for (const i of around) this.wearAt((i % world.w) + 0.5, Math.floor(i / world.w) + 0.5, CFG.wear.putt / around.length, g);
+      else this.wearAt(g.ball.x, g.ball.y, CFG.wear.putt, g);
       for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) if (Math.hypot(dx, dy) <= CFG.wear.cupRadius) this.wearAt(cup.x + dx, cup.y + dy, CFG.wear.putt * 0.6, g);
+        for (let dx = -2; dx <= 2; dx++) if (Math.hypot(dx, dy) <= CFG.wear.cupRadius) this.wearAt(cup.x + dx, cup.y + dy, CFG.wear.putt * CFG.wear.cupShare, g);
       if (!g.hs.saidGreen) {
         g.hs.saidGreen = true;
         if (g.returning && h.fixedGreenAt >= 0 && this.now - h.fixedGreenAt < 900 && lie.cond >= 60) this.say(g, 'Much better since you fixed the green.');
@@ -574,7 +600,11 @@ export class CourseSim {
     const plan = g.plan ?? planShot(world, h, g.type, g.ball);
     const shot = executeShot(world, this.rng, g.type, g.ball, plan);
     this.addFx(lie.kind === 'bunker' ? 'sand' : 'divot', g.ball.x, g.ball.y);
-    this.wearAt(g.ball.x, g.ball.y, lie.kind === 'tee' ? CFG.wear.teeShot : CFG.wear.fairwayShot, g);
+    if (box.length) {
+      // the same wear as before, shared across the box
+      const w = this.world;
+      for (const i of box) this.wearAt((i % w.w) + 0.5, Math.floor(i / w.w) + 0.5, CFG.wear.teeShot / box.length, g);
+    } else this.wearAt(g.ball.x, g.ball.y, lie.kind === 'tee' ? CFG.wear.teeShot : CFG.wear.fairwayShot, g);
     if (lie.kind !== 'tee' && lie.kind !== 'bunker' && lie.cond < 35) this.sayOnce(g, 'dirt', 'Playing off bare dirt out here.');
     const dist = Math.hypot(shot.air.x - g.ball.x, shot.air.y - g.ball.y);
     g.flight = {

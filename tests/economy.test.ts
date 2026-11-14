@@ -88,7 +88,7 @@ describe('goals and income', () => {
     expect(holeCondition(g.world, g.hole(2)).green).toBeLessThan(30);
     const { res, plan } = repairGreen2(g);
     expect(res.ok).toBe(true);
-    expect(g.hole(2).open).toBe(false); // editing closed it
+    expect(g.hole(2).open).toBe(true); // reseeding is upkeep: the hole stays open
     run(g, 2);
     expect(g.today.bonus).toBe(0);
     run(g, 5);
@@ -142,7 +142,7 @@ describe('speed and persistence', () => {
     expect(a.cash).toBe(b.cash);
     expect(a.sim.golfers.length).toBe(b.sim.golfers.length);
   });
-  it('save and load keeps property, money, goals and upgrades; golfers restart cleanly', () => {
+  it('save and load keeps property, money, goals, upgrades and the golfers on the course', () => {
     const g = new Game(createTestCourse());
     repairGreen2(g);
     run(g, 60);
@@ -154,7 +154,7 @@ describe('speed and persistence', () => {
     expect(h.day).toBe(g.day);
     expect(h.upgrades.crew).toBe(true);
     expect(Array.from(h.world.terrain)).toEqual(Array.from(g.world.terrain));
-    expect(h.sim.golfers.length).toBe(0);
+    expect(h.sim.golfers.length).toBe(g.sim.golfers.length); // a repair no longer pauses time, so guests are on the course and come back with the save
     run(h, 30);
     expect(h.sim.golfers.length).toBeGreaterThanOrEqual(0);
   });

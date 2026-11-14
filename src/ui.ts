@@ -43,7 +43,7 @@ const TOOL_TIPS: Partial<Record<string, string>> = {
   treeAdd: 'Hold and drag to plant trees. Trees frame holes and punish wild shots.',
   treeDel: 'Hold and drag to clear trees out of the way of a hole.',
   rough: 'Hold and drag to turn anything back into rough grass.',
-  repair: 'Hold and drag over worn fairway, green or tee to reseed it. Worn turf shows as brown patches and makes golfers unhappy.',
+  repair: 'Hold and drag over worn fairway, green or tee to reseed it. Holes stay open and time keeps running while you repair.',
 };
 /** What each panel is for, the first time it opens. */
 const TAB_TIPS: Partial<Record<string, string>> = {
@@ -164,7 +164,7 @@ export class UI {
       if (b.dataset.undo) { this.editor.undo(); this.refresh(true); return; }
       if (b.dataset.redo) { this.editor.redo(); this.refresh(true); return; }
       if (b.dataset.buycart) { if (!this.game.upgrades.carts) this.game.buyUpgrade('carts'); else this.game.buyCart(); this.refresh(true); return; }
-      if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('fairway'); this.refresh(true); return; }
+      if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('inspect'); this.refresh(true); return; }
       if (b.dataset.moveclub) { this.editor.setTool('decor'); this.editor.startMoveClub(); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
       if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.designPause = this.game.designMode; this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
@@ -427,7 +427,6 @@ export class UI {
       const t = b.dataset.nav as Tab;
       this.tab = this.tab === t ? 'none' : t;
       if (this.tab === t && t !== 'build') this.sheet = 'half';
-      if (t === 'build' && this.tab === 'build' && (this.editor.tool === 'inspect' || this.editor.tool === 'pan')) this.editor.setTool('fairway');
       this.cache.delete('side');
       this.refresh(true);
       this.onInsets();
@@ -824,7 +823,7 @@ export class UI {
   private repairGreenModal() {
     const plan = this.greenPlan();
     if (!plan.tiles.length) return;
-    const m = this.modal(`<h2>Repair this green?</h2><p>Reseed ${plan.tiles.length} worn tiles for ${fmtMoney(plan.cost)}. The hole closes for construction. Reopen it from Course when ready.</p><div class="actions"><button class="btn" id="repairNo">Cancel</button><button class="btn primary" id="repairYes">Repair · ${fmtMoney(plan.cost)}</button></div>`);
+    const m = this.modal(`<h2>Repair this green?</h2><p>Reseed ${plan.tiles.length} worn tiles for ${fmtMoney(plan.cost)}. The hole stays open while the work is done.</p><div class="actions"><button class="btn" id="repairNo">Cancel</button><button class="btn primary" id="repairYes">Repair · ${fmtMoney(plan.cost)}</button></div>`);
     (m.querySelector('#repairNo') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#repairYes') as HTMLElement).onclick = () => { this.game.commitEdit(plan); this.closeModal(); this.refresh(true); };
   }
@@ -1418,6 +1417,16 @@ export class UI {
     const playing = g.sim.onHole(h.id);
     const st = h.stats;
     const repair = this.greenPlan();
+    // what golfers actually putt on: the green within a step or two of the cup, which wears far faster than the green as a whole
+    let cupSum = 0, cupN = 0;
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = h.cup.x + dx, y = h.cup.y + dy;
+        if (Math.hypot(dx, dy) > CFG.wear.cupRadius || x < 0 || y < 0 || x >= w.w || y >= w.h || w.terrain[idx(w, x, y)] !== 2) continue;
+        cupSum += w.cond[idx(w, x, y)]; cupN++;
+      }
+    const cupCond = cupN ? cupSum / cupN : cond.green;
+    const cupWorn = cupCond < CFG.turf.wornBelow && repair.tiles.length > 0;
     const totalPar = w.holes.reduce((a, x) => a + x.par, 0);
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
     const dogleg = holeBends(h).length > 0 || Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
@@ -1432,6 +1441,7 @@ export class UI {
     if (!h.open && !v.ok) {
       html += `<div class="why-closed"><b>This hole cannot open yet</b>${v.issues.map((it, i) => `<div class="issue"><p>${it.text}</p><div class="btnrow">${it.at ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="show">Show on map</button>` : ''}${it.fix ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="fix">Fix with ${TOOL_INFO[it.fix].label}</button>` : ''}</div></div>`).join('')}</div>`;
     }
+    if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button></div>`;
     html += h.open
       ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="practice">Play it</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
@@ -1452,8 +1462,9 @@ export class UI {
       + `<div class="card">${st.rounds ? `<div class="row"><span class="k">Rounds</span><span>${st.rounds}</span></div><div class="row"><span class="k">Average score</span><span>${(st.strokes / st.rounds).toFixed(1)} (par ${h.par})</span></div>${st.girN ? `<div class="row"><span class="k">Greens in regulation</span><span>${Math.round((st.gir / st.girN) * 100)}%</span></div>` : ''}${st.fwyN ? `<div class="row"><span class="k">Fairways hit</span><span>${Math.round((st.fwy / st.fwyN) * 100)}%</span></div>` : ''}<div class="row"><span class="k">Water balls</span><span>${st.water}</span></div><div class="row"><span class="k">Picked up</span><span>${st.picked}</span></div>` : '<div class="dim">No guest has finished this hole yet.</div>'}</div>`;
     html += xp('results', 'Scores', st.rounds ? `${st.rounds} rounds` : tests.length ? `${tests.length} test` : '', results);
     html += xp('design', 'Design report', g.designRating || h.open ? `${assessDesignScore(g, h)}/100` : '', designPanel(g, h).replace(/<h3>[^<]*<\/h3>/, ''));
-    html += xp('turf', 'Turf and repairs', `${Math.round(Math.min(cond.fairway, cond.green, cond.tee))} lowest`, `<div class="card"><div class="barrow"><span>Fairway</span>${bar(cond.fairway)}<span class="n">${Math.round(cond.fairway)}</span></div>
+    html += xp('turf', 'Turf and repairs', `${Math.round(Math.min(cond.fairway, cond.green, cond.tee, cupCond))} lowest`, `<div class="card"><div class="barrow"><span>Fairway</span>${bar(cond.fairway)}<span class="n">${Math.round(cond.fairway)}</span></div>
       <div class="barrow"><span>Green</span>${bar(cond.green)}<span class="n">${Math.round(cond.green)}</span></div>
+      <div class="barrow"><span>Around the cup</span>${bar(cupCond)}<span class="n">${Math.round(cupCond)}</span></div>
       <div class="barrow"><span>Tee box</span>${bar(cond.tee)}<span class="n">${Math.round(cond.tee)}</span></div>
       <div class="dim">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}</div>`);
     const list = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div><div class="hole-list">${w.holes.map((x) => {
