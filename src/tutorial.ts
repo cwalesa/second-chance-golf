@@ -233,13 +233,14 @@ export const STEPS: Step[] = [
   },
   {
     id: 'edit',
-    more: 'Par: tap 3, 4 or 5. Length: Move tee or Move cup, then tap the map where it should go. Bends: Shape bends, then tap the fairway to add a turn and drag it. You see the price first, and nothing is built until you tap Build. Changing a hole closes it until you open it again.',
+    more: 'Par: tap 3, 4 or 5. Move tee or Move cup changes how long the hole is: pick one, then tap the map. Shape bends adds a turn. You see the price first, and nothing is built until you tap Build.',
     phase: 5,
-    short: () => 'Edit hole changes par, length (move the tee or green) and bends. Try one, or tap Next.',
-    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); showHole(c, first(c)?.id); if (c.ui.portraitSheet) c.ui.setSheet('full'); openEdit(); },
-    // keep the section open while the hole panel is up; if the player picks a tool the panel steps aside and is left alone
+    short: () => 'You can change a hole any time. Try one of these, or tap Next.',
+    // Only what this step teaches is shown: par and the three ways to reshape a hole. The rest of the hole panel is hidden
+    // (see body.tut-edit in the stylesheet) and the sheet stays at half height, so the hole is still in view above it.
+    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); document.body.classList.add('tut-edit'); showHole(c, first(c)?.id); openEdit(); c.e.focusHole(); },
     ensure: (c) => { if (c.ui.tab === 'course') openEdit(); },
-    target: () => ['#sidebody details[data-sec="edit"] .par-row', '#sidebody details[data-sec="edit"] > summary'],
+    leave: () => document.body.classList.remove('tut-edit'),
     manual: true,
     nextLabel: 'Next',
     skipTo: 'improve',
@@ -374,7 +375,7 @@ export class Tutorial {
     this.clearRing();
     this.ctx.e.overlay.hint = null;
     this.card.hidden = true;
-    document.body.classList.remove('coaching');
+    document.body.classList.remove('coaching', 'tut-edit');
     document.documentElement.style.setProperty('--coach-h', '0px');
     this.ui.onInsets();
   }
