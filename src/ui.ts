@@ -113,7 +113,8 @@ export class UI {
     this.setMobile(true);
     game.onNotice = (n) => this.toast(n.text, n.kind);
     editor.onSelect = (what) => {
-      this.tab = what === 'golfer' ? 'guests' : 'course';
+      this.tab = what === 'golfer' ? 'guests' : what === 'club' ? 'club' : 'course';
+      if (what === 'club') this.sheet = 'half';
       this.cache.delete('side');
     };
     editor.onChange = () => this.updateConfirm();
