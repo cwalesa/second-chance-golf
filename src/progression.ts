@@ -82,7 +82,7 @@ export const REGIONS: Record<RegionId, Region> = {
     perks: ['Dense pine forest', 'Costly construction', 'Busy summers, empty winters'],
     palette: { ...base, roughGood: [46, 112, 64], roughBad: [100, 128, 70], fairGood: [88, 164, 86], fairWorn: [146, 136, 92], greenGood: [104, 182, 98], water: [52, 128, 190], waterDeep: [32, 96, 156], path: [176, 172, 164] },
     trees: [0, 0.1, 0.8, 0, 0.1, 0, 0], treeDensity: 1.5, waste: 0,
-    demand: 0.95, spend: 1, fairMult: 1.05, buildMult: 1.25, landMult: 0.9, wear: 1.05, upkeep: 1.05, wind: 1, distance: 1.08,
+    demand: 0.85, spend: 1, fairMult: 1.05, buildMult: 1.25, landMult: 0.9, wear: 1.1, upkeep: 1.2, wind: 1, distance: 1.08,
     seasonDemand: [0.9, 1.3, 1.1, 0.35], seasonWear: [1, 1, 1.05, 1.4],
   },
   plains: {
@@ -92,7 +92,7 @@ export const REGIONS: Record<RegionId, Region> = {
     perks: ['Cheaper construction', 'Lower green fees', 'Some wind'],
     palette: { ...base, roughGood: [112, 148, 66], roughBad: [160, 150, 80], fairGood: [128, 184, 82], fairWorn: [176, 156, 96], greenGood: [130, 202, 98], path: [198, 186, 160] },
     trees: [0.45, 0.1, 0.1, 0, 0.35, 0, 0], treeDensity: 0.4, waste: 0.1,
-    demand: 0.95, spend: 1, fairMult: 0.9, buildMult: 0.85, landMult: 0.7, wear: 1, upkeep: 0.95, wind: 1.1, distance: 1,
+    demand: 1, spend: 1, fairMult: 0.94, buildMult: 0.85, landMult: 0.7, wear: 1, upkeep: 0.95, wind: 1.1, distance: 1,
     seasonDemand: [1, 1.05, 1, 0.65], seasonWear: [1, 1.05, 1, 0.8],
   },
   desert: {
@@ -102,7 +102,7 @@ export const REGIONS: Record<RegionId, Region> = {
     perks: ['Highest green fees', 'Costly turf upkeep', 'Sparse vegetation'],
     palette: { ...base, roughGood: [150, 150, 84], roughBad: [186, 160, 98], fairGood: [100, 178, 80], fairWorn: [180, 150, 96], greenGood: [114, 192, 96], sand: [244, 214, 160], sandRim: [208, 168, 104], water: [44, 160, 190], waterDeep: [28, 118, 156], path: [214, 190, 150], dirt: [170, 128, 84] },
     trees: [0, 0, 0, 0, 0.1, 0.45, 0.45], treeDensity: 0.4, waste: 1,
-    demand: 0.9, spend: 1, fairMult: 1.3, buildMult: 1.1, landMult: 0.8, wear: 1.35, upkeep: 1.3, wind: 1.03, distance: 1.03,
+    demand: 0.7, spend: 1, fairMult: 1.15, buildMult: 1.2, landMult: 0.8, wear: 1.35, upkeep: 1.5, wind: 1.03, distance: 1.03,
     seasonDemand: [1.3, 0.55, 1.2, 1.35], seasonWear: [1.1, 1.4, 1, 0.9],
   },
 };

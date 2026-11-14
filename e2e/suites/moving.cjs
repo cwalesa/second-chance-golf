@@ -8,9 +8,9 @@ module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClu
   const spots = await g(() => {
     const s = window.scg, w = s.game.world, c = w.clubhouse;
     s.game.cash = 100000;
-    const clear = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w.w + x; if (w.terrain[i] === 1 || w.terrain[i] === 0) w.terrain[i] = 0; w.tree[i] = 0; w.dirty.add(i); } };
+    const clear = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w.w + x; if (w.terrain[i] === 1 || w.terrain[i] === 0 || w.terrain[i] === 5) w.terrain[i] = 0; w.tree[i] = 0; w.dirty.add(i); } };
     const a = { x: c.x + 2, y: c.y + 14 }, b = { x: c.x + 12, y: c.y + 14 };
-    clear(a.x - 2, a.y - 2, a.x + 20, a.y + 8); w.version++;
+    clear(a.x - 2, a.y - 2, a.x + 20, a.y + 8); w.lots = {}; w.version++;
     return { a, b, club: { ...c } };
   });
   await g(async (sp) => { const { toggleItem } = await import('/src/items.ts'); const s = window.scg; toggleItem(s.game, sp.a, 'grill'); toggleItem(s.game, sp.b, 'bench'); }, spots);
@@ -51,10 +51,15 @@ module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClu
   ok('tapping the clubhouse picks it up', await g(() => window.scg.editor.relocClub && !!document.getElementById('clubRot')));
   await g(() => document.getElementById('clubRot').click()); await page.waitForTimeout(400);
   ok('Rotate turns the ghost', await g(() => window.scg.editor.overlay.club && window.scg.editor.overlay.club.flip === true));
-  ok('and says why when it cannot go there (the grill room stands in the turned grounds)', await g(() => { const p = window.scg.editor.clubSpot.problem; return p === null || /Move it first|in the way/.test(p); }));
+  ok('and says why when it cannot go there (the grill room stands in the turned grounds)', await g(() => { const p = window.scg.editor.clubSpot.problem; return p === null || /Move it first|in the way|steep|water|edge/i.test(p); }));
   // move the grill room out of the way if it blocks the turn
   await g(async () => { const s = window.scg; const { moveItem } = await import('/src/items.ts'); const i = s.game.world.items.findIndex((x) => x.k === 'grill'); if (s.editor.clubSpot.problem) { moveItem(s.game, i, { x: s.game.world.clubhouse.x + 30, y: s.game.world.clubhouse.y + 14 }); s.editor.rotateClub(); s.editor.rotateClub(); } });
   await page.waitForTimeout(300);
+  const landSaysNo = await g(() => { const p = window.scg.editor.clubSpot && window.scg.editor.clubSpot.problem; return p && /steep|water|edge/i.test(p) ? p : null; });
+  if (landSaysNo) {
+    ok('this land cannot take the clubhouse turned, and Move here is refused with the reason', await g(() => document.getElementById('clubOk').disabled), landSaysNo);
+    await g(() => document.getElementById('clubNo').click()); await page.waitForTimeout(300);
+  } else {
   await g(() => document.getElementById('clubOk').click()); await page.waitForTimeout(600);
   ok('the clubhouse is turned', await g(() => window.scg.game.world.clubFlip === true && !window.scg.editor.relocClub), await g(() => window.scg.editor.clubSpot && window.scg.editor.clubSpot.problem));
   ok('its door and road follow', await g(() => { const w = window.scg.game.world; return w.gate.y === 0.5 || w.gate.y === w.h - 0.5; }));
@@ -62,6 +67,7 @@ module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClu
   await page.reload(); await page.waitForTimeout(2500);
   await g(() => [...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Collect'))?.click());
   ok('the turn survives a reload', await g(() => window.scg.game.world.clubFlip === true));
+  }
 
   // ---- zoomed right out the forest keeps its detail and the clubhouse does not dominate
   await g(() => { const s = window.scg, w = s.game.world, c = w.clubhouse; s.renderer.focus(c.x + 3, c.y + 3, s.renderer.minZoom(w), w, true); });

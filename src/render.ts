@@ -2,11 +2,11 @@ import { ISO_X, ISO_Y, projectGround, unprojectGround } from './isometric';
 import { drawClubGround, drawCountryClub, drawVillageAmenities } from './classic-art';
 import { makeDeckTexture, makePavingTexture, makeSandTexture, makeStripeTexture, makeTurfTexture, makeWaterTexture, makeWearNoise, TurfKind } from './art/textures';
 import { placedSprites, paintLilyPad, makeShrub, makeRock, makeFlowers, makeReeds, makeBench, makeBallWasher, makeGlint, Sprite } from './art/props';
-import { drawCart, drawFacility, isFacilityKind } from './art/facilities';
+import { drawCar, drawCart, drawFacility, isFacilityKind } from './art/facilities';
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
-import { Golfer, cartDriving, cartOut } from './sim';
+import { Golfer, cartDriving, cartOut, inCar } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
 import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
@@ -1855,6 +1855,12 @@ export class Renderer {
       }
     }
     for (const g of game.sim.golfers) {
+      // on the entrance road they are in their car: it is the car that is drawn, not the golfer
+      if (inCar(g)) {
+        const h = g.heading ?? 0;
+        items.push({ y: g.rx + g.ry, draw: () => drawCar(this.facilityPainter(), g.rx, g.ry, h, g.id) });
+        continue;
+      }
       // a renter's cart: carrying them while they drive, parked beside them while they play the shot
       if (cartOut(g)) {
         const driving = cartDriving(g), h = g.heading ?? 0;
@@ -2982,6 +2988,30 @@ export class Renderer {
       for (let ty = -1; ty <= Math.ceil(this.ch / S); ty++)
         for (let tx = -1; tx <= Math.ceil(this.cw / S); tx++) ctx.drawImage(this.cloudCv, tx * S + ox, ty * S + oy, S, S);
       ctx.globalAlpha = 1;
+    }
+    // now and then a small flock crosses the sky: five birds in a loose V, wings beating, with faint shadows on the ground below
+    if (!Renderer.reducedMotion) {
+      const every = 38, cross = 13, t = time % every;
+      if (t < cross) {
+        const flight = Math.floor(time / every);
+        const dir = flight % 2 ? -1 : 1;
+        const p = t / cross;
+        const baseX = dir > 0 ? -60 + (this.cw + 120) * p : this.cw + 60 - (this.cw + 120) * p;
+        const baseY = this.ch * (0.2 + 0.45 * hash2(flight, 3, 700)) - p * this.ch * 0.12;
+        const size = Math.max(4, Math.min(9, this.cw / 90));
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 5; k++) {
+          const rank = Math.ceil(k / 2), side = k % 2 ? 1 : -1;
+          const x = baseX - dir * rank * size * 2.6, y = baseY + side * rank * size * 1.5 + Math.sin(time * 1.3 + k) * 2;
+          const flap = Math.sin(time * 9 + k * 1.7) * size * 0.55;
+          ctx.strokeStyle = 'rgba(10,30,20,0.13)';
+          ctx.lineWidth = size * 0.5;
+          ctx.beginPath(); ctx.moveTo(x - size + 26, y + 34); ctx.lineTo(x + size + 26, y + 34); ctx.stroke();
+          ctx.strokeStyle = 'rgba(28,26,46,0.85)';
+          ctx.lineWidth = Math.max(1.6, size * 0.28);
+          ctx.beginPath(); ctx.moveTo(x - size, y - flap); ctx.quadraticCurveTo(x - size * 0.4, y - size * 0.25, x, y); ctx.quadraticCurveTo(x + size * 0.4, y - size * 0.25, x + size, y - flap); ctx.stroke();
+        }
+      }
     }
     const key = `${this.cw}x${this.ch}`;
     if (!this.vignette || this.vigSize !== key) {

@@ -441,7 +441,7 @@ export class Game {
   }
   /** Demand per day before price: reputation, season, region, clubhouse, rating and range all count. */
   get dailyBase(): number {
-    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1);
+    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1) * (1 + 0.08 * countOf(this.world, 'carpark'));
   }
   bandArrivals(id: BandId): number {
     const b = BANDS.find((x) => x.id === id)!;
@@ -469,7 +469,8 @@ export class Game {
   }
   get maintenanceRate(): number {
     const open = this.openHoles.length;
-    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours;
+    // the region's upkeep modifier applies to everything that is kept up: turf, improvements and buildings
+    return (maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours) * this.regionDef.upkeep;
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
@@ -560,7 +561,7 @@ export class Game {
   }
 
   private arrive() {
-    const cap = 12 + 3 * this.openHoles.length + (this.activeEvent ? 18 : 0);
+    const cap = 12 + 3 * this.openHoles.length + (this.activeEvent ? 18 : 0) + 8 * countOf(this.world, 'carpark');
     if (this.sim.golfers.length >= cap) return; // course is full, they drive on by
     const band = this.band;
     const fee = this.fees[band.id];

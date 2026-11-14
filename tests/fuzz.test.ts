@@ -60,6 +60,6 @@ describe('random play never strands golfers or loses money', () => {
     }
     const all = [...g.days, g.today];
     const sum = (k: 'fees' | 'shop' | 'maintenance' | 'construction' | 'bonus') => all.reduce((s, d) => s + d[k], 0);
-    expect(g.cash).toBe(CFG.economy.startCash + sum('fees') + sum('shop') + sum('bonus') - sum('maintenance') - sum('construction'));
+    expect(g.cash).toBeCloseTo(CFG.economy.startCash + sum('fees') + sum('shop') + sum('bonus') - sum('maintenance') - sum('construction'), 4);
   });
 });

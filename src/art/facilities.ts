@@ -909,6 +909,68 @@ function buildShelter(): Mesh {
   return m;
 }
 
+export const CAR_COLOURS = ['#c8493a', '#3d6aa8', '#e6e0d0', '#3f7a5a', '#d6a63c', '#4b4f58']; // the same six, in the same order, as the parked cars in buildings.ts
+/** A small hatchback built into a mesh at (ox, oy), nose along +x, or along +y when `alongY`. */
+function addCar(m: Mesh, ox: number, oy: number, alongY: boolean, colour: string) {
+  // boxes are axis-aligned, so a car turned a quarter swaps its length and width
+  const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: string, o: Parameters<Mesh['box']>[7] = { grad: false }) =>
+    alongY ? m.box(ox + y0, oy + x0, z0, ox + y1, oy + x1, z1, c, o) : m.box(ox + x0, oy + y0, z0, ox + x1, oy + y1, z1, c, o);
+  for (const wx of [-0.46, 0.46])
+    for (const wy of [-0.33, 0.25])
+      if (alongY) m.cyl(ox + wy, oy + wx, 0.15, 0.15, 0.08, 'x', '#1f2124', { cap: '#3a3d40', sides: 10 });
+      else m.cyl(ox + wx, oy + wy, 0.15, 0.15, 0.08, 'y', '#1f2124', { cap: '#3a3d40', sides: 10 });
+  box(-0.74, -0.32, 0.12, 0.74, 0.32, 0.42, colour);
+  box(-0.76, -0.3, 0.14, -0.74, 0.3, 0.26, '#2b2e30', { grad: false, edge: null });
+  box(0.74, -0.3, 0.14, 0.76, 0.3, 0.26, '#2b2e30', { grad: false, edge: null });
+  box(0.745, -0.27, 0.3, 0.765, -0.13, 0.38, '#fff3c4', { grad: false, edge: null });
+  box(0.745, 0.13, 0.3, 0.765, 0.27, 0.38, '#fff3c4', { grad: false, edge: null });
+  box(-0.765, -0.27, 0.3, -0.745, -0.15, 0.38, '#e8503f', { grad: false, edge: null });
+  box(-0.765, 0.15, 0.3, -0.745, 0.27, 0.38, '#e8503f', { grad: false, edge: null });
+  // glasshouse: tinted glass all round under a roof in the body colour
+  box(-0.5, -0.3, 0.42, 0.3, 0.3, 0.64, '#bfe0ee');
+  box(-0.52, -0.31, 0.64, 0.32, 0.31, 0.69, colour);
+  box(-0.12, -0.305, 0.42, -0.07, 0.305, 0.64, colour, { grad: false, edge: null });
+}
+const carMeshes = new Map<number, Mesh>();
+function carMesh(k: number): Mesh {
+  let m = carMeshes.get(k);
+  if (!m) { m = new Mesh(); addCar(m, 0, 0, false, CAR_COLOURS[k]); carMeshes.set(k, m); }
+  return m;
+}
+/** A golfer's car on the entrance road, nose pointing along `heading` (radians; 0 = ground +x). */
+export function drawCar(P: Painter, x: number, y: number, heading: number, colour = 0, alpha = 1) {
+  const k = ((colour % CAR_COLOURS.length) + CAR_COLOURS.length) % CAR_COLOURS.length;
+  const step = Math.round((heading * 32) / (Math.PI * 2)) & 31; // 32 headings keep the cache small
+  const h = (step / 32) * Math.PI * 2;
+  cached(P, `car${k}:${step}`, x, y, [-1.1, -1.1, 1.8, 1.4], 0.95, alpha, (Q) => {
+    const cos = Math.cos(h), sin = Math.sin(h), ctx = Q.ctx;
+    const corner = (u: number, v: number, dx = 0) => Q.toScreen(u * cos - v * sin + dx, u * sin + v * cos + dx * 0.28);
+    ctx.fillStyle = 'rgba(10,24,16,0.28)';
+    ctx.beginPath();
+    [[0.8, 0.38], [0.8, -0.38], [-0.8, -0.38], [-0.8, 0.38]].forEach(([u, v], i) => { const q = corner(u, v, 0.3); if (i) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); });
+    ctx.closePath();
+    ctx.fill();
+    draw(Q, prepare(`car${k}:${step}`, carMesh(k), h), 0, 0);
+  });
+}
+/** A car park: tarmac with painted bays and a few cars already in them. */
+function buildCarPark(): Mesh {
+  const m = new Mesh();
+  m.box(0.06, 0.06, 0, 3.94, 2.94, 0.04, '#6a6d73', { grad: false });
+  m.box(0.06, 0.06, 0.04, 3.94, 0.14, 0.1, '#c9c3b2', { grad: false, edge: null });
+  m.box(0.06, 0.06, 0.04, 0.14, 2.94, 0.1, '#c9c3b2', { grad: false, edge: null });
+  for (let k = 0; k <= 4; k++) {
+    const x = 0.34 + k * 0.84;
+    m.box(x, 0.2, 0.04, x + 0.04, 1.3, 0.045, '#f4efe0', { grad: false, edge: null });
+    m.box(x, 1.75, 0.04, x + 0.04, 2.8, 0.045, '#f4efe0', { grad: false, edge: null });
+  }
+  addCar(m, 0.78, 0.8, true, CAR_COLOURS[1]);
+  addCar(m, 2.46, 0.8, true, CAR_COLOURS[3]);
+  addCar(m, 1.62, 2.24, true, CAR_COLOURS[0]);
+  addCar(m, 3.3, 2.24, true, CAR_COLOURS[3]);
+  return m;
+}
+
 /** Restrooms: a small rendered block with two coloured doors under a blue seamed roof. */
 function buildRestroom(): Mesh {
   const m = new Mesh();
@@ -962,13 +1024,13 @@ function buildWindmill(): Mesh {
   return m;
 }
 
-export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'restroom' | 'starter' | 'windmill';
-export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill'];
+export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'restroom' | 'starter' | 'windmill' | 'carpark';
+export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'carpark'];
 export const isFacilityKind = (k: string): k is FacilityKind => (FACILITY_KINDS as string[]).includes(k);
 /** Footprint in tiles and height, for the stamp bounds, the shadow and the tray thumbnail. */
-const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2], restroom: [2, 2, 2.2], starter: [2, 2, 2.6], windmill: [2, 2, 4.2] };
-const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter, restroom: buildRestroom, starter: buildStarter, windmill: buildWindmill };
-const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7, restroom: 1.6, starter: 1.6, windmill: 2.6 };
+const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2], restroom: [2, 2, 2.2], starter: [2, 2, 2.6], windmill: [2, 2, 4.2], carpark: [4, 3, 1.0] };
+const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter, restroom: buildRestroom, starter: buildStarter, windmill: buildWindmill, carpark: buildCarPark };
+const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7, restroom: 1.6, starter: 1.6, windmill: 2.6, carpark: 0.05 };
 
 /** Draw a placed facility with its top-left tile at (x, y). Interior carts in the barn go between its two halves. */
 export function drawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha = 1, inside = 0) {

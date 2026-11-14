@@ -113,7 +113,7 @@ describe('goals and income', () => {
     run(g, CFG.day.seconds + 1);
     expect(g.day).toBe(2);
     expect(g.days.length).toBe(1);
-    expect(g.days[0].maintenance).toBe(g.maintenanceRate * CFG.day.hours);
+    expect(g.days[0].maintenance).toBeCloseTo(g.maintenanceRate * CFG.day.hours, 6); // the region's upkeep modifier makes this a fraction
   });
 });
 
@@ -215,7 +215,7 @@ describe('improvements and pricing', () => {
     expect(g.buyUpgrade('snackBar')).toBe(true);
     expect(g.buyUpgrade('snackBar')).toBe(false);
     expect(g.cash).toBe(5000 - CFG.upgrades.snackBar.cost);
-    expect(g.maintenanceRate).toBe(base + CFG.upgrades.snackBar.upkeep);
+    expect(g.maintenanceRate).toBeCloseTo(base + CFG.upgrades.snackBar.upkeep * g.regionDef.upkeep, 6); // upkeep is scaled by the region
     g.buyUpgrade('carts');
     g.setCartFee(10);
     run(g, 100);
