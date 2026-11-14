@@ -337,7 +337,7 @@ export class Game {
   /** Rare: about one storm in three brings trees down across one open hole's fairway, which closes it until they are cleared. */
   private fellTrees(): boolean {
     const w = this.world, open = this.openHoles;
-    if (!open.length || hash2(this.day, 91, w.landSeed % 1000003) > 0.25) return false;
+    if (this.day < 20 || !open.length || hash2(this.day, 91, w.landSeed % 1000003) > 0.25) return false;
     const h = open[Math.floor(hash2(this.day, 92, w.landSeed % 1000003) * open.length)];
     const tiles: number[] = [];
     for (let dy = -2; dy <= 2 && tiles.length < 4; dy++)
