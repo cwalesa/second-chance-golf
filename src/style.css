@@ -998,7 +998,7 @@ body.has-proposal #tip p, body.coaching #tip p { display: block; -webkit-line-cl
 body.has-proposal #roundcard, body.menu-open #roundcard { display: none; }
 
 /* while the result card is up, notifications move to the top so they never sit on it */
-body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
+body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 66px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
 
 /* ---- the closed-hole reminder shares the Next job bar ---- */
 #goalbar.alert { min-height: 52px; padding-right: 6px; cursor: default; }

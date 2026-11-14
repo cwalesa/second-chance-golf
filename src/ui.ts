@@ -361,6 +361,12 @@ export class UI {
         // the closed-hole reminder: open what is ready, or show why the first one cannot open
         const { waiting, ready } = this.closedHoles();
         if (act === 'resume') { this.chipAction(); this.refresh(true); return; }
+        if (act === 'fallen') {
+          const f = this.game.fallen[0];
+          if (f) { const pl = planPaint(this.game.world, 'treeDel', f.tiles); pl.label = 'Clear fallen trees'; if (this.game.clearFallen(f.hole, pl)) this.toast(`Trees cleared · ${fmtMoney(pl.cost)}. Hole ${f.hole} is open again.`, 'good'); }
+          this.refresh(true);
+          return;
+        }
         if (act === 'storm') {
           const pl = this.allTurfPlan();
           if (!pl.tiles.length || this.game.commitEdit(pl).ok) { this.game.stormDamage = false; if (pl.tiles.length) this.toast(`Storm damage repaired · ${fmtMoney(pl.cost)}`, 'good'); }
@@ -826,7 +832,7 @@ export class UI {
       ${sec('Building', ['Menu, then Design. Pick <b>New hole</b>, tap where the tee goes, then where the green goes, then <b>Build</b>.', 'To paint fairway, sand, water or trees: press and hold, then drag. A quick tap paints one spot.', 'Nothing is charged until you tap Build, and Undo gives the money back.', 'Building on a hole closes it. The bar at the top offers <b>Open it</b> when you are done.'])}
       ${sec('Time', ['Course tools pause the clock so you can design without hurry. <b>Resume</b> starts it again.', 'Decorating, placing buildings and repairing turf do not pause.', 'The button beside Pause changes speed: 1×, 3× or 8×.'])}
       ${sec('Keeping golfers happy', ['Keep each fee close to what Finances says guests think is fair.', 'Greens wear out around the cup. Tap a hole and use <b>Repair green</b>, or buy the Grounds crew.', 'Flowers, benches and buildings near tees and greens make holes more enjoyable.'])}
-      ${sec('Weather', ['Most days are clear. Rain keeps golfers away but rests the turf; a heatwave wears it faster.', 'A storm washes out patches of turf on every hole. The bar at the top offers one button to repair it all.'])}
+      ${sec('Weather', ['Most days are clear. Rain keeps golfers away but rests the turf; a heatwave wears it faster.', 'A storm washes out patches of turf on every hole. The bar at the top offers one button to repair it all.', 'Once in a long while a storm brings trees down across a fairway and closes that hole until you clear them.'])}
       ${sec('Growing', ['The starting shack has room for 4 holes. Clubhouse upgrades allow 9, 12 and 18, and each needs a better star rating.', 'Rating rises with open holes, healthy turf, happy guests and improvements.'])}
     </div><div class="actions"><button class="btn primary" id="helpDone">Got it</button></div>`);
     (m.querySelector('#helpDone') as HTMLElement).onclick = () => this.closeModal();
@@ -1295,7 +1301,8 @@ export class UI {
   /** Holes that were built or closed by building work and have not been opened since, and which of them could open now. */
   private closedHoles() {
     const g = this.game;
-    const waiting = g.world.holes.filter((h) => !h.open && h.awaiting);
+    // a hole blocked by fallen trees has its own prompt: opening it with the trees still there would help nobody
+    const waiting = g.world.holes.filter((h) => !h.open && h.awaiting && !g.fallen.some((f) => f.hole === h.id));
     return { waiting, ready: waiting.filter((h) => g.validate(h.id).ok) };
   }
   /** Time is running but nobody can play: say so, since nothing else on screen does. */
@@ -1324,7 +1331,13 @@ export class UI {
     const held = g.settings.open && (g.timeHold === 'design' || (g.timeHold === 'paused' && this.designPause));
     const stormPlan = g.stormDamage ? this.stormQuote() : null;
     if (g.stormDamage && stormPlan !== null && stormPlan.tiles === 0) g.stormDamage = false;
-    const html = waiting.length && !g.practice
+    // fallen trees that are already gone (cleared by hand, the hole removed) need no prompt
+    g.fallen = g.fallen.filter((f) => g.world.holes.some((h) => h.id === f.hole) && f.tiles.some((i) => g.world.tree[i]));
+    const down = g.fallen[0];
+    const downCost = down ? planPaint(g.world, 'treeDel', down.tiles).cost : 0;
+    const html = down && !g.practice
+      ? `<div class="k closed"><span>Storm</span></div><div class="gt">Trees down on hole ${down.hole}</div><button class="btn primary gb-act" data-gb="fallen">Clear ${fmtMoney(downCost)}</button>`
+      : waiting.length && !g.practice
       ? `<div class="k closed"><span>Closed</span></div><div class="gt">${what}</div><button class="btn primary gb-act" data-gb="${ready.length ? 'open' : 'why'}">${ready.length ? (ready.length > 1 ? `Open ${ready.length}` : 'Open it') : 'See why'}</button>`
       : g.stormDamage && stormPlan ? `<div class="k closed"><span>Storm</span></div><div class="gt">Turf washed out</div><button class="btn primary gb-act" data-gb="storm">Repair ${fmtMoney(stormPlan.cost)}</button>`
       : held ? `<div class="k held"><span>Paused</span></div><div class="gt">Time is paused</div><button class="btn primary gb-act" data-gb="resume">Resume</button>`

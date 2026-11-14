@@ -326,9 +326,44 @@ export class Game {
       }
       w.version++;
       if (hit) this.stormDamage = true;
+      if (this.fellTrees()) return void this.updateWear();
       this.notify('bad', hit ? 'A storm came through overnight and washed out patches of turf. Golfers will notice until it is repaired.' : 'A storm came through overnight. Very few golfers will come today.');
     }
     this.updateWear();
+  }
+
+  /** Holes whose fairway is blocked by trees a storm brought down, with the tiles they lie on. Cleared from the bar under the header. */
+  fallen: { hole: number; tiles: number[] }[] = [];
+  /** Rare: about one storm in three brings trees down across one open hole's fairway, which closes it until they are cleared. */
+  private fellTrees(): boolean {
+    const w = this.world, open = this.openHoles;
+    if (!open.length || hash2(this.day, 91, w.landSeed % 1000003) > 0.25) return false;
+    const h = open[Math.floor(hash2(this.day, 92, w.landSeed % 1000003) * open.length)];
+    const tiles: number[] = [];
+    for (let dy = -2; dy <= 2 && tiles.length < 4; dy++)
+      for (let dx = -2; dx <= 2 && tiles.length < 4; dx++) {
+        const x = h.bend.x + dx, y = h.bend.y + dy;
+        if (x < 0 || y < 0 || x >= w.w || y >= w.h) continue;
+        const i = idx(w, x, y);
+        if (w.terrain[i] === 1 && !w.tree[i] && hash2(x, y, this.day) < 0.5) tiles.push(i);
+      }
+    if (tiles.length < 2) return false;
+    for (const i of tiles) { w.tree[i] = 1; w.dirty.add(i); }
+    this.closeHole(h.id, true);
+    h.awaiting = true;
+    w.version++;
+    this.fallen.push({ hole: h.id, tiles });
+    this.notify('bad', `A storm brought trees down across hole ${h.id}, and washed out turf. The hole is closed until the trees are cleared.`);
+    return true;
+  }
+  /** Clear the fallen trees from a hole and open it again. Time carries on as it was. */
+  clearFallen(holeId: number, plan: EditPlan): boolean {
+    const running = this.businessRunning;
+    if (plan.tiles.length && !this.commitEdit(plan).ok) return false;
+    this.fallen = this.fallen.filter((f) => f.hole !== holeId);
+    if (this.world.holes.some((h) => h.id === holeId)) this.openHole(holeId);
+    if (running) { this.exitDesign(); this.resume(); }
+    return true;
   }
 
   get designRating(): number {

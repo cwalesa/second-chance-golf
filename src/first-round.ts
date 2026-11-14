@@ -49,7 +49,8 @@ export function firstRoundResult(r: RoundResult): FirstRoundResult {
 }
 
 /** Whether this finished round is the one to celebrate: a paying guest, not a test golfer. */
-export const isPayingRound = (r: Pick<RoundResult, 'test' | 'fee'>) => !r.test && r.fee > 0;
+/** Someone whose hole closed under them and went home without finishing one is not a round to celebrate. */
+export const isPayingRound = (r: Pick<RoundResult, 'test' | 'fee'> & { holes?: number }) => !r.test && r.fee > 0 && (r.holes ?? 1) > 0;
 
 export type NextStep = { id: 'secondHole' | 'openHole' | 'guests'; label: string; holeId?: number };
 /** One optional thing to try next, chosen from the course as it stands now. */
