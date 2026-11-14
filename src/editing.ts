@@ -215,6 +215,42 @@ function routeNotes(world: World, hole: Hole, route: Pt[]): string[] {
   return notes;
 }
 
+/**
+ * When a hole's route changes (its tee, green or bends move), the fairway follows it: a corridor is laid along the new
+ * route exactly as a new hole lays one, and fairway left behind along the old route goes back to rough, unless another
+ * hole plays over it. Works on top of the edits already staged for the move. Returns what the new fairway costs.
+ */
+function rerouteFairway(world: World, before: Hole, after: Hole, edits: Map<number, TileEdit>): number {
+  const oldPath = holePath(before), newPath = holePath(after);
+  const others = world.holes.filter((o) => o.id !== before.id).map((o) => holePath(o));
+  const KEEP: number[] = [T.BUILDING, T.PATH, T.BRIDGE, T.WATER, T.BUNKER, T.GREEN, T.TEE];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const q of [...oldPath, ...newPath]) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); }
+  let cost = 0;
+  for (let y = Math.max(0, Math.floor(y0 - 6)); y <= Math.min(world.h - 1, Math.ceil(y1 + 6)); y++)
+    for (let x = Math.max(0, Math.floor(x0 - 6)); x <= Math.min(world.w - 1, Math.ceil(x1 + 6)); x++) {
+      if (!isOwned(world, x, y)) continue;
+      const i = idx(world, x, y);
+      const staged = edits.get(i);
+      const base = staged?.before ?? state(world, i);
+      const cur = staged?.after ?? base;
+      const cx = x + 0.5, cy = y + 0.5;
+      if (polyDist(cx, cy, newPath).d <= 2.4) {
+        if (KEEP.includes(cur.t) || (cur.t === T.FAIRWAY && !cur.tr)) continue;
+        const c = ((base.tr ? CFG.costs.treeRemove : 0) + (base.t === T.FAIRWAY ? 0 : base.t === T.ROUGH ? CFG.costs.fairway : CFG.costs.fairwayFromHazard)) * COST_MULT;
+        cost += c;
+        edits.set(i, { i, before: base, after: { t: T.FAIRWAY, c: base.t === T.FAIRWAY ? base.c : CFG.turf.freshFairway, tr: 0 }, cost: c });
+      } else if (cur.t === T.FAIRWAY) {
+        // left behind: along the old route, or the apron of the old green
+        const wasOurs = polyDist(cx, cy, oldPath).d <= 2.7 || Math.hypot(cx - before.cup.x - 0.5, cy - before.cup.y - 0.5) <= 4.4;
+        if (!wasOurs || others.some((o) => polyDist(cx, cy, o).d <= 2.7)) continue;
+        edits.set(i, { i, before: base, after: { t: T.ROUGH, c: CFG.turf.freshRough, tr: base.tr }, cost: 0 });
+      }
+    }
+  return cost;
+}
+const changedOnly = (edits: Map<number, TileEdit>) => [...edits.values()].filter((e) => e.before.t !== e.after.t || Math.abs(e.before.c - e.after.c) > 0.01 || e.before.tr !== e.after.tr);
+
 export function planMoveTee(world: World, hole: Hole, x: number, y: number): EditPlan | string {
   if (x === hole.tee.x && y === hole.tee.y && world.terrain[idx(world, x, y)] === T.TEE) return 'The tee is already here.';
   if (x < 2 || y < 2 || x > world.w - 3 || y > world.h - 3) return 'Too close to the edge of the property.';
@@ -243,11 +279,13 @@ export function planMoveTee(world: World, hole: Hole, x: number, y: number): Edi
       if (tiles.has(i) || world.terrain[i] !== T.TEE) continue;
       tiles.set(i, { i, before: state(world, i), after: { t: T.ROUGH, c: CFG.turf.freshRough, tr: 0 }, cost: 0 });
     }
-  const list = [...tiles.values()].filter((e) => e.before.t !== e.after.t || Math.abs(e.before.c - e.after.c) > 0.01 || e.before.tr !== e.after.tr);
-  const cost = Math.ceil((CFG.costs.moveTeeBase + CFG.costs.moveTeePerTile * list.length) * COST_MULT);
+  const boxTiles = changedOnly(tiles).length;
   // the player's par and turning points stay as they chose them
   const after = cloneHole(hole);
   after.tee = { x, y };
+  const fairway = rerouteFairway(world, hole, after, tiles);
+  const list = changedOnly(tiles);
+  const cost = Math.ceil((CFG.costs.moveTeeBase + CFG.costs.moveTeePerTile * boxTiles) * COST_MULT + fairway);
   const route = [center(after.tee), ...holeBends(after).map(center), center(after.cup)];
   return { tool: 'tee', label: `Move tee, hole ${hole.id}`, tiles: list, cost, hole: { id: hole.id, before: cloneHole(hole), after }, notes: routeNotes(world, after, route) };
 }
@@ -289,11 +327,13 @@ export function planMoveCup(world: World, hole: Hole, x: number, y: number): Edi
       tiles.push({ i, before: state(world, i), after: { t: T.FAIRWAY, c: world.cond[i], tr: 0 }, cost: 0 });
       changed++;
     }
-  const cost = changed ? Math.ceil((CFG.costs.moveCupBase + CFG.costs.moveCupPerTile * changed) * COST_MULT) : CFG.costs.moveCupSameGreen;
   const after = cloneHole(hole);
   after.cup = { x, y };
+  const edits = new Map<number, TileEdit>(tiles.map((e) => [e.i, e]));
+  const fairway = rerouteFairway(world, hole, after, edits);
+  const cost = Math.ceil((changed ? (CFG.costs.moveCupBase + CFG.costs.moveCupPerTile * changed) * COST_MULT : CFG.costs.moveCupSameGreen) + fairway);
   const route = [center(after.tee), ...holeBends(after).map(center), center(after.cup)];
-  return { tool: 'cup', label: `Move cup, hole ${hole.id}`, tiles, cost, hole: { id: hole.id, before: cloneHole(hole), after }, notes: routeNotes(world, after, route) };
+  return { tool: 'cup', label: `Move cup, hole ${hole.id}`, tiles: changedOnly(edits), cost, hole: { id: hole.id, before: cloneHole(hole), after }, notes: routeNotes(world, after, route) };
 }
 
 const HOLE_NAMES = ['Birch Bend', 'Heron Pond', 'The Long Acre', 'Lantern Hill', 'Sparrow Drop', 'Kettle Run', 'Windmill', 'The Narrows', 'Copper Ridge', 'Fern Hollow', 'Gull Point', 'Old Quarry', 'Larkspur', 'Thistle Way', 'The Lookout'];
@@ -450,7 +490,9 @@ export function planStraighten(w: World, h: Hole): EditPlan | string {
   if (!holeBends(h).length) return 'This hole is already straight.';
   const after = cloneHole(h);
   setRoute(after, []);
-  return { tool: 'bend', label: 'Straighten hole', tiles: [], hole: { id: h.id, before: cloneHole(h), after }, cost: 0, notes: routeNotes(w, after, [center(after.tee), center(after.cup)]) };
+  const edits = new Map<number, TileEdit>();
+  const fairway = rerouteFairway(w, h, after, edits);
+  return { tool: 'bend', label: 'Straighten hole', tiles: changedOnly(edits), hole: { id: h.id, before: cloneHole(h), after }, cost: Math.ceil(fairway), notes: routeNotes(w, after, [center(after.tee), center(after.cup)]) };
 }
 
 // ---- live bend editing: pure helpers used by the editor while a bend is being dragged ----
@@ -537,5 +579,7 @@ export function planBends(w: World, h: Hole, bends: Pt[]): EditPlan | null {
   setRoute(after, next);
   const label = next.length > before.length ? 'Add bend' : next.length < before.length ? 'Remove bend' : 'Move bend';
   const route = [center(after.tee), ...holeBends(after).map(center), center(after.cup)];
-  return { tool: 'bend', label: `${label}, hole ${h.id}`, tiles: [], hole: { id: h.id, before: cloneHole(h), after }, cost: Math.ceil(40 * COST_MULT) * fresh, notes: routeNotes(w, after, route) };
+  const edits = new Map<number, TileEdit>();
+  const fairway = rerouteFairway(w, h, after, edits);
+  return { tool: 'bend', label: `${label}, hole ${h.id}`, tiles: changedOnly(edits), hole: { id: h.id, before: cloneHole(h), after }, cost: Math.ceil(Math.ceil(40 * COST_MULT) * fresh + fairway), notes: routeNotes(w, after, route) };
 }
