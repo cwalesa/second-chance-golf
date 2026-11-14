@@ -1195,3 +1195,6 @@ body.tut-edit #sidebody .edit-act[data-act="straighten"], body.tut-edit #sidebod
 body.tut-edit #sidebody .par-row { margin-bottom: 10px; }
 body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; }
 @media (orientation: landscape) and (max-height: 600px) { body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; } }
+
+/* ---- messages never ride up over the header (or the tutorial strip) when a tall panel is open below them ---- */
+#toasts { bottom: min(calc(var(--dock) + 10px), calc(100% - var(--hdr) - var(--coach-h, 0px) - 96px)); }
