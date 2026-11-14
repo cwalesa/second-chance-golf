@@ -36,22 +36,27 @@ describe('live bend editing', () => {
     expect(s.total).toBeGreaterThan(routeStats(h.tee, [], h.cup).total);
   });
 
-  it('prices each new or moved bend at $40, removals are free, and moving back costs nothing', () => {
+  it('prices each new or moved bend at $40 plus the fairway it needs, and moving back costs nothing', () => {
     const g = meadow();
     const h = build(g, { x: 60, y: 30 }, { x: 100, y: 30 }, [{ x: 80, y: 40 }]);
     const live = g.hole(h.id);
     const added = planBends(g.world, live, [{ x: 80, y: 40 }, { x: 90, y: 20 }])!;
-    expect(added.cost).toBe(40);
+    // the fairway follows the new route, so the price is the bend plus the new turf
+    const turf = (p: { tiles: { cost: number }[] }) => p.tiles.reduce((a, x) => a + x.cost, 0);
+    expect(added.tiles.length).toBeGreaterThan(0);
+    expect(added.cost).toBe(Math.ceil(40 + turf(added)));
     const movedTwo = planBends(g.world, live, [{ x: 75, y: 42 }, { x: 90, y: 20 }])!;
-    expect(movedTwo.cost).toBe(80);
-    expect(planBends(g.world, live, [])!.cost).toBe(0);
+    expect(movedTwo.cost).toBe(Math.ceil(80 + turf(movedTwo)));
+    // taking a bend out charges nothing for the bend itself, only for fairway along the straighter line
+    const straight = planBends(g.world, live, [])!;
+    expect(straight.cost).toBe(Math.ceil(turf(straight)));
     // dragged away and back: no change, no plan, no charge
     expect(planBends(g.world, live, [{ x: 80, y: 40 }])).toBeNull();
     // nothing is charged until Build
     const cash = g.cash;
     expect(g.cash).toBe(cash);
     expect(g.commitEdit(added).ok).toBe(true);
-    expect(g.cash).toBe(cash - 40);
+    expect(g.cash).toBe(cash - added.cost);
     expect(holeBends(g.hole(h.id)).length).toBe(2);
     g.undo();
     expect(g.cash).toBe(cash);
@@ -122,7 +127,10 @@ describe('live bend editing', () => {
     const plan = planBends(g.world, g.hole(h.id), [{ x: 82, y: 44 }])!;
     expect(plan.hole!.before.bends).toEqual([{ x: 80, y: 40 }]);
     expect(plan.hole!.after.bends).toEqual([{ x: 82, y: 44 }]);
-    expect(plan.tiles).toEqual([]);
+    // the fairway moves with the bend: laid at the new turn, taken up at the old one
+    const at = (x: number, y: number) => plan.tiles.find((e) => e.i === idx(g.world, x, y));
+    expect(at(82, 44)!.after.t).toBe(T.FAIRWAY);
+    expect(at(80, 39)!.after.t).toBe(T.ROUGH);
     // planning never touches the live hole
     expect(holeBends(g.hole(h.id))).toEqual([{ x: 80, y: 40 }]);
   });

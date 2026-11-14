@@ -1186,3 +1186,15 @@ body.minimap-open #minimap { bottom: calc(150px + var(--sab)) !important; }
 .report-weather.storm { border-left-color: #d0442b; }
 .report-weather.heat { border-left-color: #e0a020; }
 .report-weather b { display: block; font: 700 14px var(--font); }
+
+/* ---- tutorial, editing a hole: the panel shows only par and the three ways to reshape a hole ---- */
+body.tut-edit #sidebody > :not(details[data-sec="edit"]) { display: none; }
+body.tut-edit #sidebody details[data-sec="edit"] { border: 0; background: none; }
+body.tut-edit #sidebody details[data-sec="edit"] > summary, body.tut-edit #sidebody details[data-sec="edit"] .xp-body > p,
+body.tut-edit #sidebody .edit-act[data-act="straighten"], body.tut-edit #sidebody .edit-act[data-act="rename"], body.tut-edit #sidebody .edit-act[data-act="removehole"] { display: none; }
+body.tut-edit #sidebody .par-row { margin-bottom: 10px; }
+body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; }
+@media (orientation: landscape) and (max-height: 600px) { body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; } }
+
+/* ---- messages never ride up over the header (or the tutorial strip) when a tall panel is open below them ---- */
+#toasts { bottom: min(calc(var(--dock) + 10px), calc(100% - var(--hdr) - var(--coach-h, 0px) - 96px)); }
