@@ -1,4 +1,5 @@
 import type { Game } from './game';
+import { BUILDING_KINDS as BUILDINGS } from './items';
 
 /** `stage` and `completed` are legacy fields from the old chapter system; they are kept only so old saves still load. */
 export interface CampaignState { /** position in the goal chain (CHAIN) */ step?: number; /** id of the current goal, so the chain can change between versions */ goalId?: string; stage: number; claimed: string[]; completed: string[]; rounds: number; profit: number; events: number; medals: number; }
@@ -67,7 +68,7 @@ export const CHAIN: ChainGoal[] = [
   cg('c-club1', 'Upgrade to a real clubhouse', 'Needs a 1-star rating. Upgrade it in the Clubhouse panel.', 800, 1, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
   cg('c-staff', 'Hire your first staff member', 'A greenkeeper keeps turf healthy and a ranger keeps play moving. Hire one in Clubhouse.', 600, 1, (g) => Object.values(g.staff).filter(Boolean).length, { go: 'club', guide: '[data-act="hire"]' }),
   cg('c-hole6', 'Open 6 holes', 'Keep building. Mix pars 3, 4 and 5 for variety.', 1100, 6, openHoles, { go: 'build', tool: 'build' }),
-  cg('c-amenity', 'Add an improvement', 'Improvements like a snack bar or carts earn money and please guests. Buy one in Finances.', 700, 1, (g) => Object.values(g.upgrades).filter(Boolean).length, { go: 'money', guide: '[data-act="buy"]' }),
+  cg('c-amenity', 'Add an improvement', 'Improvements like a snack bar or carts, and buildings like a halfway house, earn money and please guests. Finances lists them all.', 700, 1, (g) => Object.values(g.upgrades).filter(Boolean).length + (g.world.items?.filter((it) => !['puttingGreen', 'range'].includes(it.k) && BUILDINGS.includes(it.k)).length ?? 0), { go: 'money', guide: '[data-act="buy"]' }),
   cg('c-members3', 'Win 5 club members', 'Golfers who love their round may join and pay daily dues. Keep them happy.', 800, 5, (g) => g.members.length, { go: 'guests' }),
   cg('c-event1', 'Host an event', 'Book one in Events, then let the day play out.', 900, 1, (g) => g.stats.events, { go: 'events', guide: '[data-act="book"]' }),
   cg('c-hole9', 'Open 9 holes', 'A full nine. Golfers stay longer and pay more.', 1800, 9, openHoles, { go: 'build', tool: 'build' }),
