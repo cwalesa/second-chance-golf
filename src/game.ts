@@ -10,7 +10,7 @@ import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNe
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
-import { World, Hole, computeZones, holeCondition, idx, validateHole, Validation } from './terrain';
+import { World, Hole, computeZones, hash2, holeCondition, idx, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
@@ -20,6 +20,7 @@ import { TutorialState, freshTutorial } from './tutorial-state';
 import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ratingStars, seasonIndex, yearOf } from './progression';
 import { GoalCtx, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
+import { WEATHER, Weather, weatherOn } from './weather';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
 
 export interface LogEntry {
@@ -294,7 +295,75 @@ export class Game {
   }
   private updateWear() {
     const r = REGIONS[this.region];
-    this.sim.wearMult = (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1);
+    this.sim.wearMult = WEATHER[this.weather].wear * (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1);
+  }
+
+  /** Today's weather. */
+  get weather(): Weather { return weatherOn(this.world.landSeed, this.day, this.region, seasonIndex(this.day)); }
+  /** A storm has washed out turf and it has not been put right yet. The interface keeps a repair prompt up while this is set. */
+  stormDamage = false;
+  /** What the new day's weather does to the course, once, as the day begins. */
+  private beginWeather() {
+    const wx = this.weather, w = this.world;
+    if (wx === 'clear') return;
+    if (wx === 'rain') {
+      for (let i = 0; i < w.terrain.length; i++) { const t = w.terrain[i]; if (t >= 1 && t <= 3 && w.cond[i] < 90) { w.cond[i] = Math.min(90, w.cond[i] + 5); w.dirty.add(i); } }
+      w.version++;
+      this.notify('info', 'Rain today. Fewer golfers will come, but the turf is recovering.');
+    } else if (wx === 'heat') {
+      this.notify('info', 'Heatwave today. Turf wears faster in the heat.');
+    } else {
+      // washed-out patches on every hole: blotches a few tiles across, on fairway, green and tee alike
+      let hit = 0;
+      for (let i = 0; i < w.terrain.length; i++) {
+        const t = w.terrain[i];
+        if (t < 1 || t > 3 || !w.zone[i]) continue;
+        const x = i % w.w, y = Math.floor(i / w.w);
+        if (hash2(Math.floor(x / 3), Math.floor(y / 3), this.day * 31 + 5) > 0.45) continue;
+        w.cond[i] = Math.max(CFG.turf.floor, w.cond[i] - 55);
+        w.dirty.add(i);
+        hit++;
+      }
+      w.version++;
+      if (hit) this.stormDamage = true;
+      if (this.fellTrees()) return void this.updateWear();
+      this.notify('bad', hit ? 'A storm came through overnight and washed out patches of turf. Golfers will notice until it is repaired.' : 'A storm came through overnight. Very few golfers will come today.');
+    }
+    this.updateWear();
+  }
+
+  /** Holes whose fairway is blocked by trees a storm brought down, with the tiles they lie on. Cleared from the bar under the header. */
+  fallen: { hole: number; tiles: number[] }[] = [];
+  /** Rare: about one storm in three brings trees down across one open hole's fairway, which closes it until they are cleared. */
+  private fellTrees(): boolean {
+    const w = this.world, open = this.openHoles;
+    if (this.day < 20 || !open.length || hash2(this.day, 91, w.landSeed % 1000003) > 0.25) return false;
+    const h = open[Math.floor(hash2(this.day, 92, w.landSeed % 1000003) * open.length)];
+    const tiles: number[] = [];
+    for (let dy = -2; dy <= 2 && tiles.length < 4; dy++)
+      for (let dx = -2; dx <= 2 && tiles.length < 4; dx++) {
+        const x = h.bend.x + dx, y = h.bend.y + dy;
+        if (x < 0 || y < 0 || x >= w.w || y >= w.h) continue;
+        const i = idx(w, x, y);
+        if (w.terrain[i] === 1 && !w.tree[i] && hash2(x, y, this.day) < 0.5) tiles.push(i);
+      }
+    if (tiles.length < 2) return false;
+    for (const i of tiles) { w.tree[i] = 1; w.dirty.add(i); }
+    this.closeHole(h.id, true);
+    h.awaiting = true;
+    w.version++;
+    this.fallen.push({ hole: h.id, tiles });
+    this.notify('bad', `A storm brought trees down across hole ${h.id}, and washed out turf. The hole is closed until the trees are cleared.`);
+    return true;
+  }
+  /** Clear the fallen trees from a hole and open it again. Time carries on as it was. */
+  clearFallen(holeId: number, plan: EditPlan): boolean {
+    const running = this.businessRunning;
+    if (plan.tiles.length && !this.commitEdit(plan).ok) return false;
+    this.fallen = this.fallen.filter((f) => f.hole !== holeId);
+    if (this.world.holes.some((h) => h.id === holeId)) this.openHole(holeId);
+    if (running) { this.exitDesign(); this.resume(); }
+    return true;
   }
 
   get designRating(): number {
@@ -441,7 +510,7 @@ export class Game {
   }
   /** Demand per day before price: reputation, season, region, clubhouse, rating and range all count. */
   get dailyBase(): number {
-    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1) * (1 + 0.08 * countOf(this.world, 'carpark'));
+    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1) * (1 + 0.08 * countOf(this.world, 'carpark')) * WEATHER[this.weather].demand;
   }
   bandArrivals(id: BandId): number {
     const b = BANDS.find((x) => x.id === id)!;
@@ -664,6 +733,7 @@ export class Game {
       if (member.happiness < 45) { this.members = this.members.filter(m => m !== member); this.notify('info', `${member.name} left the club after disappointing visits.`); }
       else this.earn('shop', 8 + this.clubLevel * 3, `Daily dues: ${member.name}`);
     }
+    this.beginWeather();
     this.startEvent();
     this.dirtySave = true;
   }

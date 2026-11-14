@@ -117,6 +117,11 @@ const showHole = (c: Ctx, id: number | undefined) => {
 const hideSheet = (c: Ctx) => {
   if (c.ui.tab !== 'none') { c.ui.tab = 'none'; c.ui.refresh(true); c.ui.onInsets(); }
 };
+/** Open the hole panel's Edit hole section (it remembers being open, like any section the player opens). */
+const openEdit = () => {
+  const d = document.querySelector<HTMLDetailsElement>('#sidebody details[data-sec="edit"]');
+  if (d && !d.open) d.open = true;
+};
 const lastResult = (c: Ctx) => [...c.g.testResults].reverse().find((r) => r.hole === first(c)?.id) ?? c.g.testResults[c.g.testResults.length - 1];
 
 /**
@@ -194,7 +199,7 @@ export const STEPS: Step[] = [
     ensure: (c) => showHole(c, first(c)?.id),
     target: () => ['[data-act="testgolfers"]'],
     check: (c) => c.g.hasTestGolfers || c.g.testResults.length > ((c.mark.rn as number) ?? 0),
-    skipTo: 'improve',
+    skipTo: 'edit',
     regressTo: (c) => (c.g.world.holes.every((h) => h.open) && c.g.world.holes.length ? null : 'open'),
   },
   {
@@ -209,7 +214,7 @@ export const STEPS: Step[] = [
       if (t) c.g.followGolfer = t.id; else c.e.focusHole();
     },
     check: (c) => c.g.testResults.length > ((c.mark.rn as number) ?? 0),
-    skipTo: 'improve',
+    skipTo: 'edit',
     leave: (c) => { c.g.followGolfer = 0; },
     // nobody is playing and nothing came back (a reload, say): send the player back to try again
     regressTo: (c) => (!c.g.hasTestGolfers && c.g.testResults.length <= ((c.mark.rn as number) ?? 0) ? 'test' : null),
@@ -225,6 +230,19 @@ export const STEPS: Step[] = [
     enter: (c) => { c.g.followGolfer = 0; c.e.focusHole(); },
     manual: true,
     nextLabel: 'Next',
+  },
+  {
+    id: 'edit',
+    more: 'Par: tap 3, 4 or 5. Length: Move tee or Move cup, then tap the map where it should go. Bends: Shape bends, then tap the fairway to add a turn and drag it. You see the price first, and nothing is built until you tap Build. Changing a hole closes it until you open it again.',
+    phase: 5,
+    short: () => 'Edit hole changes par, length (move the tee or green) and bends. Try one, or tap Next.',
+    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); showHole(c, first(c)?.id); if (c.ui.portraitSheet) c.ui.setSheet('full'); openEdit(); },
+    // keep the section open while the hole panel is up; if the player picks a tool the panel steps aside and is left alone
+    ensure: (c) => { if (c.ui.tab === 'course') openEdit(); },
+    target: () => ['#sidebody details[data-sec="edit"] .par-row', '#sidebody details[data-sec="edit"] > summary'],
+    manual: true,
+    nextLabel: 'Next',
+    skipTo: 'improve',
   },
   {
     id: 'improve',

@@ -998,7 +998,7 @@ body.has-proposal #tip p, body.coaching #tip p { display: block; -webkit-line-cl
 body.has-proposal #roundcard, body.menu-open #roundcard { display: none; }
 
 /* while the result card is up, notifications move to the top so they never sit on it */
-body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
+body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 66px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
 
 /* ---- the closed-hole reminder shares the Next job bar ---- */
 #goalbar.alert { min-height: 52px; padding-right: 6px; cursor: default; }
@@ -1180,3 +1180,9 @@ body.minimap-open #map-controls button[data-camera="map"] { background: var(--ye
 .fee-all .btn { width: 100%; }
 /* the map sits above the message line, beside its button */
 body.minimap-open #minimap { bottom: calc(150px + var(--sab)) !important; }
+
+/* ---- weather line in the day report ---- */
+.report-weather { padding: 8px 10px; margin-bottom: 10px; border-left: 4px solid #4f7f96; background: var(--well); border-radius: 3px; grid-column: 1 / -1; }
+.report-weather.storm { border-left-color: #d0442b; }
+.report-weather.heat { border-left-color: #e0a020; }
+.report-weather b { display: block; font: 700 14px var(--font); }
