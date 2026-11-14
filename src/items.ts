@@ -9,6 +9,7 @@ import { lotFor, lotKindAt, reserveLots } from './lots';
  * with a few of them around the tee or green enjoy it more.
  */
 export type ItemKind = 'flowers' | 'shrub' | 'bench' | 'lamp' | 'washer' | 'fountain' | 'statue' | 'birdbath' | 'picnic' | 'flagpole' | 'rockgarden' | 'planter' | 'arch' | 'hedge'
+  | 'bush' | 'wildflowers' | 'tallgrass' | 'reeds' | 'boulder' | 'restroom' | 'starter' | 'windmill'
   | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'barn' | 'shed' | 'puttingGreen' | 'range';
 export interface Item { x: number; y: number; k: ItemKind }
 
@@ -28,6 +29,14 @@ export const ITEMS: Record<ItemKind, ItemDef> = {
   planter: { label: 'Planter', cost: 70, beauty: 1, hint: 'A half barrel of flowers. Good beside doors and tees.' },
   arch: { label: 'Rose arch', cost: 380, beauty: 2, hint: 'A white arch wound with roses. Lovely over a path or beside a green.' },
   hedge: { label: 'Hedge', cost: 50, beauty: 1, hint: 'A neat trimmed hedge to edge a tee or hide the shed.' },
+  bush: { label: 'Flowering bush', cost: 45, beauty: 1, hint: 'A bush in bloom. Plant a few together for a bank of colour.' },
+  wildflowers: { label: 'Wildflowers', cost: 25, beauty: 1, hint: 'A loose patch of meadow flowers for the rough.' },
+  tallgrass: { label: 'Tall grass', cost: 15, beauty: 0, hint: 'A clump of wispy fescue. Cheap, and it makes rough look wild.' },
+  reeds: { label: 'Reeds', cost: 20, beauty: 0, hint: 'Reeds for the bank of a pond or a stream.' },
+  boulder: { label: 'Boulder', cost: 60, beauty: 1, hint: 'A weathered rock. Good beside water, sand or a path.' },
+  restroom: { label: 'Comfort station', cost: 1400, beauty: 1, w: 2, h: 2, max: 4, upkeep: 2, hint: 'Restrooms out on the course. Golfers are glad of one on a long round.' },
+  starter: { label: "Starter's hut", cost: 1800, beauty: 1, w: 2, h: 2, max: 2, upkeep: 2, hint: 'A little hut by the first tee where the starter keeps the tee sheet.' },
+  windmill: { label: 'Windmill', cost: 2600, beauty: 4, w: 2, h: 2, max: 2, upkeep: 2, hint: 'A white windmill with four sails. A landmark golfers remember; holes close to one are more enjoyable.' },
   halfway: { label: 'Halfway house', cost: 3200, beauty: 2, w: 3, h: 2, max: 2, upkeep: 6, hint: 'A snack hut between nines. Golfers spend about 18% more at the clubhouse and shop. A second one adds more.' },
   proShop: { label: 'Pro shop', cost: 5400, beauty: 1, w: 4, h: 2, max: 1, upkeep: 8, hint: 'Clubs, gloves and sweaters in the window. Golfers spend about 15% more at the clubhouse and shop.' },
   grill: { label: 'Grill room', cost: 7800, beauty: 2, w: 4, h: 3, max: 1, upkeep: 12, hint: 'A proper lunch with a porch. Golfers spend about 22% more at the clubhouse and shop, on top of other buildings.' },
@@ -39,7 +48,7 @@ export const ITEMS: Record<ItemKind, ItemDef> = {
   range: { label: 'Driving range', cost: CFG.upgrades.range.cost, beauty: 0, w: 7, h: 3, max: 1, hint: 'Hitting mats and target greens. Draws about 15% more golfers. Its upkeep is part of your hourly costs.' },
   shed: { label: 'Maintenance shed', cost: 3800, beauty: 0, w: 3, h: 2, max: 1, upkeep: 8, hint: 'Mowers and tools kept close. Turf wears about 15% more slowly across the course.' },
 };
-export const BUILDING_KINDS: ItemKind[] = ['halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'barn', 'shed', 'puttingGreen', 'range'];
+export const BUILDING_KINDS: ItemKind[] = ['halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'barn', 'shed', 'puttingGreen', 'range'];
 /** Improvements that used to be bought from the Finances panel and are now placed on the property. Owning one means it stands somewhere. */
 export const AMENITY_KINDS = ['puttingGreen', 'range'] as const;
 export const isAmenity = (k: ItemKind): k is (typeof AMENITY_KINDS)[number] => (AMENITY_KINDS as readonly string[]).includes(k);
