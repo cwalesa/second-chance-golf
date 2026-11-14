@@ -92,10 +92,9 @@ export function startScreen(): Promise<NewGameOptions> {
             <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>
           </div>
           <div id="logoBox" class="logo-box" hidden></div>
-          <label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Guide me through my first hole</span></label>
         </section>
       </main>
-      <footer class="guide-foot"><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
+      <footer class="guide-foot"><label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Guide me through my first hole</span></label><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
     </div>`;
     const crest = root.querySelector('#crestCv') as HTMLCanvasElement;
     const repaint = () => paintLogo(crest, { ...logo, initials: initialsOf(name) });

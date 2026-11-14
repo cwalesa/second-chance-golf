@@ -6,7 +6,7 @@ import { createWilderness } from './wilderness';
 import { Rng } from './rng';
 import { noUpgrades } from './economy';
 import { REGIONS } from './progression';
-import { CHAIN, CHAIN_V1 } from './campaign';
+import { CHAIN, CHAIN_MOVED, CHAIN_V1 } from './campaign';
 import { ITEMS } from './items';
 import { defaultLogo } from './logo';
 import { reserveLots } from './lots';
@@ -132,7 +132,8 @@ export function deserialize(text: string): LoadedSave | null {
     if (d.campaign?.step === undefined) g.catchUpGoals();
     else {
       // find the saved goal in the current chain; saves from before ids were stored used the first chain's order
-      const id = d.campaign.goalId ?? CHAIN_V1[d.campaign.step] ?? 'done';
+      const saved = d.campaign.goalId ?? CHAIN_V1[d.campaign.step] ?? 'done';
+      const id = CHAIN_MOVED[saved] ?? saved;
       const at = CHAIN.findIndex((c) => c.id === id);
       g.campaign.step = at >= 0 ? at : CHAIN.length;
       g.campaign.goalId = id;

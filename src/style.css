@@ -558,7 +558,7 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 .swing-panel > small { font-size: 11px; }
 
 /* hidden on the phone layout */
-#map-controls, #minimap, #pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
+#minimap, #pill, #top .hide-m, #top .brand, #top .sep { display: none !important; }
 #goalbar .box { background: transparent; }
 
 /* ================= opening screen ================= */
@@ -999,3 +999,96 @@ body.has-proposal #roundcard, body.menu-open #roundcard { display: none; }
 
 /* while the result card is up, notifications move to the top so they never sit on it */
 body.has-roundcard #toasts { top: calc(var(--hdr) + var(--coach-h, 0px) + 10px); bottom: auto; flex-direction: column; right: calc(8px + var(--sar)); }
+
+/* ---- the closed-hole reminder shares the Next job bar ---- */
+#goalbar.alert { min-height: 52px; padding-right: 6px; cursor: default; }
+#goalbar .k.closed { background: #d0442b; color: #fff; }
+#goalbar .gb-act { flex: none; min-height: 40px; padding: 0 12px; font-size: 13px; }
+
+/* ---- seven destinations in the menu: Settings shares the last row in portrait; landscape uses seven columns ---- */
+#nav .mset { grid-column: span 2; min-height: 0; }
+@media (orientation: landscape) and (max-height: 600px) {
+  body.menu-open #nav { max-width: 700px; grid-template-columns: repeat(7, 1fr); }
+  #nav .mspeed { grid-column: span 3; }
+  #nav .mset { grid-column: span 4; }
+}
+
+/* ---- dialogs: a close button that never scrolls away, and action buttons that stay in view ---- */
+#modal .boxwrap { position: relative; display: flex; width: min(380px, 100%); max-height: 100%; }
+#modal .boxwrap > .box { width: 100%; }
+#modal .mx { position: absolute; z-index: 3; top: 4px; right: 6px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--ink); cursor: pointer; }
+#modal .mx .ic { width: 20px; height: 20px; }
+#modal .box > h2:first-child { padding-right: 48px; }
+#modal .box > .actions, .day-report > .report-actions { position: sticky; bottom: 0; z-index: 2; margin-top: 0; margin-bottom: 0; padding: 12px 0 14px; background: var(--panel-2); }
+#modal .box > .actions::before, .day-report > .report-actions::before { content: ''; position: absolute; left: 0; right: 0; top: -10px; height: 10px; background: linear-gradient(transparent, var(--panel-2)); pointer-events: none; }
+#modal .box:has(.day-report) > .day-report { padding-bottom: 0; }
+.day-report > .eyebrow { padding-right: 44px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  #modal { padding: 8px; }
+  #modal .boxwrap { width: min(560px, 100%); }
+  .menu-list { display: grid; grid-template-columns: 1fr 1fr; }
+  /* the day report reads across: the result on the left, the breakdown on the right */
+  .day-report { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-items: start; }
+  .day-report > .eyebrow, .day-report > h2, .day-report > .report-next, .day-report > .report-actions { grid-column: 1 / -1; }
+  .day-report > .report-chart { display: none; }
+  .day-report > .report-profit, .day-report > .report-kpis { grid-column: 1; }
+  .day-report > .ledger-rows { grid-column: 2; grid-row: 3 / span 2; }
+}
+
+/* a toast never sits on top of the open menu */
+body.menu-open #toasts { z-index: 19; }
+
+/* ---- undo and redo in the build tray ---- */
+#tools .ph-undo[hidden] { display: none; }
+#tools .ph-undo:disabled { opacity: .4; }
+#tools .ph-redo { width: 46px; }
+
+/* ---- two map buttons above the menu button: back to the clubhouse, and find the selected hole ----
+   They show only on the plain map view (no panel, tray, menu, tutorial or placement), in both orientations. */
+#map-controls { display: none; }
+body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.owner-playing):not(.has-proposal):not(.placing-club):not(.placing-building) #map-controls {
+  display: flex; flex-direction: column; gap: 8px; position: absolute; z-index: 6; right: calc(16px + var(--sar)); bottom: calc(84px + var(--sab));
+}
+#map-controls button { display: none; }
+#map-controls button[data-camera="club"]:not([hidden]), #map-controls button[data-camera="home"]:not([hidden]) {
+  display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; padding: 0; border: 3px solid var(--edge); border-radius: 12px; background: #fff; color: var(--ink);
+  font: 800 22px/1 var(--font); box-shadow: var(--hard); cursor: pointer;
+}
+#map-controls button:active { transform: translateY(2px); box-shadow: none; }
+#map-controls button svg { width: 24px; height: 24px; }
+#goalbar .k.held { background: var(--yellow); }
+
+/* reward pop-ups sit below the Next job bar instead of on top of it */
+#goalpop { top: calc(134px + var(--sat)); }
+
+/* ---- landscape: messages keep out of the side panel, and tips sit beside the header, not over the map ---- */
+@media (orientation: landscape) and (max-height: 600px) {
+  body[data-tab]:is([data-tab="course"], [data-tab="guests"], [data-tab="money"], [data-tab="club"], [data-tab="journey"], [data-tab="events"]) #toasts { right: calc(var(--side-w, 0px) + 8px); }
+  /* with the tray up, messages sit just above it, beside the brush button, instead of across the header */
+  body[data-tab="build"] #toasts { bottom: calc(var(--dock) + 10px); left: calc(72px + var(--sal)); }
+  #tip, body.has-proposal #tip { left: auto; right: calc(8px + var(--sar)); top: calc(8px + var(--sat)); width: min(390px, calc(100% - 460px - var(--sal) - var(--sar))); padding: 6px 8px 6px 10px; gap: 8px; }
+  #tip p { font-size: 12px; line-height: 1.3; }
+}
+
+/* ---- start screen: everything needed to begin is on screen without scrolling ---- */
+.guide-head .banner { height: 44px; }
+.guide-body { padding: 6px 12px 8px; }
+.guide-foot .check-line { margin: 0 0 6px; min-height: 40px; }
+.guide-foot .check-line input { width: 22px; height: 22px; flex: none; }
+@media (orientation: landscape) and (max-height: 600px) {
+  /* the club on the left under the name, the places on the right, Start along the bottom */
+  .guide { grid-template-columns: 280px 1fr; grid-template-rows: auto 1fr auto; }
+  .guide-head { grid-row: 1; grid-column: 1; display: block; }
+  .guide-head .banner { display: none; }
+  .guide-body { display: contents; }
+  .guide-places { grid-column: 2; grid-row: 1 / span 2; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 12px 8px; }
+  .guide-club { grid-column: 1; grid-row: 2; overflow-y: auto; padding: 2px 12px 8px; border-right: 4px solid var(--edge); }
+  .guide-foot { grid-row: 3; padding-top: 6px; padding-bottom: calc(6px + var(--sab)); }
+  .guide-foot .check-line { margin: 0; flex: 1; }
+  .guide-foot p { display: none; }
+}
+
+/* ---- small fixes: the clubhouse tile gets a real picture; par buttons are a full tap tall in landscape ---- */
+#tools .club-tile { font-size: 0; }
+#tools .club-tile svg.pic { width: 44px; height: 44px; }
+@media (orientation: landscape) and (max-height: 600px) { #confirm .cf-pars .mini { min-height: 40px; } }

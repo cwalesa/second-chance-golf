@@ -314,7 +314,7 @@ export class Game {
   enterDesign() {
     if (this.owner.active) return;
     if (!this.designMode) this.designMode = true;
-    if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; this.notify('info', 'Designing: time is paused. Resume from the clock chip when you are ready.'); }
+    if (!this.settings.paused) { this.settings.paused = true; this.dirtySave = true; this.notify('info', 'Designing: time is paused. Tap Resume when you are ready.'); }
   }
   /** Stop designing but leave time paused. */
   exitDesign() { this.designMode = false; }
@@ -855,6 +855,7 @@ export class Game {
     }
     if (!h.open) {
       h.open = true;
+      delete h.awaiting;
       h.reopenedAt = this.total;
       this.world.version++;
       this.notify('good', `Hole ${id}, ${h.name}, is open.`);
@@ -868,6 +869,7 @@ export class Game {
     const h = this.hole(id);
     if (!h.open) return;
     h.open = false;
+    delete h.awaiting; // closed on purpose; building work sets the reminder again after this
     this.sim.closeHole(id);
     this.world.version++;
     if (!quiet) this.notify('info', `Hole ${id} is closed. Golfers on it have been sent on to the next hole.`);
@@ -922,7 +924,9 @@ export class Game {
     this.dirtySave = true;
     if (plan.newHole) {
       this.selectedHole = plan.newHole.id;
-      this.notify('good', `Hole ${plan.newHole.id} built. Open it from the Course tab.`);
+      const built = this.world.holes.find((h) => h.id === plan.newHole!.id);
+      if (built && !built.open) built.awaiting = true;
+      this.notify('good', `Hole ${plan.newHole.id} built. Open it to let golfers play.`);
     }
     if (plan.removedHole && this.selectedHole === plan.removedHole.id) this.selectedHole = this.world.holes[0]?.id ?? 1;
     return { ok: true, message: `${plan.label}: ${plan.tiles.length} tiles, ${fmtMoney(plan.cost)}` };
@@ -967,7 +971,8 @@ export class Game {
       if (!h) continue;
       if (h.open) {
         this.closeHole(id, true);
-        this.notify('info', `Hole ${id} closed for work. Fix it up, then open it again from the hole panel.`);
+        h.awaiting = true;
+        this.notify('info', `Hole ${id} closed for work. Reopen it when you are done.`);
       }
       if (greenBefore) {
         const now = holeCondition(this.world, h).green;

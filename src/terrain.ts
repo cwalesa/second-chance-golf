@@ -22,6 +22,8 @@ export interface Hole {
   par: number;
   fixedGreenAt: number; // total sim time a worn green was repaired, -1 if never
   reopenedAt: number;
+  /** Newly built, or closed by building work, and not opened since: the interface keeps a reminder up until it is. */
+  awaiting?: boolean;
   stats: HoleStats;
 }
 export interface HoleStats {

@@ -347,7 +347,7 @@ export class Tutorial {
   exit() {
     STEPS[this.g.tutorial.step]?.leave?.(this.ctx);
     this.finish();
-    if (!this.g.settings.open) this.g.notify('info', this.g.world.clubhouse ? 'Tutorial closed. Finish your course, then tap Open for business in the status bar.' : 'Tutorial closed. Place your clubhouse to begin.');
+    if (!this.g.settings.open) this.g.notify('info', this.g.world.clubhouse ? 'Tutorial closed. Finish your course, then tap Open for business at the top of the screen.' : 'Tutorial closed. Place your clubhouse to begin.');
   }
   private finish() {
     this.g.tutorial.done = true;

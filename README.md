@@ -43,7 +43,7 @@ The map is 240×160 tiles at the same tile scale. Terrain is drawn in 32-tile pa
 
 The interface has four states so the course stays visible:
 
-- **Viewing:** a compact header (cash, time, speed, menu; hole selector with undo/redo) and bottom navigation (portrait) or an edge rail (landscape). Zoom and find-hole are small buttons on the map edge.
+- **Viewing:** a compact header (level, cash, time, and a Pause / Resume chip), the goal bar under it (the next goal, or a reminder that a hole is closed or time is paused, with the button that fixes it), and a menu button in the bottom corner that opens Design, Course, Golfers, Finances, Clubhouse, Events, Goals, speed and settings. Above the menu button, two map buttons go back to the clubhouse and find the selected hole. Zoom by pinching or double-tapping.
 - **Editing (Design):** the tool tray with Terrain / Nature / Holes groups. Placing a tee, cup, dogleg or new hole shows a bar with what to tap and a **Cancel** button; a pending change shows its price with **Build** / **Cancel**.
 - **Managing a hole (Holes):** a bottom sheet in portrait with a handle, the hole's name, and collapsed / half / full positions (drag the handle, tap it, or use ▴). Content scrolls on its own and never moves the map. **Edit hole** groups Move tee, Move cup, Dogleg, Rename and Remove; choosing one closes the sheet so you can see where to place. In landscape the same content is a narrow side panel.
 - **Tutorial:** one short instruction at a time, docked under the clock chip at the top, with a gold ring (or a glow on the map) on the exact thing to use. **Skip this step** appears on optional steps and **Exit tutorial** ends it at any time, keeping everything built.
