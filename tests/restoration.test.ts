@@ -1,3 +1,4 @@
+import { levelBonus } from '../src/experience';
 import { describe, it, expect } from 'vitest';
 import { CFG } from '../src/config';
 import { Game, STAFF } from '../src/game';
@@ -15,8 +16,9 @@ describe('course goals', () => {
     g.campaign.rounds = 12;
     const cash = g.cash, bonus = g.today.bonus;
     expect(g.claimObjective('rounds12')).toBe(true);
-    expect(g.cash).toBe(cash + 400);
-    expect(g.today.bonus).toBe(bonus + 400);
+    // the objective's XP also reaches level 2, which pays its own grant
+    expect(g.cash).toBe(cash + 400 + levelBonus(2));
+    expect(g.today.bonus).toBe(bonus + 400 + levelBonus(2));
     expect(g.claimObjective('rounds12')).toBe(false);
     expect(g.campaign.medals).toBe(1);
   });

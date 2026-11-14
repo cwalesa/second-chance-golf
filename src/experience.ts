@@ -30,6 +30,8 @@ export const constructionFactor = (g: Game) => careerLevel(g) >= 4 ? .9 : career
 /** Player level: quick at first, slower later. Level n needs 40 * (n - 1)^1.6 XP. */
 export const levelXp = (n: number) => Math.round(40 * Math.pow(Math.max(0, n - 1), 1.6));
 export const playerLevel = (xp: number) => { let n = 1; while (xp >= levelXp(n + 1)) n++; return n; };
+/** What reaching a level pays: a small grant that grows with the level, so levelling is worth something every time. */
+export const levelBonus = (level: number) => 100 + 50 * level;
 export function awardExperience(g: Game, amount: number, once?: string) {
   if (once && g.experience.earned.includes(once)) return;
   const old = careerLevel(g);
@@ -37,11 +39,15 @@ export function awardExperience(g: Game, amount: number, once?: string) {
   if (once) g.experience.earned.push(once);
   g.experience.xp += amount; g.dirtySave = true;
   const lv = playerLevel(g.experience.xp);
+  // every level reached pays its grant (several at once if a big award skipped levels)
+  let bonus = 0;
+  for (let n = oldLevel + 1; n <= lv; n++) bonus += levelBonus(n);
+  if (bonus) g.earn('bonus', bonus, `Level ${lv} grant`);
   if (careerLevel(g) > old) {
     g.applyRegion();
-    g.cheer({ kind: 'level', title: `Level ${lv}: ${CAREER[careerLevel(g)].title}`, sub: CAREER[careerLevel(g)].perk });
+    g.cheer({ kind: 'level', title: `Level ${lv}: ${CAREER[careerLevel(g)].title}`, sub: CAREER[careerLevel(g)].perk, reward: bonus });
   } else if (lv > oldLevel) {
-    g.cheer({ kind: 'level', title: `Level ${lv}!`, sub: lv % 5 === 0 ? 'A milestone level. Your club is getting noticed.' : 'Keep building, playing and finishing challenges.' });
+    g.cheer({ kind: 'level', title: `Level ${lv}!`, sub: `A grant from the club's backers. Level ${lv + 1} pays $${levelBonus(lv + 1)}.`, reward: bonus });
   }
 }
 export function greenProject(g: Game): EditPlan | null {

@@ -640,7 +640,6 @@ export class Game {
     const t = this.today;
     const sum: DaySummary = { ...t, day: this.day, profit: operatingProfit(t), net: netChange(t), avgSat: t.rounds ? t.satSum / t.rounds : 0 };
     this.campaign.profit += sum.profit;
-    if (sum.profit > 0) awardExperience(this, 20);
     if (this.preferences.dailyReports) this.pendingRecap = sum;
     this.days.push(sum);
     if (this.days.length > CFG.day.historyKeep) this.days.shift();
@@ -657,6 +656,8 @@ export class Game {
     this.clock = 0;
     this.lastHour = 0;
     this.today = emptyLedger();
+    // after the new day's ledger exists, so a level grant earned here is booked rather than lost with yesterday's
+    if (sum.profit > 0) awardExperience(this, 20);
     for (const member of [...this.members]) {
       member.happiness = Math.round(member.happiness * .8 + this.reputation * .2);
       if (member.happiness < 45) { this.members = this.members.filter(m => m !== member); this.notify('info', `${member.name} left the club after disappointing visits.`); }

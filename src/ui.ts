@@ -1253,7 +1253,7 @@ export class UI {
   }
   private cheerCard(c: Cheer): { kicker: string; title: string; reward?: number; sub: string; collect?: boolean } {
     if (c.kind === 'streak') return { kicker: 'Daily reward', title: c.title, reward: c.reward, sub: c.sub, collect: true };
-    if (c.kind === 'level') return { kicker: 'Level up', title: c.title, sub: c.sub };
+    if (c.kind === 'level') return { kicker: 'Level up', title: c.title, reward: c.reward, sub: c.sub };
     if (c.kind === 'ace') return { kicker: 'Amazing', title: c.title, reward: c.reward, sub: c.sub };
     return { kicker: 'Daily challenges', title: c.title, reward: c.reward, sub: c.sub };
   }

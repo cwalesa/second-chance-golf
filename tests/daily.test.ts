@@ -1,3 +1,4 @@
+import { levelBonus } from '../src/experience';
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
 import { challengeDone, claimable, rollDay, streakReward } from '../src/daily';
@@ -39,7 +40,8 @@ describe('daily streak and challenges', () => {
     const cash = g.cash;
     const r = g.daily.challenges.reduce((a, c) => a + c.reward, 0);
     for (let i = 0; i < 3; i++) g.claimChallenge(i);
-    expect(g.cash).toBe(cash + r + 500);
+    // the challenges' XP reaches levels 2 and 3, and each level pays its grant
+    expect(g.cash).toBe(cash + r + 500 + levelBonus(2) + levelBonus(3));
     expect(g.claimChallenge(0)).toBe(0);
     expect(g.claimStreak()).toBe(streakReward(1));
     expect(g.claimStreak()).toBe(0);
