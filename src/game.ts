@@ -469,7 +469,8 @@ export class Game {
   }
   get maintenanceRate(): number {
     const open = this.openHoles.length;
-    return maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours;
+    // the region's upkeep modifier applies to everything that is kept up: turf, improvements and buildings
+    return (maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours) * this.regionDef.upkeep;
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
