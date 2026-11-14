@@ -114,7 +114,7 @@ On a phone, open the published site and use Add to Home Screen. Rotate freely (t
 - **Shape greens and tees:** rough or fairway paint trims their edges and the Green tool grows a green. The cup and tee centre are protected. Cart paths can be painted over.
 - **Undo / Redo** are always on the map. Undo refunds; redo re-charges. Removing a hole is undoable too.
 - **Holes** (bottom bar): par, yardage and open/blocked status for every hole, plus rename, remove, **Open/Close** and **Send test golfers** (three free simulated golfers play that hole). A hole that cannot open lists each reason with a **Show on map** button and a **Fix with <tool>** button.
-- You start with **$25,000** and the whole property owned. Up to nine holes. Money is for experimenting; the economy and guest simulation still run underneath.
+- You start with **$15,000** and the whole property owned. The starting shack has room for four holes; clubhouse upgrades allow 9, 12 and 18. Money is for experimenting; the economy and guest simulation still run underneath.
 - Everything saves automatically in the browser (Menu → Save now, export and import backups). Unbuilt strokes are not saved; built changes, hole names, par and open/closed state are.
 
 ## What changed in this version

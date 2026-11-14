@@ -50,7 +50,7 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   course: 'Every hole you build, with its par, length and whether it is open. Only open holes earn money.',
   guests: 'How happy your golfers are, and why. Happy golfers come back and may join as members.',
   money: 'Set green fees for each time of day; keep them near what guests think is fair. Improvements here earn extra money.',
-  club: 'Upgrade the clubhouse to draw more golfers and, later, to allow more than nine holes. Hire staff and see what raises your rating.',
+  club: 'Each clubhouse upgrade allows more holes (4, then 9, 12 and 18) and draws more golfers. Hire staff here and see what raises your rating.',
   events: 'Book a tournament or outing for a big one-day crowd. Each event lists what it needs.',
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
 };

@@ -143,11 +143,11 @@ export interface ClubLevel {
   blurb: string;
 }
 export const CLUB_LEVELS: ClubLevel[] = [
-  { name: 'Pro shack', cost: 0, demand: 1, fair: 0, shop: 1, sat: 0, holes: 4, upkeep: 0, minStars: 0, blurb: 'A tin-roofed shack and a cash box.' },
-  { name: 'Clubhouse', cost: 1800, demand: 1.1, fair: 3, shop: 1.2, sat: 1, holes: 9, upkeep: 4, minStars: 1, blurb: 'A proper counter, lockers and a small grill. More golfers come, and they spend more.' },
-  { name: 'Country club', cost: 6000, demand: 1.22, fair: 7, shop: 1.45, sat: 2, holes: 12, upkeep: 9, minStars: 2.5, blurb: 'Dining room, bar and a terrace. Up to 12 holes. Corporate and league events.' },
-  { name: 'Grand clubhouse', cost: 16000, demand: 1.36, fair: 12, shop: 1.7, sat: 3, holes: 18, upkeep: 16, minStars: 3.5, blurb: 'Ballroom and locker suites. Up to 18 holes. Hosts regional opens.' },
-  { name: 'Resort lodge', cost: 40000, demand: 1.5, fair: 20, shop: 2, sat: 4, holes: 18, upkeep: 28, minStars: 4.5, blurb: 'A destination resort with a spa. Weddings and tournaments.' },
+  { name: 'Pro shack', cost: 0, demand: 1, fair: 0, shop: 1, sat: 0, holes: 4, upkeep: 0, minStars: 0, blurb: 'A tin-roofed shack and a cash box. Room for 4 holes.' },
+  { name: 'Clubhouse', cost: 6000, demand: 1.1, fair: 3, shop: 1.2, sat: 1, holes: 9, upkeep: 4, minStars: 1, blurb: 'A proper counter, lockers and a small grill. Up to 9 holes.' },
+  { name: 'Country club', cost: 18000, demand: 1.22, fair: 7, shop: 1.45, sat: 2, holes: 12, upkeep: 9, minStars: 2.5, blurb: 'Dining room, bar and a terrace. Up to 12 holes. Corporate and league events.' },
+  { name: 'Grand clubhouse', cost: 40000, demand: 1.36, fair: 12, shop: 1.7, sat: 3, holes: 18, upkeep: 16, minStars: 3.5, blurb: 'Ballroom and locker suites. Up to 18 holes. Hosts regional opens.' },
+  { name: 'Resort lodge', cost: 90000, demand: 1.5, fair: 20, shop: 2, sat: 4, holes: 18, upkeep: 28, minStars: 4.5, blurb: 'A destination resort with a spa. Weddings and tournaments.' },
 ];
 
 export interface RatingInput {
