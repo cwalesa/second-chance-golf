@@ -179,10 +179,10 @@ export class Renderer {
     this.cam.x += delta.x; this.cam.y += delta.y;
     this.clampCam(w);
   }
-  /** Never so far out that the map is smaller than the screen. */
+  /** As far out as shows the whole map on screen, or the floor below which tiles are too small to read. */
   minZoom(w: World) {
-    const fit = Math.max(this.cw / ((w.w + w.h) * TS * ISO_X), this.ch / ((w.w + w.h) * TS * ISO_Y));
-    return Math.max(Renderer.MIN_ZOOM, fit * 1.05);
+    const fit = Math.min(this.cw / ((w.w + w.h) * TS * ISO_X), this.ch / ((w.w + w.h) * TS * ISO_Y));
+    return Math.max(Renderer.MIN_ZOOM, fit * 0.95);
   }
   insets = { l: 12, r: 12, t: 70, b: 118 };
   /** Where the camera must be for a ground point to sit in the middle of the free map area at this zoom. */
@@ -332,7 +332,7 @@ export class Renderer {
   // terrain resolution with a one-pixel anti-aliased edge. That gives crisp, smooth outlines and bands of
   // constant width (collars, lips, shorelines) instead of thresholded blur.
   private time = 0;
-  static readonly MIN_ZOOM = 0.12;
+  static readonly MIN_ZOOM = 0.06;
   /** Closer than this and the ground texture would look soft on a 3x screen. */
   static readonly MAX_ZOOM = 2.0;
   /** Milliseconds per frame the ground builder may spend on unbuilt chunks. */

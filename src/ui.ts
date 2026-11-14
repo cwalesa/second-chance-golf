@@ -269,6 +269,8 @@ export class UI {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
         else if (el.dataset.act === 'buycart') this.game.buyCart();
+        else if (el.dataset.act === 'fairfees') { for (const b of BANDS) this.game.setBandFee(b.id, Math.round(this.game.fair * b.fair)); this.toast('Fees set to what guests think is fair.', 'good'); }
+        else if (el.dataset.act === 'repairall') { const pl = this.allGreensPlan(); if (pl.tiles.length) { const r = this.game.commitEdit(pl); if (r.ok) this.toast(`Every green repaired · ${fmtMoney(pl.cost)}`, 'good'); } }
         else if (el.dataset.act === 'holestep') {
           const hs = this.game.world.holes, n = hs.length, cur = Math.max(0, hs.findIndex((x) => x.id === this.game.selectedHole));
           if (n) { this.editor.selectHole(hs[(cur + id + n) % n].id); this.editor.focusHole(); }
@@ -847,6 +849,20 @@ export class UI {
     const tiles: number[] = [];
     for (let i = 0; i < w.terrain.length; i++) if (w.terrain[i] === 2 && Math.hypot(i % w.w - h.cup.x, Math.floor(i / w.w) - h.cup.y) <= 4.5) tiles.push(i);
     return planPaint(w, 'repair', tiles);
+  }
+  /** Reseeding the green of every hole at once: upkeep for a big course without eighteen visits. */
+  private allGreensPlan() {
+    const w = this.game.world;
+    const tiles = new Set<number>();
+    for (const h of w.holes)
+      for (let dy = -5; dy <= 5; dy++)
+        for (let dx = -5; dx <= 5; dx++) {
+          const x = h.cup.x + dx, y = h.cup.y + dy;
+          if (x >= 0 && y >= 0 && x < w.w && y < w.h && Math.hypot(dx, dy) <= 4.5 && w.terrain[idx(w, x, y)] === 2) tiles.add(idx(w, x, y));
+        }
+    const p = planPaint(w, 'repair', tiles);
+    p.label = 'Repair every green';
+    return p;
   }
   private repairGreenModal() {
     const plan = this.greenPlan();
@@ -1471,6 +1487,7 @@ export class UI {
     const playing = g.sim.onHole(h.id);
     const st = h.stats;
     const repair = this.greenPlan();
+    const nHolesAll = w.holes.length;
     // what golfers actually putt on: the green within a step or two of the cup, which wears far faster than the green as a whole
     let cupSum = 0, cupN = 0;
     for (let dy = -2; dy <= 2; dy++)
@@ -1481,6 +1498,7 @@ export class UI {
       }
     const cupCond = cupN ? cupSum / cupN : cond.green;
     const cupWorn = cupCond < CFG.turf.wornBelow && repair.tiles.length > 0;
+    const allRepair = nHolesAll > 1 ? this.allGreensPlan() : repair;
     const totalPar = w.holes.reduce((a, x) => a + x.par, 0);
     const totalYards = w.holes.reduce((a, x) => a + holeYards(x), 0);
     const dogleg = holeBends(h).length > 0 || Math.abs((h.cup.x - h.tee.x) * (h.tee.y - h.bend.y) - (h.tee.x - h.bend.x) * (h.cup.y - h.tee.y)) / (Math.hypot(h.cup.x - h.tee.x, h.cup.y - h.tee.y) || 1) > 1.5;
@@ -1498,7 +1516,7 @@ export class UI {
     if (!h.open && !v.ok) {
       html += `<div class="why-closed"><b>This hole cannot open yet</b>${v.issues.map((it, i) => `<div class="issue"><p>${it.text}</p><div class="btnrow">${it.at ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="show">Show on map</button>` : ''}${it.fix ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="fix">Fix with ${TOOL_INFO[it.fix].label}</button>` : ''}</div></div>`).join('')}</div>`;
     }
-    if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button></div>`;
+    if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>${allRepair.tiles.length > repair.tiles.length ? `<button class="btn" data-act="repairall" ${allRepair.cost > g.cash ? 'disabled' : ''}>Every green · ${fmtMoney(allRepair.cost)}</button>` : ''}</div>`;
     html += h.open
       ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
@@ -1523,7 +1541,7 @@ export class UI {
       <div class="barrow"><span>Green</span>${bar(cond.green)}<span class="n">${Math.round(cond.green)}</span></div>
       <div class="barrow"><span>Around the cup</span>${bar(cupCond)}<span class="n">${Math.round(cupCond)}</span></div>
       <div class="barrow"><span>Tee box</span>${bar(cond.tee)}<span class="n">${Math.round(cond.tee)}</span></div>
-      <div class="dim">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}</div>`);
+      <div class="dim">${Math.round(cond.wornShare * 100)}% of its turf is worn</div>${repair.tiles.length ? `<button class="btn" style="margin-top:10px" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>` : ''}${allRepair.tiles.length > repair.tiles.length ? `<button class="btn" style="margin-top:10px;margin-left:6px" data-act="repairall" ${allRepair.cost > g.cash ? 'disabled' : ''}>Every green · ${fmtMoney(allRepair.cost)}</button>` : ''}</div>`);
     const list = `<div class="course-heading"><div class="row"><span><span class="eyebrow">${escapeHtml(g.name)}</span><h2>${nHoles} hole${nHoles === 1 ? '' : 's'} · Par ${totalPar}</h2></span><button class="btn primary" data-act="newhole" ${g.addHoleProblem() ? 'disabled' : ''}>+ New hole</button></div><p class="dim course-sum">${g.openHoles.length} open · ${totalYards.toLocaleString('en-US')} yards · design ${g.designRating || '—'}/100</p>${g.addHoleProblem() ? `<p class="dim">${g.addHoleProblem()}</p>` : ''}</div><div class="hole-list">${w.holes.map((x) => {
       const xs = this.holeState(x);
       return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${xs.cls}">${xs.text}</span></button>`;
@@ -1594,7 +1612,8 @@ export class UI {
     const t = g.today;
     const toNext = g.hourLen - (g.clock % g.hourLen);
     const row = (k: string, v: number, sign = 1) => `<div class="row"><span class="k">${k}</span>${money(sign * v)}</div>`;
-    let html = `<div class="sec"><h3>Tee time pricing</h3>${BANDS.map((b) => {
+    const offFair = BANDS.some((b) => Math.abs(g.fees[b.id] - Math.round(g.fair * b.fair)) >= 2);
+    let html = `<div class="sec"><h3>Tee time pricing</h3><div class="fee-all"><button class="btn ${offFair ? 'primary' : ''}" data-act="fairfees" ${offFair ? '' : 'disabled'}>${offFair ? 'Set all three to the fair price' : 'All three are at the fair price'}</button></div>${BANDS.map((b) => {
       const fee = g.fees[b.id];
       const fair = g.fair * b.fair;
       const n = g.bandArrivals(b.id);
