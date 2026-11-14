@@ -4,6 +4,7 @@ import type { NewGameOptions } from './game';
 import { REGIONS, REGION_IDS, RegionId } from './progression';
 import { BANNER_ART, REGION_ART, levelFlags } from './start-art';
 import { flagMark, icon } from './icons';
+import { regionsDone } from './save';
 
 /** Easiest first, so the choice reads as a ladder. */
 const ORDER = [...REGION_IDS].sort((a, b) => REGIONS[a].level - REGIONS[b].level);
@@ -66,11 +67,12 @@ export function startScreen(): Promise<NewGameOptions> {
     let name = 'Willow Creek';
     let region: RegionId = 'parkland';
     const logo = defaultLogo();
+    const finished = regionsDone();
     const rows = ORDER.map((id) => {
       const r = REGIONS[id];
       return `<button type="button" class="place ${id === region ? 'on' : ''}" role="radio" aria-checked="${id === region}" data-region="${id}">
         <span class="place-art">${REGION_ART[id]}</span>
-        <span class="place-text"><span class="place-head"><b>${r.name}</b><span class="place-level"><span class="flags" aria-hidden="true">${levelFlags(r.level)}</span><em>${r.difficulty}</em></span></span>
+        <span class="place-text"><span class="place-head"><b>${r.name}${finished.includes(id) ? ' <i class="place-done">18 holes ✓</i>' : ''}</b><span class="place-level"><span class="flags" aria-hidden="true">${levelFlags(r.level)}</span><em>${r.difficulty}</em></span></span>
         <span class="place-stats">${practical(id)}</span>
         <span class="place-blurb">${r.blurb}</span></span>
         <span class="place-mark" aria-hidden="true">${icon('check')}</span>

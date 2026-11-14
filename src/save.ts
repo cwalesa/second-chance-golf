@@ -6,7 +6,7 @@ import { createWilderness } from './wilderness';
 import { Rng } from './rng';
 import { noUpgrades } from './economy';
 import { REGIONS } from './progression';
-import { CHAIN, CHAIN_MOVED, CHAIN_V1 } from './campaign';
+import { CHAIN, CHAIN_MOVED, CHAIN_V1, regionComplete } from './campaign';
 import { ITEMS } from './items';
 import { defaultLogo } from './logo';
 import { reserveLots } from './lots';
@@ -216,7 +216,16 @@ function keepBackup() {
     try { localStorage.setItem(BACKUP_KEY, previous); } catch { /* Backup space must not prevent a primary save. */ }
   }
 }
+/** Regions where a full eighteen has been opened. Kept apart from the course save, so starting a new course does not forget them. */
+const REGIONS_KEY = 'second-chance-golf.regions-done';
+export function regionsDone(): string[] {
+  try { const a = JSON.parse(localStorage.getItem(REGIONS_KEY) ?? '[]'); return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+function markRegionDone(region: string) {
+  try { const a = regionsDone(); if (!a.includes(region)) localStorage.setItem(REGIONS_KEY, JSON.stringify([...a, region])); } catch { /* No storage available. */ }
+}
 export function saveGame(g: Game): boolean {
+  if (regionComplete(g) && !g.practice) markRegionDone(g.region);
   try {
     const next = serialize(g);
     keepBackup();

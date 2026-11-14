@@ -313,6 +313,7 @@ export class UI {
           if (lot) this.editor.focusPoints([{ x: lot.x, y: lot.y }, { x: lot.x + (sz.w ?? 1), y: lot.y + (sz.h ?? 1) }, ...(club ? [{ x: club.x + 3, y: club.y + 2 }] : [])]);
           else this.toast('There is no clear ground left near the clubhouse.', 'bad');
         }
+        else if (el.dataset.act === 'newcourse') { this.confirmReset(true); return; }
         else if (el.dataset.act === 'gobuildings') {
           this.traySet = 'buildings';
           if (!isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway';
@@ -834,8 +835,10 @@ export class UI {
     (m.querySelector('#repairYes') as HTMLElement).onclick = () => { this.game.commitEdit(plan); this.closeModal(); this.refresh(true); };
   }
 
-  confirmReset() {
-    const m = this.modal(`<h2>Reset the game?</h2><p>This deletes your saved course, cash, upgrades and goals and starts a brand new game. It cannot be undone.</p><div class="actions"><button class="btn" id="rsCancel">Keep playing</button><button class="btn danger" id="rsOk">Reset and start over</button></div>`);
+  confirmReset(another = false) {
+    const m = this.modal(another
+      ? `<h2>Start a new course?</h2><p>You choose a region and begin again with untouched land. This course, its cash and its goals are replaced and cannot be brought back unless you exported a backup. Regions you have completed stay marked.</p><div class="actions"><button class="btn" id="rsCancel">Keep playing</button><button class="btn danger" id="rsOk">Start a new course</button></div>`
+      : `<h2>Reset the game?</h2><p>This deletes your saved course, cash, upgrades and goals and starts a brand new game. It cannot be undone.</p><div class="actions"><button class="btn" id="rsCancel">Keep playing</button><button class="btn danger" id="rsOk">Reset and start over</button></div>`);
     (m.querySelector('#rsCancel') as HTMLElement).onclick = () => this.closeModal();
     (m.querySelector('#rsOk') as HTMLElement).onclick = () => {
       this.closeModal();

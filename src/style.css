@@ -1103,3 +1103,6 @@ body[data-tab="none"]:not(.coaching):not(.menu-open):not(.menu-closing):not(.own
   #owner-hud > p { margin: 4px 0; font-size: 12px; }
   #owner-hud > .btnrow { position: sticky; bottom: 0; margin: 0 -10px; padding: 6px 10px 8px; background: var(--panel-2); }
 }
+
+/* ---- a region where a full eighteen has been opened ---- */
+.place-done { display: inline-block; margin-left: 6px; padding: 2px 6px; border: 2px solid var(--edge); border-radius: 6px; background: var(--yellow); font: 800 10px/1.2 var(--font); font-style: normal; vertical-align: middle; white-space: nowrap; }

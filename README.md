@@ -391,7 +391,7 @@ Simulation runs on a fixed 1/30 s step independent of rendering; the speed butto
 
 ## Unhurried design
 
-- Entering Design, picking any editing tool, or editing from another panel pauses the business clock. A small chip ("Designing · Time paused") shows it, with a **Resume** button.
+- Picking a course tool (fairway, bunker, new hole and so on), or editing a hole from its panel, pauses the business clock. Repairing turf, decorating and placing buildings do not: guests keep playing, and a repaired hole stays open. A small chip ("Designing · Time paused") shows it, with a **Resume** button.
 - Leaving Design keeps time paused until you press Resume (or a speed button), which returns to the speed you had chosen.
 - Test golfers play while the business is held, at a quick fixed pace, without arrivals, income, upkeep, turf wear or day progress. Guests already on the course stay frozen. Your saved speed is not changed.
 - Offline catch-up only applies to a course left running; a paused, designing or not-yet-open course is unchanged when you return.

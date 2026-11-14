@@ -1,6 +1,6 @@
 import type { Game } from './game';
 import { fmtMoney } from './game';
-import { CHAIN, chainStep, currentGoal, goalProgressText } from './campaign';
+import { CHAIN, chainStep, currentGoal, goalProgressText, regionComplete } from './campaign';
 import { escapeHtml } from './panels';
 import { KINDS, challengeDone, challengeProgress, streakReward } from './daily';
 
@@ -37,8 +37,10 @@ export function journalPanel(g: Game, _view: JournalView): string {
       ${goal.go || goal.guide ? `<button class="btn primary chain-go" data-act="goalgo" data-id="${goal.id}">${GO_LABEL[goal.go ?? 'build']}</button>` : ''}
     </div>`;
   } else {
-    html += `<div class="chain-now chain-free"><span class="chain-k">All ${CHAIN.length} goals done</span><h3>${escapeHtml(g.name)} is complete</h3><p>Eighteen holes and a grand clubhouse. From here it is a sandbox: build, reshape and decorate however you like.</p></div>`;
+    html += `<div class="chain-now chain-free"><span class="chain-k">All ${CHAIN.length} goals done</span><h3>${escapeHtml(g.name)} is complete</h3><p>A full eighteen and a resort lodge. From here it is a sandbox: build, reshape and decorate however you like.</p></div>`;
   }
+  // a finished eighteen earns the region its mark; the other regions play differently and are there to try
+  if (regionComplete(g)) html += `<div class="chain-now chain-free"><span class="chain-k">${escapeHtml(g.regionDef.name)} complete</span><h3>Try another region</h3><p>Each region changes costs, wind, seasons and what guests will pay. Starting a new course replaces this one, so export a backup first (Settings and save) if you want to keep it.</p><button class="btn chain-go" data-act="newcourse">Start a new course</button></div>`;
   html += `<ol class="chain-list">${CHAIN.map((c, i) => {
     const state = i < step ? 'done' : i === step ? 'now' : 'later';
     return `<li class="${state}"><span class="chain-dot">${i < step ? '✓' : i + 1}</span><span class="chain-t">${c.title}</span><span class="chain-r">${i < step ? 'Done' : fmtMoney(c.reward)}</span></li>`;

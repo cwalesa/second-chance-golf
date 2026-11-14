@@ -1,3 +1,4 @@
+import { regionComplete } from '../src/campaign';
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
 import { CHAIN, chainStep, currentGoal } from '../src/campaign';
@@ -7,9 +8,11 @@ import { deserialize, serialize } from '../src/save';
 import { createTestCourse } from './fixtures/classic-course';
 
 describe('goal chain', () => {
-  it('runs from the first hole to eighteen holes, then the game is a sandbox', () => {
+  it('runs from the first hole to eighteen holes, then on to the resort goals', () => {
     expect(CHAIN[0].id).toBe('c-hole1');
-    expect(CHAIN[CHAIN.length - 1].target).toBe(18);
+    const eighteen = CHAIN.findIndex((c) => c.id === 'c-hole18');
+    expect(CHAIN[eighteen].target).toBe(18);
+    expect(CHAIN.slice(eighteen + 1).map((c) => c.id)).toEqual(['c-members20', 'c-star45', 'c-club4', 'c-wedding']);
     // hole targets only ever rise
     const holes = CHAIN.filter((c) => c.id.startsWith('c-hole')).map((c) => c.target);
     expect(holes).toEqual([...holes].sort((a, b) => a - b));
@@ -56,6 +59,17 @@ describe('goal chain', () => {
     v1.campaign.step = 3;
     delete v1.campaign.goalId;
     expect(currentGoal(deserialize(JSON.stringify(v1))!.game)!.id).toBe('c-profit1500');
+  });
+
+  it('gives a save that had finished the old chain the resort goals, and marks its region complete', () => {
+    const g = new Game(createTestCourse(), 1);
+    const raw = JSON.parse(serialize(g));
+    raw.campaign.step = 19;
+    raw.campaign.goalId = 'done'; // the end of the chain before the resort goals existed
+    const back = deserialize(JSON.stringify(raw))!.game;
+    expect(currentGoal(back)!.id).toBe('c-members20');
+    expect(regionComplete(back)).toBe(true);
+    expect(regionComplete(g)).toBe(false);
   });
 
   it('moves a save that was on a removed goal to the goal that follows it', () => {
