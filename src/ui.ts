@@ -31,7 +31,7 @@ import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } fr
 type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
-const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'events', 'journey'];
+const SIDE_TABS: Tab[] = ['build', 'course', 'guests', 'money', 'club', 'events', 'journey'];
 /** Plain help for each tool, the first time it is picked. */
 const TOOL_TIPS: Partial<Record<string, string>> = {
   build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust (on touch, press and hold it first). Nothing is built until you tap Build.',
@@ -55,6 +55,8 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
 };
 const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
+/** What each menu entry is for, in a few words, shown under its name. */
+const TAB_SUB: Record<string, string> = { build: 'Build and decorate', course: 'Your holes', guests: 'Who is playing', money: 'Fees and upgrades', club: 'Upgrades and staff', events: 'Book a big day', journey: 'What to do next' };
 const stars = (n: number) => `${'★'.repeat(Math.floor(n))}${n % 1 ? '½' : ''}${'☆'.repeat(5 - Math.ceil(n))}`;
 
 const svg = (name: string) => icon(name);
@@ -232,7 +234,7 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    this.$('side').innerHTML = `<div class="tabs" role="tablist" aria-label="Panels">${SIDE_TABS.map((t) => `<button data-tab="${t}" role="tab">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
     // expandable sections remember being open, and their contents ease in rather than appearing all at once
     this.$('side').addEventListener('toggle', (e) => {
       const d = e.target as HTMLDetailsElement;
@@ -254,6 +256,7 @@ export class UI {
       if (!el) return;
       if (el.dataset.tab) {
         this.tab = el.dataset.tab as Tab;
+        if (this.sheet === 'peek') this.sheet = 'half';
         this.cache.delete('side');
       } else if (el.dataset.hole) {
         this.editor.selectHole(Number(el.dataset.hole));
@@ -291,11 +294,6 @@ export class UI {
         }
         else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'undo') this.editor.undo();
-        else if (el.dataset.act === 'practice' || el.dataset.act === 'playround') {
-          // The practice round holds the clock only while it lasts; whether time was running or held beforehand is untouched.
-          this.editor.discard(); this.editor.setTool('inspect'); this.game.exitDesign(); this.game.owner.start(this.game, el.dataset.act === 'playround');
-          this.editor.focusHole(); if (this.mobile) this.tab = 'none';
-        }
         else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'open') this.openFromPanel(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
@@ -403,7 +401,7 @@ export class UI {
 
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'events', 'journey'];
-    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
+    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span><small>${TAB_SUB[t]}</small></button>`).join('');
     // Phone: the destinations live in a menu window that the corner button opens, under a title bar with its own close control.
     this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mhead"><b>Menu</b><button class="mclose" data-m="close" aria-label="Close menu">${icon('close')}</button></div><div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
     this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
@@ -1117,6 +1115,10 @@ export class UI {
     bbar.style.display = this.editor.isPaint && !this.game.owner.active && (!this.mobile || this.tab === 'build') ? '' : 'none';
     bbar.querySelectorAll('[data-brush]').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.brush) === this.editor.brush));
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
+    if (this.cache.get('tabstrip') !== this.tab) {
+      this.cache.set('tabstrip', this.tab);
+      this.$('side').querySelector<HTMLElement>('.tabs button.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
@@ -1452,7 +1454,7 @@ export class UI {
     }
     if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button></div>`;
     html += h.open
-      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="practice">Play it</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
+      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
     if (v.warnings.length) html += xp('warn', 'Things to check', `${v.warnings.length}`, v.warnings.map((p) => `<div class="note warn">${p}</div>`).join(''));
@@ -1487,7 +1489,6 @@ export class UI {
       const t = w.terrain[i];
       html += xp('tile', `Tile ${it.x}, ${it.y}`, terrainLabel(t), `<div class="row"><span class="k">Ground</span><span>${terrainLabel(t)}${w.tree[i] ? ' with tree' : ''}</span></div>${t <= 3 ? `<div class="row"><span class="k">Condition</span><span>${Math.round(w.cond[i])}</span></div>${bar(w.cond[i])}` : ''}<div class="row"><span class="k">Belongs to</span><span>${w.zone[i] ? `Hole ${w.zone[i]}` : 'No hole'}</span></div>`);
     }
-    if (g.ownerRecords.length) html += xp('cards', 'Your practice scorecards', `${g.ownerRecords.length}`, g.ownerRecords.slice(-4).reverse().map(r => `<div class="card"><div class="row"><b>Day ${r.day}</b><span>${r.scores.reduce((s,x) => s + x.strokes, 0)} strokes · par ${r.scores.reduce((s,x) => s + x.par, 0)}</span></div><div class="owner-scorecard">${r.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div></div>`).join(''));
     return html;
   }
 
