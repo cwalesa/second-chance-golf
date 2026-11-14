@@ -31,7 +31,7 @@ import { operatingProfit, netChange, UPGRADE_IDS, UpgradeId, cartRentalRate } fr
 type ToolCat = 'terrain' | 'nature' | 'holes';
 const CAT_OF: Partial<Record<ToolId, ToolCat>> = { fairway: 'terrain', green: 'terrain', rough: 'terrain', path: 'terrain', bunker: 'terrain', water: 'terrain', treeAdd: 'nature', treeDel: 'nature', repair: 'nature', tee: 'holes', cup: 'holes', bend: 'holes', build: 'holes' };
 type Tab = 'journey' | 'build' | 'course' | 'guests' | 'money' | 'events' | 'club' | 'none';
-const SIDE_TABS: Tab[] = ['course', 'guests', 'money', 'club', 'events', 'journey'];
+const SIDE_TABS: Tab[] = ['build', 'course', 'guests', 'money', 'club', 'events', 'journey'];
 /** Plain help for each tool, the first time it is picked. */
 const TOOL_TIPS: Partial<Record<string, string>> = {
   build: 'Tap where the tee goes, then where the green goes. Pick par 3, 4 or 5, add bends with + Bend, and drag any marker to adjust (on touch, press and hold it first). Nothing is built until you tap Build.',
