@@ -909,7 +909,7 @@ function buildShelter(): Mesh {
   return m;
 }
 
-export const CAR_COLOURS = ['#d0472d', '#2f6fa8', '#f2c230', '#f4efe0', '#3f8a6a', '#6a7078', '#8a5fb0'];
+export const CAR_COLOURS = ['#c8493a', '#3d6aa8', '#e6e0d0', '#3f7a5a', '#d6a63c', '#4b4f58']; // the same six, in the same order, as the parked cars in buildings.ts
 /** A small hatchback built into a mesh at (ox, oy), nose along +x, or along +y when `alongY`. */
 function addCar(m: Mesh, ox: number, oy: number, alongY: boolean, colour: string) {
   // boxes are axis-aligned, so a car turned a quarter swaps its length and width
@@ -967,7 +967,7 @@ function buildCarPark(): Mesh {
   addCar(m, 0.78, 0.8, true, CAR_COLOURS[1]);
   addCar(m, 2.46, 0.8, true, CAR_COLOURS[3]);
   addCar(m, 1.62, 2.24, true, CAR_COLOURS[0]);
-  addCar(m, 3.3, 2.24, true, CAR_COLOURS[4]);
+  addCar(m, 3.3, 2.24, true, CAR_COLOURS[3]);
   return m;
 }
 

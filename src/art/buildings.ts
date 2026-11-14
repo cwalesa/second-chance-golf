@@ -5,7 +5,7 @@ import { hash2, Pt } from '../terrain';
 import { ISO_X, ISO_Y } from '../isometric';
 import { drawCart } from './facilities';
 import { countOf } from '../items';
-import { cartOut } from '../sim';
+import { cartOut, inCar } from '../sim';
 
 export interface Painter {
   ctx: CanvasRenderingContext2D;
@@ -537,11 +537,12 @@ export function drawCountryClub(p: Painter, g: Game, time: number) {
   ctx.fill();
   poly(ctx, [{ x: flag.x, y: flag.y - ts * 2.7 }, { x: flag.x + ts * 0.85, y: flag.y - ts * 2.46 + wave }, { x: flag.x, y: flag.y - ts * 2.2 }], '#e0b64a', 'rgba(110,80,20,0.5)');
 
-  // parked cars on the painted bays
-  for (let k = 0; k < 6; k++) {
-    if (hash2(k, 4, 1500) < 0.45) continue;
-    car(p, 1.2 + k * 1.45 + 0.32, 47.3, k + 2);
-  }
+  // parked cars on the painted bays: the pro's car is always in the end bay; the others belong to the golfers who are here now
+  // (anyone not on the entrance road), in the colour of the car they drove in
+  car(p, 1.2 + 5 * 1.45 + 0.32, 47.3, 5);
+  const here = g.sim.golfers.filter((x) => !inCar(x));
+  const bays = [2, 0, 3, 1, 4];
+  for (let k = 0; k < Math.min(bays.length, here.length); k++) car(p, 1.2 + bays[k] * 1.45 + 0.32, 47.3, here[k].id);
 }
 
 // ---------- village amenities ----------

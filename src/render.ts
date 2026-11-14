@@ -2989,6 +2989,30 @@ export class Renderer {
         for (let tx = -1; tx <= Math.ceil(this.cw / S); tx++) ctx.drawImage(this.cloudCv, tx * S + ox, ty * S + oy, S, S);
       ctx.globalAlpha = 1;
     }
+    // now and then a small flock crosses the sky: five birds in a loose V, wings beating, with faint shadows on the ground below
+    if (!Renderer.reducedMotion) {
+      const every = 38, cross = 13, t = time % every;
+      if (t < cross) {
+        const flight = Math.floor(time / every);
+        const dir = flight % 2 ? -1 : 1;
+        const p = t / cross;
+        const baseX = dir > 0 ? -60 + (this.cw + 120) * p : this.cw + 60 - (this.cw + 120) * p;
+        const baseY = this.ch * (0.2 + 0.45 * hash2(flight, 3, 700)) - p * this.ch * 0.12;
+        const size = Math.max(4, Math.min(9, this.cw / 90));
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 5; k++) {
+          const rank = Math.ceil(k / 2), side = k % 2 ? 1 : -1;
+          const x = baseX - dir * rank * size * 2.6, y = baseY + side * rank * size * 1.5 + Math.sin(time * 1.3 + k) * 2;
+          const flap = Math.sin(time * 9 + k * 1.7) * size * 0.55;
+          ctx.strokeStyle = 'rgba(10,30,20,0.13)';
+          ctx.lineWidth = size * 0.5;
+          ctx.beginPath(); ctx.moveTo(x - size + 26, y + 34); ctx.lineTo(x + size + 26, y + 34); ctx.stroke();
+          ctx.strokeStyle = 'rgba(28,26,46,0.85)';
+          ctx.lineWidth = Math.max(1.6, size * 0.28);
+          ctx.beginPath(); ctx.moveTo(x - size, y - flap); ctx.quadraticCurveTo(x - size * 0.4, y - size * 0.25, x, y); ctx.quadraticCurveTo(x + size * 0.4, y - size * 0.25, x + size, y - flap); ctx.stroke();
+        }
+      }
+    }
     const key = `${this.cw}x${this.ch}`;
     if (!this.vignette || this.vigSize !== key) {
       const g = ctx.createRadialGradient(this.cw / 2, this.ch / 2, Math.min(this.cw, this.ch) * 0.45, this.cw / 2, this.ch / 2, Math.max(this.cw, this.ch) * 0.75);
