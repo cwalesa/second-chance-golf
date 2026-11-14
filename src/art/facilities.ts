@@ -955,6 +955,9 @@ function buildWindmill(): Mesh {
     const q = (t: number, s: number): [number, number, number] => [hx + dx * t + px * s, hy, hz + dz * t + pz * s];
     m.flat([q(0.05, -0.03), q(1.35, -0.03), q(1.35, 0.03), q(0.05, 0.03)], '#7d5a3c');
     m.flat([q(0.35, 0.03), q(1.3, 0.03), q(1.3, 0.3), q(0.35, 0.3)], '#f6f0dc');
+    // lattice: an outer rail and three cross bars
+    m.flat([q(0.35, 0.27), q(1.3, 0.27), q(1.3, 0.31), q(0.35, 0.31)], '#9a7048', { edge: null });
+    for (const t of [0.35, 0.67, 0.98, 1.27]) m.flat([q(t, 0.03), q(t + 0.035, 0.03), q(t + 0.035, 0.3), q(t, 0.3)], '#9a7048', { edge: null });
   }
   return m;
 }

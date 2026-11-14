@@ -68,7 +68,7 @@ async function boot() {
     persist();
     const blob = new Blob([serialize(game)], { type: 'application/json' });
     const url = URL.createObjectURL(blob), link = document.createElement('a');
-    link.href = url; link.download = 'Second-Chance-Golf-Save.json'; link.click();
+    link.href = url; link.download = 'Little-Links-Save.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     ui.toast('Save backup exported.', 'good');
   };

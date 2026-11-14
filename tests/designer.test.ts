@@ -20,12 +20,12 @@ const buildHole = (g: Game, tee = { x: 80, y: 40 }, cup = { x: 100, y: 58 }) => 
 };
 
 describe('first-course designer', () => {
-  it('starts with a generous budget, the whole property, and room for nine holes', () => {
+  it('starts with a generous budget, the whole property, and room for four holes until the clubhouse grows', () => {
     const g = freshGame();
     expect(g.cash).toBe(CFG.economy.startCash);
-    expect(CFG.economy.startCash).toBeGreaterThanOrEqual(20000);
+    expect(CFG.economy.startCash).toBeGreaterThanOrEqual(10000);
     expect(g.parcelsOwned).toBe(CFG.land.cols * CFG.land.rows);
-    expect(g.maxHoles).toBeGreaterThanOrEqual(9);
+    expect(g.maxHoles).toBe(4);
     expect(g.goalDone('land6')).toBe(false);
     g.checkGoals();
     expect(g.goalDone('land2') || g.goalDone('land6')).toBe(false);

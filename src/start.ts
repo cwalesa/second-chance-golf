@@ -4,6 +4,7 @@ import type { NewGameOptions } from './game';
 import { REGIONS, REGION_IDS, RegionId } from './progression';
 import { BANNER_ART, REGION_ART, levelFlags } from './start-art';
 import { flagMark, icon } from './icons';
+import { CFG } from './config';
 import { regionsDone } from './save';
 
 /** Easiest first, so the choice reads as a ladder. */
@@ -88,7 +89,7 @@ export function startScreen(): Promise<NewGameOptions> {
           <div class="places" role="radiogroup" aria-label="Starting location">${rows}</div>
         </section>
         <section class="guide-club" aria-labelledby="gc">
-          <div class="rule-head"><h2 id="gc">Found your club</h2><span>$25,000 to start</span></div>
+          <div class="rule-head"><h2 id="gc">Found your club</h2><span>$${CFG.economy.startCash.toLocaleString('en-US')} to start</span></div>
           <div class="club-line">
             <button type="button" class="crest-btn" id="crestBtn" aria-label="Design the club crest" aria-expanded="false"><canvas id="crestCv" width="112" height="112"></canvas><span>Crest</span></button>
             <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>

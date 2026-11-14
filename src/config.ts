@@ -16,7 +16,7 @@ export const CFG = {
   },
 
   economy: {
-    startCash: 25000, // generous on purpose: the first property is for experimenting
+    startCash: 15000, // enough for the first few holes with room for mistakes; the clubhouse upgrades are what you save for
     fee: { default: 30, min: 5, max: 90 },
     maintenance: { perHour: 12, perOpenHole: 6, perClosedHole: 2 },
     baseGolfersPerDay: 6,
@@ -80,7 +80,7 @@ export const CFG = {
 
   wear: { teeShot: 1.1, fairwayShot: 0.7, putt: 0.28, cupRadius: 1.3, cupShare: 0.3 }, // cupShare: how much of each putt's wear also falls on the tiles around the cup
 
-  holes: { designCap: 9, zoneRadius: 7, maxOnHole: 4, teeInterval: 8, maxStrokesOverPar: 5, holeTimeout: 160, par3Max: 23, par4Max: 43 },
+  holes: { designCap: 4, zoneRadius: 7, maxOnHole: 4, teeInterval: 8, maxStrokesOverPar: 5, holeTimeout: 160, par3Max: 23, par4Max: 43 },
 
   golfers: {
     walkSpeed: 3.0,
