@@ -55,6 +55,8 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
 };
 const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
+/** What each menu entry is for, in a few words, shown under its name. */
+const TAB_SUB: Record<string, string> = { build: 'Build and decorate', course: 'Your holes', guests: 'Who is playing', money: 'Fees and upgrades', club: 'Upgrades and staff', events: 'Book a big day', journey: 'What to do next' };
 const stars = (n: number) => `${'★'.repeat(Math.floor(n))}${n % 1 ? '½' : ''}${'☆'.repeat(5 - Math.ceil(n))}`;
 
 const svg = (name: string) => icon(name);
@@ -232,7 +234,7 @@ export class UI {
   }
 
   private buildSide() {
-    this.$('side').innerHTML = `<div class="tabs">${SIDE_TABS.map((t) => `<button data-tab="${t}">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
+    this.$('side').innerHTML = `<div class="tabs" role="tablist" aria-label="Panels">${SIDE_TABS.map((t) => `<button data-tab="${t}" role="tab">${TAB_LABEL[t]}</button>`).join('')}</div><div class="sheet-head" id="sheetHead"><span class="sheet-grip" aria-hidden="true"></span><span class="sheet-title"><b id="sheetTitle">Course</b><small id="sheetSub"></small></span><button id="sheetSize" class="sheet-btn" aria-label="Resize panel">▴</button><button id="sheetClose" class="sheet-btn" aria-label="Close panel">×</button></div><div class="body" id="sidebody"></div>`;
     // expandable sections remember being open, and their contents ease in rather than appearing all at once
     this.$('side').addEventListener('toggle', (e) => {
       const d = e.target as HTMLDetailsElement;
@@ -254,6 +256,7 @@ export class UI {
       if (!el) return;
       if (el.dataset.tab) {
         this.tab = el.dataset.tab as Tab;
+        if (this.sheet === 'peek') this.sheet = 'half';
         this.cache.delete('side');
       } else if (el.dataset.hole) {
         this.editor.selectHole(Number(el.dataset.hole));
@@ -398,7 +401,7 @@ export class UI {
 
   private buildNav() {
     const tabs = ['build', 'course', 'guests', 'money', 'club', 'events', 'journey'];
-    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span></button>`).join('');
+    this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span><small>${TAB_SUB[t]}</small></button>`).join('');
     // Phone: the destinations live in a menu window that the corner button opens, under a title bar with its own close control.
     this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mhead"><b>Menu</b><button class="mclose" data-m="close" aria-label="Close menu">${icon('close')}</button></div><div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
     this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
@@ -1112,6 +1115,10 @@ export class UI {
     bbar.style.display = this.editor.isPaint && !this.game.owner.active && (!this.mobile || this.tab === 'build') ? '' : 'none';
     bbar.querySelectorAll('[data-brush]').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.brush) === this.editor.brush));
     this.$('side').querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
+    if (this.cache.get('tabstrip') !== this.tab) {
+      this.cache.set('tabstrip', this.tab);
+      this.$('side').querySelector<HTMLElement>('.tabs button.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
     this.$('nav').querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.nav === this.tab));
     document.body.dataset.tab = this.tab;
     if (!this.mobile) this.menuOpen = false;
