@@ -1882,7 +1882,7 @@ export class Renderer {
     this.drawQueues(game);
     this.drawOverlay(game, ov, time);
     this.drawCostFx();
-    this.drawAtmosphere(time, game.season.index, game.region);
+    this.drawAtmosphere(time, game.season.index, game.region, game.weather);
 
     this.drawStudio(game);
 
@@ -2947,8 +2947,30 @@ export class Renderer {
     }
   }
 
-  private drawAtmosphere(time: number, season: number, region: string) {
+  private drawAtmosphere(time: number, season: number, region: string, weather = 'clear') {
     const ctx = this.ctx;
+    // the day's weather: grey light and slanting rain, a storm's heavier rain and the odd flash, or a heatwave's glare
+    if (weather === 'rain' || weather === 'storm') {
+      const storm = weather === 'storm';
+      ctx.fillStyle = storm ? 'rgba(30,40,60,0.26)' : 'rgba(60,80,100,0.15)';
+      ctx.fillRect(0, 0, this.cw, this.ch);
+      if (!Renderer.reducedMotion) {
+        const n = storm ? 150 : 80, len = storm ? 20 : 14, fall = storm ? 950 : 700;
+        ctx.strokeStyle = storm ? 'rgba(232,240,250,0.75)' : 'rgba(232,240,250,0.6)';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        for (let k = 0; k < n; k++) {
+          const x = ((hash2(k, 1, 810) * (this.cw + 80) - time * fall * 0.28) % (this.cw + 80) + this.cw + 80) % (this.cw + 80) - 40;
+          const y = (hash2(k, 2, 810) * (this.ch + 40) + time * fall * (0.8 + hash2(k, 3, 810) * 0.4)) % (this.ch + 40) - 20;
+          ctx.moveTo(x, y); ctx.lineTo(x - len * 0.3, y + len);
+        }
+        ctx.stroke();
+        if (storm && time % 9 < 0.12) { ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fillRect(0, 0, this.cw, this.ch); }
+      }
+    } else if (weather === 'heat') {
+      ctx.fillStyle = 'rgba(255,190,90,0.10)';
+      ctx.fillRect(0, 0, this.cw, this.ch);
+    }
     // seasonal light and falling leaves / snow
     const tint = ['rgba(150,230,140,0.035)', 'rgba(255,225,120,0.05)', 'rgba(235,125,40,0.11)', region === 'mountain' ? 'rgba(190,215,245,0.2)' : 'rgba(170,200,240,0.12)'][season];
     ctx.fillStyle = tint;
