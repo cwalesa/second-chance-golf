@@ -1,4 +1,4 @@
-// The hole panel answers to taps: sections, par, open/close, practice round, resize, close; paused and while the course is running.
+// The hole panel answers to taps: sections, par, open/close, resize, close; paused and while the course is running.
 module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClubhouse, suggestedHole }) => {
   for (const [kind, running] of [['phone', false], ['desktop', false], ['phone', true], ['desktop', true]]) {
     const tag = `${kind}${running ? ' running' : ' paused'}`;
@@ -43,11 +43,6 @@ module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClu
     ok(`${tag}: Open/Close hole flips the hole`, (await g(() => window.scg.game.hole(1).open)) !== wasOpen);
     await press(wasOpen ? '[data-act="open"]' : '[data-act="close"]'); await page.waitForTimeout(400);
     ok(`${tag}: and flips it back`, (await g(() => window.scg.game.hole(1).open)) === wasOpen);
-    await press('[data-act="practice"]'); await page.waitForTimeout(700);
-    ok(`${tag}: Play it starts a practice round`, await g(() => window.scg.game.owner.active));
-    await g(() => [...document.querySelectorAll('#owner-hud button')].find((b) => /Finish/.test(b.textContent))?.click());
-    await page.waitForTimeout(600);
-    ok(`${tag}: and it can be finished`, !(await g(() => window.scg.game.owner.active)));
     await g(() => { window.scg.ui.tab = 'course'; window.scg.ui.refresh(true); }); await page.waitForTimeout(400);
     await press('#sheetClose'); await page.waitForTimeout(400);
     ok(`${tag}: the close control closes the panel`, (await g(() => window.scg.ui.tab)) === 'none');

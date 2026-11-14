@@ -291,11 +291,6 @@ export class UI {
         }
         else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'undo') this.editor.undo();
-        else if (el.dataset.act === 'practice' || el.dataset.act === 'playround') {
-          // The practice round holds the clock only while it lasts; whether time was running or held beforehand is untouched.
-          this.editor.discard(); this.editor.setTool('inspect'); this.game.exitDesign(); this.game.owner.start(this.game, el.dataset.act === 'playround');
-          this.editor.focusHole(); if (this.mobile) this.tab = 'none';
-        }
         else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'open') this.openFromPanel(id);
         else if (el.dataset.act === 'close') this.game.closeHole(id);
@@ -1452,7 +1447,7 @@ export class UI {
     }
     if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button></div>`;
     html += h.open
-      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="practice">Play it</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
+      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
     if (v.warnings.length) html += xp('warn', 'Things to check', `${v.warnings.length}`, v.warnings.map((p) => `<div class="note warn">${p}</div>`).join(''));
@@ -1487,7 +1482,6 @@ export class UI {
       const t = w.terrain[i];
       html += xp('tile', `Tile ${it.x}, ${it.y}`, terrainLabel(t), `<div class="row"><span class="k">Ground</span><span>${terrainLabel(t)}${w.tree[i] ? ' with tree' : ''}</span></div>${t <= 3 ? `<div class="row"><span class="k">Condition</span><span>${Math.round(w.cond[i])}</span></div>${bar(w.cond[i])}` : ''}<div class="row"><span class="k">Belongs to</span><span>${w.zone[i] ? `Hole ${w.zone[i]}` : 'No hole'}</span></div>`);
     }
-    if (g.ownerRecords.length) html += xp('cards', 'Your practice scorecards', `${g.ownerRecords.length}`, g.ownerRecords.slice(-4).reverse().map(r => `<div class="card"><div class="row"><b>Day ${r.day}</b><span>${r.scores.reduce((s,x) => s + x.strokes, 0)} strokes · par ${r.scores.reduce((s,x) => s + x.par, 0)}</span></div><div class="owner-scorecard">${r.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div></div>`).join(''));
     return html;
   }
 

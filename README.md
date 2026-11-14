@@ -65,7 +65,7 @@ A new game no longer drops you into a half-built course. You begin with untouche
 1. **Look around** (drag to move, pinch or +/− to zoom).
 2. **Choose the clubhouse spot.** Tap or click the ground to move a translucent clubhouse and its lawn. Red means the ground won't do (water, the map edge, or a slope that is too steep); **Suggest a spot** jumps to a good flat meadow. **Build here** places it for free, clears the trees on its lot, and lays a road to the nearest map edge, which is where golfers arrive.
 3. **Build your first hole.** Glowing *Tee here* and *Green here* markers suggest a short, dry par 3 with a pond to look at; tap them (or anywhere you like), review the gold preview and cost, and Build. The fairway, tee and green are laid out and the trees in the way are cleared.
-4. **Add character** (an optional bunker), **open** the hole, **send test golfers** from the clubhouse, speed up time, optionally **play it yourself**, then **open for business**, which switches time on.
+4. **Add character** (an optional bunker), **open** the hole, **send test golfers** from the clubhouse, speed up time, then **open for business**, which switches time on.
 
 Optional steps have a *Skip this step* link. 
 How it works: `wilderness.ts` generates the land from a seed (a creek, ponds in hollows and a height field with valleys carved around them), picks clubhouse spots, and suggests the first hole. The clubhouse is no longer fixed in the corner: `World.clubhouse` / `World.gate` say where it stands and where golfers appear, and `clubSites()` derives the door and entry from that, so the existing clubhouse art is simply drawn at an offset. Level 1's objectives are to open 3 holes, welcome 12 rounds and earn $500 profit. Saves store the clubhouse, gate and land seed, and a course with no holes is a valid save.
@@ -113,7 +113,7 @@ On a phone, open the published site and use Add to Home Screen. Rotate freely (t
 - **Place and move tees, cups and doglegs** on the hole named in the **hole bar** (‹ name ›) at the top. Tap or drag to a spot: a gold ghost shows the new pins, route and par/yardage, then confirm. **New hole**: tap the tee, tap the green, confirm; a fairway corridor is laid.
 - **Shape greens and tees:** rough or fairway paint trims their edges and the Green tool grows a green. The cup and tee centre are protected. Cart paths can be painted over.
 - **Undo / Redo** are always on the map. Undo refunds; redo re-charges. Removing a hole is undoable too.
-- **Holes** (bottom bar): par, yardage and open/blocked status for every hole, plus rename, remove, **Open/Close**, **Play it** (your own practice round) and **Send test golfers** (three free simulated golfers play that hole). A hole that cannot open lists each reason with a **Show on map** button and a **Fix with <tool>** button.
+- **Holes** (bottom bar): par, yardage and open/blocked status for every hole, plus rename, remove, **Open/Close** and **Send test golfers** (three free simulated golfers play that hole). A hole that cannot open lists each reason with a **Show on map** button and a **Fix with <tool>** button.
 - You start with **$25,000** and the whole property owned. Up to nine holes. Money is for experimenting; the economy and guest simulation still run underneath.
 - Everything saves automatically in the browser (Menu → Save now, export and import backups). Unbuilt strokes are not saved; built changes, hole names, par and open/closed state are.
 
