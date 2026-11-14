@@ -52,7 +52,7 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   money: 'Set green fees for each time of day; keep them near what guests think is fair. Improvements here earn extra money.',
   club: 'Each clubhouse upgrade allows more holes (4, then 9, 12 and 18) and draws more golfers. Hire staff here and see what raises your rating.',
   events: 'Book a tournament or outing for a big one-day crowd. Each event lists what it needs.',
-  journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do.',
+  journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do. Menu, then Help and settings, has a How to play page.',
 };
 const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
 /** What each menu entry is for, in a few words, shown under its name. */
@@ -412,7 +412,7 @@ export class UI {
     this.$('nav').innerHTML = tabs.map((t) => `<button data-nav="${t}" aria-label="${TAB_LABEL[t]}" title="${TAB_LABEL[t]}">${pic(t)}<span>${TAB_LABEL[t]}</span><small>${TAB_SUB[t]}</small></button>`).join('');
     // Phone: the destinations live in a menu window that the corner button opens, under a title bar with its own close control.
     this.$('nav').insertAdjacentHTML('afterbegin', `<div class="mhead"><b>Menu</b><button class="mclose" data-m="close" aria-label="Close menu">${icon('close')}</button></div><div class="mspeed" role="group" aria-label="Game speed"><button data-mspeed="0">${icon('pause')}<span>Pause</span></button><button data-mspeed="1">${icon('play')}<span>Play</span></button><button data-mspeed="3">${icon('fast')}<span>Fast</span></button></div>`);
-    this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Settings and save</button>`);
+    this.$('nav').insertAdjacentHTML('beforeend', `<button class="mset" data-m="settings">Help and settings</button>`);
     const fab = document.createElement('button');
     fab.id = 'fab';
     fab.setAttribute('aria-label', 'Menu');
@@ -738,12 +738,14 @@ export class UI {
   }
   openMenu() {
     const g = this.game;
-    const m = this.modal(`<h2>Settings and save</h2><div class="menu-list">
+    const m = this.modal(`<h2>Help and settings</h2><div class="menu-list">
+      <button class="btn primary" id="mdHelp">How to play</button>
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
       <button class="btn" id="mdSettings">Sound and day reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
+    (m.querySelector('#mdHelp') as HTMLElement).onclick = () => this.helpModal();
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
@@ -805,6 +807,19 @@ export class UI {
       if (!commissionProject(this.game, id)) this.toast('This project is not available at the current budget.', 'bad');
       this.closeModal(); this.refresh(true);
     };
+  }
+  /** The whole game on one page, for anyone who skipped the tutorial or has come back after a while. */
+  private helpModal() {
+    const sec = (t: string, items: string[]) => `<h3>${t}</h3><ul class="help-list">${items.map((x) => `<li>${x}</li>`).join('')}</ul>`;
+    const m = this.modal(`<h2>How to play</h2><div class="help">
+      ${sec('The idea', ['Build golf holes, open them, and golfers pay to play.', 'Happy golfers come back, spend more and join as members.', 'The bar under the clock always shows your next goal. Tap it for the full list.'])}
+      ${sec('Moving around', ['Drag with one finger to move the map. Pinch to zoom, or double-tap.', 'Tap a hole, a golfer or the clubhouse to open its panel.', 'The two buttons above the menu jump to the clubhouse and to the selected hole.'])}
+      ${sec('Building', ['Menu, then Design. Pick <b>New hole</b>, tap where the tee goes, then where the green goes, then <b>Build</b>.', 'To paint fairway, sand, water or trees: press and hold, then drag. A quick tap paints one spot.', 'Nothing is charged until you tap Build, and Undo gives the money back.', 'Building on a hole closes it. The bar at the top offers <b>Open it</b> when you are done.'])}
+      ${sec('Time', ['Course tools pause the clock so you can design without hurry. <b>Resume</b> starts it again.', 'Decorating, placing buildings and repairing turf do not pause.', 'The button beside Pause changes speed: 1×, 3× or 8×.'])}
+      ${sec('Keeping golfers happy', ['Keep each fee close to what Finances says guests think is fair.', 'Greens wear out around the cup. Tap a hole and use <b>Repair green</b>, or buy the Grounds crew.', 'Flowers, benches and buildings near tees and greens make holes more enjoyable.'])}
+      ${sec('Growing', ['The starting shack has room for 4 holes. Clubhouse upgrades allow 9, 12 and 18, and each needs a better star rating.', 'Rating rises with open holes, healthy turf, happy guests and improvements.'])}
+    </div><div class="actions"><button class="btn primary" id="helpDone">Got it</button></div>`);
+    (m.querySelector('#helpDone') as HTMLElement).onclick = () => this.closeModal();
   }
   private settingsModal() {
     const prefs = this.game.preferences;

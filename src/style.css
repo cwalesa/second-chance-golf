@@ -1144,3 +1144,23 @@ body.coaching #side .tabs { display: none; }
 /* ---- tray tiles that cannot be built right now ---- */
 #tools .ph-tools .tool.cant canvas, #tools .ph-tools .tool.cant > span { opacity: .45; }
 #tools .ph-tools .tool.poor em { color: #c0392b; }
+
+/* ---- portrait build tray: two rows of tools, so most of them show without scrolling ---- */
+@media (orientation: portrait) {
+  #tools .phonerow { display: grid; grid-template-columns: 50px minmax(0, 1fr) 62px; grid-template-rows: 1fr 1fr; gap: 6px; }
+  #tools .phonerow > .ph-undo { grid-column: 1; grid-row: 1 / span 2; width: auto; }
+  #tools .phonerow:has(.ph-redo:not([hidden])) > .ph-undo:not(.ph-redo) { grid-row: 1; }
+  #tools .phonerow > .ph-redo { grid-row: 2; }
+  #tools .phonerow > .ph-tools { grid-column: 2; grid-row: 1 / span 2; display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: 62px; gap: 6px; }
+  #tools[data-set="course"] .phonerow > .ph-decor, #tools[data-set="decor"] .phonerow > .ph-tools:not(.ph-decor), #tools[data-set="buildings"] .phonerow > .ph-tools:not(.ph-decor),
+  #tools[data-set="decor"] .phonerow > .ph-bld, #tools[data-set="buildings"] .phonerow > .ph-fun { display: none; }
+  #tools .phonerow > .tray-done { grid-column: 3; grid-row: 1 / span 2; min-width: 0; padding: 0 6px; }
+  #tools .ph-tools .tool { width: auto; min-height: 58px; white-space: normal; text-align: center; font-size: 10.5px; }
+  #tools .ph-tools .tool canvas { width: 44px; height: 28px; }
+}
+/* ---- help page ---- */
+.help h3 { margin: 12px 0 4px; font: 800 14px var(--font); }
+.help h3:first-child { margin-top: 0; }
+.help-list { margin: 0 0 4px; padding-left: 18px; }
+.help-list li { font-size: 13.5px; line-height: 1.4; margin-bottom: 4px; }
+@media (orientation: portrait) { #tools .phonerow > .ph-decor { grid-auto-columns: 76px; } }
