@@ -1129,3 +1129,18 @@ body.coaching #side .tabs { display: none; }
   #side .tabs { grid-template-columns: repeat(4, 1fr); padding: 6px 8px 8px; }
   #side .tabs button { min-height: 38px; font-size: 12px; }
 }
+
+/* ---- speed button beside the pause chip ---- */
+#top > #spd { display: flex !important; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 1px; width: 46px; padding: 0; border: 3px solid var(--edge); border-radius: 10px; background: #fff; color: var(--ink); font: 900 13px/1 var(--font); cursor: pointer; pointer-events: auto; }
+#top > #spd[hidden] { display: none !important; }
+#top > #spd .ic { width: 16px; height: 16px; }
+#top > #spd:active { transform: translateY(2px); }
+#top .stat:has(#cash) { min-width: 76px; padding: 0 6px; }
+#top .stat:has(#clock) { min-width: 70px; padding: 0 6px; }
+/* ---- previous / next hole in the hole panel ---- */
+.hole-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.hole-nav span { font: 800 13px var(--font); color: var(--ink-2); }
+.hole-nav .btn { min-width: 52px; min-height: 40px; font-size: 22px; line-height: 1; padding: 0; }
+/* ---- tray tiles that cannot be built right now ---- */
+#tools .ph-tools .tool.cant canvas, #tools .ph-tools .tool.cant > span { opacity: .45; }
+#tools .ph-tools .tool.poor em { color: #c0392b; }

@@ -191,6 +191,7 @@ export class UI {
       <div class="stat"><span class="k">Cash</span><span class="v cash" id="cash"></span></div>
       <div class="stat"><span class="k" id="dayk"></span><span class="v small" id="clock"></span><div class="daybar"><i id="daybar"></i></div></div>
       <div id="tstate" role="status"></div>
+      <button id="spd" aria-label="Game speed" hidden></button>
       <div class="stat hide-m" title="Fee for the tee-time band running now. Set all three in the Money tab."><span class="k" id="feek">Tee time</span><div class="fee"><button data-fee="-1" aria-label="Lower fee">−</button><span class="v" id="fee"></span><button data-fee="1" aria-label="Raise fee">+</button></div></div>
       <div class="stat hide-m" id="starbox" title="Course rating"><span class="k">Rating</span><span class="v small stars" id="starsTxt"></span></div>
       <div class="stat hide-m" id="satbox" title="Average satisfaction of recent guests"><span class="k">Guests</span><span class="v small" id="sat"></span><div class="meter"><i id="satbar"></i></div></div>
@@ -207,6 +208,8 @@ export class UI {
       if (!b) return;
       if (b.dataset.speed !== undefined) this.setTimeSpeed(Number(b.dataset.speed));
       if (b.id === 'menuBtn' || b.id === 'brandBtn') this.openMenu();
+      // the speed button steps through the running speeds; picking one also resumes a paused course
+      if (b.id === 'spd') { const order = [1, 3, 8], at = order.indexOf(this.game.settings.speed); this.setTimeSpeed(order[(at + 1) % order.length]); this.refresh(true); }
     });
     const stopRepeat = () => {
       if (this.repeat) window.clearInterval(this.repeat);
@@ -266,6 +269,10 @@ export class UI {
         const id = Number(el.dataset.id);
         if (el.dataset.act === 'journal') this.journalView = el.dataset.id as JournalView;
         else if (el.dataset.act === 'buycart') this.game.buyCart();
+        else if (el.dataset.act === 'holestep') {
+          const hs = this.game.world.holes, n = hs.length, cur = Math.max(0, hs.findIndex((x) => x.id === this.game.selectedHole));
+          if (n) { this.editor.selectHole(hs[(cur + id + n) % n].id); this.editor.focusHole(); }
+        }
         else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
         else if (el.dataset.act === 'tipok') { this.panelTip = null; this.cache.delete('side'); }
         else if (el.dataset.act === 'claimstreak') { const n = this.game.claimStreak(); if (n) this.coinBurst(el, n); }
@@ -387,7 +394,7 @@ export class UI {
         const can = !!g.world.clubhouse && !teaching;
         return { cap: 'Setting up · paused', act: can ? 'Open for business' : 'Paused', icon: can ? 'play' : 'pause', hold: 'unopened', off: !can };
       }
-      default: return { cap: `Playing · ${g.settings.speed}×`, act: 'Pause', icon: 'pause', hold: '', off: false };
+      default: return { cap: 'Playing', act: 'Pause', icon: 'pause', hold: '', off: false };
     }
   }
   private updateChip() {
@@ -1087,6 +1094,13 @@ export class UI {
     const sec = Math.round((performance.now() - this.lastSaved) / 1000);
     set('saved', this.lastSaved ? (sec < 4 ? 'Saved' : `Saved ${sec}s ago`) : '');
     this.updateChip();
+    {
+      const spd = this.$('spd') as HTMLButtonElement;
+      const show = g.settings.open && !!g.world.clubhouse && !g.owner.active;
+      if (spd.hidden === show) spd.hidden = !show;
+      const label = `${g.settings.speed}×`;
+      if (this.cache.get('spd') !== label) { this.cache.set('spd', label); spd.innerHTML = `${icon('fast')}<span>${label}</span>`; spd.title = 'Speed: tap to change'; }
+    }
     this.$('speed').querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number((b as HTMLElement).dataset.speed) === g.speedShown));
 
     // tool buttons
@@ -1106,6 +1120,19 @@ export class UI {
     }
     this.$('tools').querySelectorAll<HTMLElement>('[data-trayset]').forEach((b) => b.classList.toggle('on', b.dataset.trayset === this.traySet));
     this.$('tools').querySelectorAll<HTMLElement>('[data-decor]').forEach((b) => b.classList.toggle('on', this.editor.tool === 'decor' && b.dataset.decor === this.editor.decorKind));
+    if (this.tab === 'build') {
+      // each tile says up front when it cannot be built: every one allowed already stands, or there is not the cash for it
+      this.$('tools').querySelectorAll<HTMLElement>('[data-decor]').forEach((b) => {
+        const k = b.dataset.decor as ItemKind, d = ITEMS[k];
+        const n = d.max ? countOf(g.world, k) : 0;
+        const full = !!d.max && n >= d.max, poor = g.cash < d.cost;
+        b.classList.toggle('cant', full || poor);
+        b.classList.toggle('poor', poor && !full);
+        const em = b.querySelector('em');
+        const txt = full ? (d.max === 1 ? 'Built' : `${n} of ${d.max} built`) : `$${d.cost.toLocaleString('en-US')}`;
+        if (em && em.textContent !== txt) em.textContent = txt;
+      });
+    }
     if (this.toolShown !== this.editor.tool) {
       this.toolShown = this.editor.tool;
       this.cat = CAT_OF[this.editor.tool] ?? this.cat;
@@ -1448,7 +1475,10 @@ export class UI {
       `<details class="xp" data-sec="${sec}"><summary><span class="xp-t">${title}</span>${note ? `<span class="xp-n">${note}</span>` : ''}</summary><div class="xp-body">${body}</div></details>`;
     // What the next action needs, and nothing else: name, par and length, whether it can open, and the button.
     const hs = this.holeState(h);
-    let html = `<div class="card hole-detail hole-summary"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><span class="hole-state ${hs.cls}">${hs.text}</span></div>
+    // step through the holes without going back to the list
+    const at = w.holes.findIndex((x) => x.id === h.id);
+    const stepper = nHoles > 1 ? `<div class="hole-nav"><button class="btn" data-act="holestep" data-id="-1" aria-label="Previous hole">‹</button><span>Hole ${at + 1} of ${nHoles}</span><button class="btn" data-act="holestep" data-id="1" aria-label="Next hole">›</button></div>` : '';
+    let html = stepper + `<div class="card hole-detail hole-summary"><div class="row"><span class="t big-name">${escapeHtml(h.name)}</span><span class="hole-state ${hs.cls}">${hs.text}</span></div>
       <div class="hole-line"><b>Par ${h.par}</b><span>·</span><b>${yards} yd</b><span>·</span><span>${dogleg ? 'Dogleg' : 'Straight'}</span>${h.open ? `<span>·</span><span>${playing} playing, ${queued} waiting</span>` : ''}</div>`;
     if (!h.open && !v.ok) {
       html += `<div class="why-closed"><b>This hole cannot open yet</b>${v.issues.map((it, i) => `<div class="issue"><p>${it.text}</p><div class="btnrow">${it.at ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="show">Show on map</button>` : ''}${it.fix ? `<button class="btn sm" data-act="issue" data-i="${i}" data-mode="fix">Fix with ${TOOL_INFO[it.fix].label}</button>` : ''}</div></div>`).join('')}</div>`;
