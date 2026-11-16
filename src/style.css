@@ -1198,3 +1198,34 @@ body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; }
 
 /* ---- messages never ride up over the header (or the tutorial strip) when a tall panel is open below them ---- */
 #toasts { bottom: min(calc(var(--dock) + 10px), calc(100% - var(--hdr) - var(--coach-h, 0px) - 96px)); }
+
+/* ---- start screen in two steps: the club (name and emblem) first, then the ground ---- */
+.guide[data-step="club"] .guide-places, .guide[data-step="ground"] .guide-club,
+.guide[data-step="club"] .guide-foot .check-line, .guide[data-step="club"] .guide-foot .start-play, .guide[data-step="club"] .guide-foot .step-back, .guide[data-step="club"] .guide-foot p,
+.guide[data-step="ground"] .guide-foot .step-next { display: none; }
+.guide[data-step="club"] .crest-btn { display: none; }
+.guide[data-step="club"] .club-name { flex: 1; }
+.guide-foot .step-next { width: 100%; min-height: 52px; font-size: 17px; }
+.guide-foot .step-back { min-height: 44px; margin-bottom: 6px; padding: 0 14px; }
+.crest-head { margin-top: 14px; }
+.guide[data-step="ground"] .guide-foot { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
+.guide[data-step="ground"] .guide-foot .step-back { margin: 0; }
+.guide[data-step="ground"] .guide-foot .check-line { margin: 0; }
+.guide[data-step="ground"] .guide-foot .start-play, .guide[data-step="ground"] .guide-foot p { grid-column: 1 / -1; }
+.guide[data-step="ground"] .guide-foot .start-play { margin-top: 6px; }
+@media (orientation: landscape) and (max-height: 600px) {
+  /* the name stays on the left; whichever step is showing fills the right */
+  .guide-head { grid-row: 1 / span 2; }
+  .guide[data-step="club"] .guide-club { grid-column: 2; grid-row: 1 / span 2; border-right: 0; padding: 6px 14px 8px; }
+  .guide[data-step="ground"] .guide-foot { display: flex; }
+  .guide[data-step="ground"] .guide-foot .start-play { margin-top: 0; }
+  .guide-foot .step-next { width: auto; margin-left: auto; padding: 0 28px; }
+}
+/* landscape start screen: the emblem preview sits beside its options, so shapes and emblems show without scrolling */
+@media (orientation: landscape) and (max-height: 600px) {
+  .guide .logo-box:not([hidden]) { display: grid; grid-template-columns: 96px 1fr; column-gap: 12px; align-items: start; margin-top: 6px; padding: 8px; }
+  .guide .logo-prev { position: sticky; top: 0; margin: 0; }
+  .guide .crest-head { margin-top: 8px; }
+  .guide .logo-opts .opt { min-height: 36px; }
+  .guide .logo-opts .sw { width: 34px; height: 34px; }
+}

@@ -68,6 +68,7 @@ export function startScreen(): Promise<NewGameOptions> {
     let name = 'Willow Creek';
     let region: RegionId = 'parkland';
     const logo = defaultLogo();
+    logo.initials = initialsOf(name);
     const finished = regionsDone();
     const rows = ORDER.map((id) => {
       const r = REGIONS[id];
@@ -79,7 +80,7 @@ export function startScreen(): Promise<NewGameOptions> {
         <span class="place-mark" aria-hidden="true">${icon('check')}</span>
       </button>`;
     }).join('');
-    root.innerHTML = `<div class="guide">
+    root.innerHTML = `<div class="guide" data-step="club">
       <header class="guide-head">${BANNER_ART}
         <div class="wordmark">${flagMark('wm-flag')}<h1><span class="wm-a">Little Links</span><span class="wm-b"><i></i>A course of your own<i></i></span></h1></div>
       </header>
@@ -94,18 +95,30 @@ export function startScreen(): Promise<NewGameOptions> {
             <button type="button" class="crest-btn" id="crestBtn" aria-label="Design the club crest" aria-expanded="false"><canvas id="crestCv" width="112" height="112"></canvas><span>Crest</span></button>
             <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>
           </div>
-          <div id="logoBox" class="logo-box" hidden></div>
+          <div class="rule-head crest-head"><h2>Choose your emblem</h2><span>You can change it later</span></div>
+          <div id="logoBox" class="logo-box"></div>
         </section>
       </main>
-      <footer class="guide-foot"><label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Guide me through my first hole</span></label><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
+      <footer class="guide-foot"><button class="btn primary step-next" id="stepNext">Next: choose your ground</button><button class="btn step-back" id="stepBack" aria-label="Back to your club">‹ Back</button><label class="check-line"><input type="checkbox" id="tutOn" checked /><span>Guide me through my first hole</span></label><button class="btn primary start-play" id="startBtn">Start course</button><p>Saves automatically on this device.</p></footer>
     </div>`;
     const crest = root.querySelector('#crestCv') as HTMLCanvasElement;
-    const repaint = () => paintLogo(crest, { ...logo, initials: initialsOf(name) });
+    // both pictures of the emblem (the small crest and the designer's big preview) follow the name as it is typed
+    const repaint = () => {
+      const shown = { ...logo, initials: initialsOf(name) };
+      paintLogo(crest, shown);
+      const big = root.querySelector('#lgPrev') as HTMLCanvasElement | null;
+      if (big) paintLogo(big, shown);
+    };
     const lg = root.querySelector('#logoBox') as HTMLElement;
     logoDesigner(lg, logo, () => name, repaint);
     repaint();
     const crestBtn = root.querySelector('#crestBtn') as HTMLElement;
-    crestBtn.onclick = () => { lg.hidden = !lg.hidden; crestBtn.setAttribute('aria-expanded', String(!lg.hidden)); if (!lg.hidden) lg.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+    // Two steps: the club first (its name and emblem), then the ground. On the second step the crest in the corner goes back to the first.
+    const guide = root.querySelector('.guide') as HTMLElement;
+    const step = (to: 'club' | 'ground') => { guide.dataset.step = to; root.querySelectorAll<HTMLElement>('.guide-places, .guide-club').forEach((el) => (el.scrollTop = 0)); (root.querySelector('.guide-body') as HTMLElement).scrollTop = 0; };
+    (root.querySelector('#stepNext') as HTMLElement).onclick = () => step('ground');
+    (root.querySelector('#stepBack') as HTMLElement).onclick = () => step('club');
+    crestBtn.onclick = () => step('club');
     const input = root.querySelector('#newClubName') as HTMLInputElement;
     input.oninput = () => { name = input.value; logo.initials = initialsOf(name); repaint(); };
     const cards = Array.from(root.querySelectorAll<HTMLElement>('.place'));
