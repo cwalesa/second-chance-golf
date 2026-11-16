@@ -122,6 +122,14 @@ const openEdit = () => {
   const d = document.querySelector<HTMLDetailsElement>('#sidebody details[data-sec="edit"]');
   if (d && !d.open) d.open = true;
 };
+/**
+ * While a step asks for one button in the hole panel, the panel shows only the hole's summary and that button: no other
+ * actions, no sections below. Cleared when the step ends. (The stylesheet does the hiding, keyed on body[data-tut-only].)
+ */
+const only = (act: string | null) => {
+  const b = document.body;
+  if (act) { if (b.dataset.tutOnly !== act) b.dataset.tutOnly = act; } else if (b.dataset.tutOnly) delete b.dataset.tutOnly;
+};
 const lastResult = (c: Ctx) => [...c.g.testResults].reverse().find((r) => r.hole === first(c)?.id) ?? c.g.testResults[c.g.testResults.length - 1];
 
 /**
@@ -184,8 +192,9 @@ export const STEPS: Step[] = [
     more: 'An open hole is ready for golfers. The business clock stays paused until you choose Open for business.',
     phase: 3,
     short: (c) => { const h = closedHole(c); return h ? `Tap Open hole to let golfers play ${h.name}.` : 'Your hole is open.'; },
-    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); showHole(c, (closedHole(c) ?? first(c))?.id); c.e.focusHole(); },
+    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); only('open'); showHole(c, (closedHole(c) ?? first(c))?.id); c.e.focusHole(); },
     ensure: (c) => { const h = closedHole(c); if (h) showHole(c, h.id); },
+    leave: () => only(null),
     target: () => ['[data-act="open"]'],
     check: (c) => c.g.world.holes.length > 0 && c.g.world.holes.every((h) => h.open),
     regressTo: (c) => (c.g.world.holes.length ? null : 'newhole'),
@@ -195,8 +204,9 @@ export const STEPS: Step[] = [
     more: 'A test golfer is free: no green fee, no wear on the turf, and the clock stays paused.',
     phase: 4,
     short: () => 'Tap Test golfers to send one out.',
-    enter: (c) => { c.mark.rn = c.g.testResults.length; showHole(c, first(c)?.id); c.e.focusHole(); },
+    enter: (c) => { c.mark.rn = c.g.testResults.length; only('testgolfers'); showHole(c, first(c)?.id); c.e.focusHole(); },
     ensure: (c) => showHole(c, first(c)?.id),
+    leave: () => only(null),
     target: () => ['[data-act="testgolfers"]'],
     check: (c) => c.g.hasTestGolfers || c.g.testResults.length > ((c.mark.rn as number) ?? 0),
     skipTo: 'edit',
@@ -279,8 +289,9 @@ export const STEPS: Step[] = [
       const h = closedHole(c);
       return h ? `Editing closes a hole. Tap Open hole to reopen ${h.name}.` : 'Your course is ready. Open for business and welcome your first guests.';
     },
-    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); const h = closedHole(c); if (h) showHole(c, h.id); else hideSheet(c); },
-    ensure: (c) => { const h = closedHole(c); if (h) showHole(c, h.id); else if (c.ui.tab === 'course') hideSheet(c); },
+    enter: (c) => { c.e.setTool('inspect'); c.g.exitDesign(); const h = closedHole(c); only(h ? 'open' : null); if (h) showHole(c, h.id); else hideSheet(c); },
+    ensure: (c) => { const h = closedHole(c); only(h ? 'open' : null); if (h) showHole(c, h.id); else if (c.ui.tab === 'course') hideSheet(c); },
+    leave: () => only(null),
     target: (c) => (closedHole(c) ? ['[data-act="open"]'] : []),
     manual: (c) => !closedHole(c),
     nextLabel: 'Open for business',
@@ -376,6 +387,7 @@ export class Tutorial {
     this.ctx.e.overlay.hint = null;
     this.card.hidden = true;
     document.body.classList.remove('coaching', 'tut-edit');
+    delete document.body.dataset.tutOnly;
     document.documentElement.style.setProperty('--coach-h', '0px');
     this.ui.onInsets();
   }
