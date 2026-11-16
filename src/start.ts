@@ -1,5 +1,5 @@
 
-import { LOGO_COLORS, LOGO_ICONS, LOGO_SHAPES, Logo, defaultLogo, drawLogo, initialsOf } from './logo';
+import { LOGO_COLORS, LOGO_ICONS, LOGO_LETTERING, LOGO_NAMES, LOGO_PATTERNS, LOGO_SHAPES, Logo, defaultLogo, drawLogo, initialsOf } from './logo';
 import type { NewGameOptions } from './game';
 import { REGIONS, REGION_IDS, RegionId } from './progression';
 import { BANNER_ART, REGION_ART, levelFlags } from './start-art';
@@ -17,27 +17,50 @@ export function paintLogo(canvas: HTMLCanvasElement, logo: Logo) {
   drawLogo(c, s / 2, s / 2, s * 0.94, logo);
 }
 
-/** Shape, icon and colour pickers with a live preview. Calls onChange after every tweak. */
+const COLOUR_NAMES = ['Forest green', 'Fairway green', 'Teal', 'Sky blue', 'Blue', 'Navy', 'Purple', 'Pink', 'Red', 'Maroon', 'Orange', 'Gold', 'Cream', 'Grey', 'Charcoal', 'White'];
+
+/**
+ * The emblem designer: shape, background, emblem, lettering and two colours, with a live preview. Shapes, backgrounds
+ * and emblems are shown as small pictures of the player's own crest with that one thing changed, so each choice shows
+ * what it would look like. Built once; a tweak only moves the highlight and repaints. Calls onChange after every tweak.
+ */
 export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => string, onChange: (l: Logo) => void) {
-  const render = () => {
-    root.innerHTML = `
+  logo.pattern ??= 'plain';
+  logo.lettering ??= 'serif';
+  const pics = (k: string, vals: string[]) => `<div class="opts pics" data-k="${k}">${vals.map((v) => `<button class="opt pic" data-v="${v}" aria-label="${LOGO_NAMES[v] ?? v}" title="${LOGO_NAMES[v] ?? v}"><canvas width="88" height="88"></canvas></button>`).join('')}</div>`;
+  const words = (k: string, vals: string[]) => `<div class="opts" data-k="${k}">${vals.map((v) => `<button class="opt" data-v="${v}">${LOGO_NAMES[v] ?? v}</button>`).join('')}</div>`;
+  const swatches = (k: string) => `<div class="opts" data-k="${k}">${LOGO_COLORS.map((c, i) => `<button class="sw" data-v="${c}" style="background:${c}" aria-label="${COLOUR_NAMES[i] ?? c}" title="${COLOUR_NAMES[i] ?? c}"></button>`).join('')}</div>`;
+  root.innerHTML = `
       <div class="logo-prev"><canvas width="140" height="140" id="lgPrev"></canvas></div>
       <div class="logo-opts">
-        <div class="lbl">Shape</div><div class="opts" data-k="shape">${LOGO_SHAPES.map((s) => `<button class="opt ${logo.shape === s ? 'on' : ''}" data-v="${s}">${s}</button>`).join('')}</div>
-        <div class="lbl">Emblem</div><div class="opts" data-k="icon">${LOGO_ICONS.map((s) => `<button class="opt ${logo.icon === s ? 'on' : ''}" data-v="${s}">${s}</button>`).join('')}</div>
-        <div class="lbl">Main colour</div><div class="opts" data-k="primary">${LOGO_COLORS.map((c) => `<button class="sw ${logo.primary === c ? 'on' : ''}" data-v="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
-        <div class="lbl">Accent colour</div><div class="opts" data-k="secondary">${LOGO_COLORS.map((c) => `<button class="sw ${logo.secondary === c ? 'on' : ''}" data-v="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
+        <div class="lbl">Shape</div>${pics('shape', LOGO_SHAPES)}
+        <div class="lbl">Background</div>${pics('pattern', LOGO_PATTERNS)}
+        <div class="lbl">Emblem</div>${pics('icon', LOGO_ICONS)}
+        <div class="lbl">Lettering</div>${words('lettering', LOGO_LETTERING)}
+        <div class="lbl">Main colour</div>${swatches('primary')}
+        <div class="lbl">Accent colour</div>${swatches('secondary')}
       </div>`;
+  const update = () => {
+    logo.initials = initialsOf(getName());
     paintLogo(root.querySelector('#lgPrev') as HTMLCanvasElement, logo);
+    root.querySelectorAll<HTMLElement>('.opts').forEach((row) => {
+      const k = row.dataset.k as keyof Logo;
+      row.querySelectorAll<HTMLElement>('button').forEach((b) => {
+        const on = String(logo[k]) === b.dataset.v;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+        const cv = b.querySelector('canvas');
+        if (cv) paintLogo(cv, { ...logo, [k]: b.dataset.v } as Logo);
+      });
+    });
   };
-  render();
+  update();
   root.onclick = (e) => {
     const b = (e.target as HTMLElement).closest('button') as HTMLElement | null;
     const k = (b?.parentElement as HTMLElement | null)?.dataset.k as keyof Logo | undefined;
     if (!b || !k) return;
     (logo as unknown as Record<string, string>)[k] = b.dataset.v!;
-    logo.initials = initialsOf(getName());
-    render();
+    update();
     onChange(logo);
   };
 }

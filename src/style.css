@@ -1229,3 +1229,11 @@ body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; }
   .guide .logo-opts .opt { min-height: 36px; }
   .guide .logo-opts .sw { width: 34px; height: 34px; }
 }
+
+/* ---- emblem designer: shapes, backgrounds and emblems as small pictures of the crest ---- */
+.logo-opts .opts.pics { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 6px; }
+.logo-opts .opt.pic { min-height: 0; padding: 3px; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: #fff; }
+.logo-opts .opt.pic canvas { width: 100%; height: 100%; max-width: 48px; max-height: 48px; display: block; }
+.logo-opts .opt.pic.on { background: var(--yellow, #ffd25e); box-shadow: inset 0 0 0 3px var(--edge); }
+.logo-opts .opts[data-k="primary"], .logo-opts .opts[data-k="secondary"] { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.logo-opts .opts[data-k="primary"] .sw, .logo-opts .opts[data-k="secondary"] .sw { width: auto; aspect-ratio: 1; height: auto; min-height: 30px; }
