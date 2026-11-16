@@ -277,6 +277,7 @@ export class UI {
           if (n) { this.editor.selectHole(hs[(cur + id + n) % n].id); this.editor.focusHole(); }
         }
         else if (el.dataset.act === 'goalgo') { this.showGoal(el.dataset.id!); return; }
+        else if (el.dataset.act === 'reqgo') { this.showRequest(id); return; }
         else if (el.dataset.act === 'tipok') { this.panelTip = null; this.cache.delete('side'); }
         else if (el.dataset.act === 'claimstreak') { const n = this.game.claimStreak(); if (n) this.coinBurst(el, n); }
         else if (el.dataset.act === 'claimch') { const n = this.game.claimChallenge(Number(el.dataset.id)); if (n) { this.coinBurst(el, n); this.confetti(24); } }
@@ -832,6 +833,7 @@ export class UI {
       ${sec('Building', ['Menu, then Design. Pick <b>New hole</b>, tap where the tee goes, then where the green goes, then <b>Build</b>.', 'To paint fairway, sand, water or trees: press and hold, then drag. A quick tap paints one spot.', 'Nothing is charged until you tap Build, and Undo gives the money back.', 'Building on a hole closes it. The bar at the top offers <b>Open it</b> when you are done.'])}
       ${sec('Time', ['Course tools pause the clock so you can design without hurry. <b>Resume</b> starts it again.', 'Decorating, placing buildings and repairing turf do not pause.', 'The button beside Pause changes speed: 1×, 3× or 8×.'])}
       ${sec('Keeping golfers happy', ['Keep each fee close to what Finances says guests think is fair.', 'Greens wear out around the cup. Tap a hole and use <b>Repair green</b>, or buy the Grounds crew.', 'Flowers, benches and buildings near tees and greens make holes more enjoyable.'])}
+      ${sec('Guest requests', ['Now and then a golfer asks for something: a safer hole, a smoother green, somewhere to stop. Requests are in Goals, with Show me and a few days to do it.', 'Put it right in time and you are paid. Each one comes from something golfers really found on your course.'])}
       ${sec('Weather', ['Most days are clear. Rain keeps golfers away but rests the turf; a heatwave wears it faster.', 'A storm washes out patches of turf on every hole. The bar at the top offers one button to repair it all.', 'Once in a long while a storm brings trees down across a fairway and closes that hole until you clear them.'])}
       ${sec('Growing', ['The starting shack has room for 4 holes. Clubhouse upgrades allow 9, 12 and 18, and each needs a better star rating.', 'Rating rises with open holes, healthy turf, happy guests and improvements.'])}
     </div><div class="actions"><button class="btn primary" id="helpDone">Got it</button></div>`);
@@ -979,7 +981,8 @@ export class UI {
       open,
       pending: { round: fr.done && !fr.shown && !!fr.result, goal: !!g.goalJustDone || g.cheers.length > 0, recap: !!g.pendingRecap },
       blocked: document.body.classList.contains('coaching') || this.menuOpen || (this.modalOpen && open !== 'recap') || this.introOpen || g.owner.active,
-      calm: !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost,
+      // a tool in hand (painting, decorating, placing) means the player is busy on the map: cards wait until it is put down
+      calm: !e.proposal && !e.isPlacement && !e.drag && !e.placingClub && !e.bGhost && (e.tool === 'inspect' || e.tool === 'pan'),
       panelOpen: this.tab !== 'none' && this.tab !== 'build', // the build tray sits below the map; the cards ride above it
     };
   }
@@ -1368,6 +1371,7 @@ export class UI {
     if (c.kind === 'streak') return { kicker: 'Daily reward', title: c.title, reward: c.reward, sub: c.sub, collect: true };
     if (c.kind === 'level') return { kicker: 'Level up', title: c.title, reward: c.reward, sub: c.sub };
     if (c.kind === 'ace') return { kicker: 'Amazing', title: c.title, reward: c.reward, sub: c.sub };
+    if (c.kind === 'request') return { kicker: 'Guest request', title: c.title, reward: c.reward, sub: c.sub };
     return { kicker: 'Daily challenges', title: c.title, reward: c.reward, sub: c.sub };
   }
   /** First-time help: one short tip the first time each tool or panel is used. */
@@ -1404,6 +1408,31 @@ export class UI {
     tip.querySelector('button')!.addEventListener('click', close);
     document.getElementById('app')!.append(tip);
     window.setTimeout(close, 9000);
+  }
+  /** "Show me" on a guest request: go to the hole, panel or tray where it is put right. */
+  showRequest(id: number) {
+    const g = this.game, r = g.requests.list.find((x) => x.id === id);
+    if (!r) return;
+    this.menuOpen = false;
+    const hole = r.hole !== undefined ? g.world.holes.find((h) => h.id === r.hole) : undefined;
+    if (hole) { this.editor.selectHole(hole.id); }
+    const tray = (set: 'course' | 'decor' | 'buildings', kind?: ItemKind) => {
+      this.tab = 'build';
+      this.traySet = set;
+      if (kind) { this.editor.decorKind = kind; this.editor.setTool('decor'); }
+    };
+    switch (r.kind) {
+      case 'water': case 'hard': case 'worn': this.tab = 'course'; this.sheet = 'half'; break;
+      case 'pretty': tray('decor', 'flowers'); break;
+      case 'restroom': tray('buildings', 'restroom'); break;
+      case 'wait': this.tab = 'build'; this.traySet = 'course'; this.editor.setTool('build'); break;
+      default: this.tab = 'money'; this.sheet = 'half';
+    }
+    this.cache.delete('side');
+    this.refresh(true);
+    this.onInsets();
+    if (hole) { if (r.kind === 'pretty') this.editor.focusPoint(hole.tee, 1); else this.editor.focusHole(); }
+    else if (r.kind === 'restroom') { const c = g.world.clubhouse; if (c) this.editor.focusPoint({ x: c.x + 3, y: c.y + 2 }, 0.8); }
   }
   /** "Show me" on a goal: open the right place, pick up the right tool, and point at the control to use. */
   showGoal(id: string) {

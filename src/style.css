@@ -1246,3 +1246,10 @@ body[data-tut-only="testgolfers"] #sidebody .hole-actions .btn:not([data-act="te
 body[data-tut-only] #sidebody .hole-actions .btn { flex: 1; min-height: 52px; font-size: 16px; }
 /* the sheet only needs to be as tall as that card */
 body.coaching[data-tut-only] #side[data-sheet="half"] { height: auto !important; max-height: 60vh; }
+
+/* ---- guest requests in Goals ---- */
+.req { margin: 0 0 8px; padding: 10px 12px; border: 3px solid var(--edge); border-radius: 12px; background: #fff; }
+.req-q { margin: 0 0 6px; font: 700 14px/1.35 var(--font); color: var(--ink); }
+.req-row { display: flex; align-items: center; gap: 8px; }
+.req-who { flex: 1; min-width: 0; font: 600 12px var(--font); color: var(--ink-2); }
+.req-row .btn { flex: none; min-height: 40px; padding: 0 12px; }

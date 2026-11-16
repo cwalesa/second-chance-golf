@@ -21,6 +21,7 @@ import { BANDS, BandId, CLUB_LEVELS, REGIONS, RegionId, SEASON_NAMES, bandAt, ra
 import { GoalCtx, MILESTONES } from './goals';
 import { Logo, defaultLogo } from './logo';
 import { WEATHER, Weather, weatherOn } from './weather';
+import { RequestState, freshRequests, requestDone, rollRequests } from './requests';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
 
 export interface LogEntry {
@@ -92,7 +93,7 @@ export type StaffId = keyof typeof STAFF;
 export interface Member { name: string; type: 'beginner' | 'regular' | 'skilled'; visits: number; happiness: number; joined: number; }
 export interface Landing { x: number; y: number; hole: number; bad: boolean; }
 
-export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak'; title: string; sub: string; reward?: number; }
+export interface Cheer { kind: 'ace' | 'level' | 'daily' | 'streak' | 'request'; title: string; sub: string; reward?: number; }
 export interface Preferences { sound: boolean; music: boolean; haptics: boolean; dailyReports: boolean; /** help tips already shown, by key */ tipsSeen?: string[]; }
 export class Game {
   experience: Experience = freshExperience();
@@ -298,6 +299,8 @@ export class Game {
     this.sim.wearMult = WEATHER[this.weather].wear * (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1);
   }
 
+  /** Things guests have asked for, and what putting each right pays (see requests.ts). */
+  requests: RequestState = freshRequests();
   /** Today's weather. */
   get weather(): Weather { return weatherOn(this.world.landSeed, this.day, this.region, seasonIndex(this.day)); }
   /** A storm has washed out turf and it has not been put right yet. The interface keeps a repair prompt up while this is set. */
@@ -734,6 +737,10 @@ export class Game {
       else this.earn('shop', 8 + this.clubLevel * 3, `Daily dues: ${member.name}`);
     }
     this.beginWeather();
+    if (!this.practice) {
+      const asked = rollRequests(this);
+      if (asked) this.notify('info', `${asked.who} asks: \u201c${asked.text}\u201d See Goals.`);
+    }
     this.startEvent();
     this.dirtySave = true;
   }
@@ -860,9 +867,23 @@ export class Game {
   }
   /** The goal just reached, waiting for the interface to celebrate it. */
   goalJustDone: { title: string; reward: number; next: string | null } | null = null;
+  /** Pay for any request that has been put right. */
+  checkRequests() {
+    const st = this.requests;
+    if (!st.list.length) return;
+    for (const r of [...st.list]) {
+      if (!requestDone(this, r)) continue;
+      st.list = st.list.filter((x) => x !== r);
+      this.earn('bonus', r.reward, `Guest request: ${r.text}`);
+      awardExperience(this, 20);
+      this.cheer({ kind: 'request', title: 'Request done', sub: `${r.who} noticed. \u201c${r.text}\u201d`, reward: r.reward });
+      this.dirtySave = true;
+    }
+  }
   /** Advance the goal chain: one goal at a time, each paying its grant. */
   checkGoals() {
     if (this.practice) return;
+    this.checkRequests();
     const i = chainStep(this);
     const goal = CHAIN[i];
     if (!goal || goal.value(this) < goal.target) return;

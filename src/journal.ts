@@ -3,6 +3,7 @@ import { fmtMoney } from './game';
 import { CHAIN, chainStep, currentGoal, goalProgressText, regionComplete } from './campaign';
 import { escapeHtml } from './panels';
 import { KINDS, challengeDone, challengeProgress, streakReward } from './daily';
+import { requestDone } from './requests';
 
 export type JournalView = 'progress' | 'projects';
 
@@ -14,6 +15,14 @@ export function journalPanel(g: Game, _view: JournalView): string {
   const goal = currentGoal(g);
   const done = step >= CHAIN.length;
   let html = `<div class="chain">`;
+  // what guests have asked for: the most immediate things to do, so they come first among the goals
+  if (g.requests.list.length) {
+    html += `<div class="ch-head"><span>Guest requests</span><small>Fix within the time to earn the reward</small></div>`;
+    for (const r of g.requests.list) {
+      const left = r.until - g.day + 1, ok = requestDone(g, r);
+      html += `<div class="req"><p class="req-q">\u201c${escapeHtml(r.text)}\u201d</p><div class="req-row"><span class="req-who">${escapeHtml(r.who)} · ${left <= 1 ? 'today only' : `${left} days left`}</span><span class="chain-reward">${ok ? 'Done' : fmtMoney(r.reward)}</span><button class="btn primary sm" data-act="reqgo" data-id="${r.id}">Show me</button></div></div>`;
+    }
+  }
   const d = g.daily;
   if (d.date) {
     const next = streakReward(d.streak + 1);
