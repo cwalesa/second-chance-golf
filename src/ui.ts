@@ -1070,6 +1070,8 @@ export class UI {
 
   /** After a build: what happened, and one tap to take it back. */
   private builtToast(label: string, cost: number) {
+    // during the tutorial the coach says what happened, and an Undo here would take away the hole it just had the player build
+    if (document.body.classList.contains('coaching')) return;
     const box = this.$('toasts');
     box.querySelectorAll('.toast.undo').forEach((n) => n.remove());
     const t = document.createElement('div');

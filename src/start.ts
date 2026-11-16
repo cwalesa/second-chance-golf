@@ -24,7 +24,7 @@ const COLOUR_NAMES = ['Forest green', 'Fairway green', 'Teal', 'Sky blue', 'Blue
  * and emblems are shown as small pictures of the player's own crest with that one thing changed, so each choice shows
  * what it would look like. Built once; a tweak only moves the highlight and repaints. Calls onChange after every tweak.
  */
-export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => string, onChange: (l: Logo) => void) {
+export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => string, onChange: (l: Logo) => void): () => void {
   logo.pattern ??= 'plain';
   logo.lettering ??= 'serif';
   const pics = (k: string, vals: string[]) => `<div class="opts pics" data-k="${k}">${vals.map((v) => `<button class="opt pic" data-v="${v}" aria-label="${LOGO_NAMES[v] ?? v}" title="${LOGO_NAMES[v] ?? v}"><canvas width="88" height="88"></canvas></button>`).join('')}</div>`;
@@ -63,6 +63,8 @@ export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => strin
     update();
     onChange(logo);
   };
+  // the caller repaints every picture (option thumbnails included) when the name, and so the initials, change
+  return update;
 }
 
 /** What a place costs you and pays you, as the few figures that differ from an ordinary course. */
@@ -133,7 +135,7 @@ export function startScreen(): Promise<NewGameOptions> {
       if (big) paintLogo(big, shown);
     };
     const lg = root.querySelector('#logoBox') as HTMLElement;
-    logoDesigner(lg, logo, () => name, repaint);
+    const redrawDesigner = logoDesigner(lg, logo, () => name, repaint);
     repaint();
     const crestBtn = root.querySelector('#crestBtn') as HTMLElement;
     // Two steps: the club first (its name and emblem), then the ground. On the second step the crest in the corner goes back to the first.
@@ -143,7 +145,7 @@ export function startScreen(): Promise<NewGameOptions> {
     (root.querySelector('#stepBack') as HTMLElement).onclick = () => step('club');
     crestBtn.onclick = () => step('club');
     const input = root.querySelector('#newClubName') as HTMLInputElement;
-    input.oninput = () => { name = input.value; logo.initials = initialsOf(name); repaint(); };
+    input.oninput = () => { name = input.value; logo.initials = initialsOf(name); redrawDesigner(); repaint(); };
     const cards = Array.from(root.querySelectorAll<HTMLElement>('.place'));
     cards.forEach((c) => (c.onclick = () => {
       region = c.dataset.region as RegionId;

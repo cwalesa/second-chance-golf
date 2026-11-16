@@ -1237,3 +1237,12 @@ body.tut-edit #sidebody .edit-grid { grid-template-columns: 1fr; }
 .logo-opts .opt.pic.on { background: var(--yellow, #ffd25e); box-shadow: inset 0 0 0 3px var(--edge); }
 .logo-opts .opts[data-k="primary"], .logo-opts .opts[data-k="secondary"] { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
 .logo-opts .opts[data-k="primary"] .sw, .logo-opts .opts[data-k="secondary"] .sw { width: auto; aspect-ratio: 1; height: auto; min-height: 30px; }
+
+/* ---- tutorial steps that ask for one button in the hole panel: the hole's summary and that button, nothing else ---- */
+body[data-tut-only] #sidebody > :not(.hole-summary) { display: none; }
+body[data-tut-only] #sidebody .hole-summary .why-closed, body[data-tut-only] #sidebody .hole-summary > p.dim { display: none; }
+body[data-tut-only="open"] #sidebody .hole-actions .btn:not([data-act="open"]),
+body[data-tut-only="testgolfers"] #sidebody .hole-actions .btn:not([data-act="testgolfers"]) { display: none; }
+body[data-tut-only] #sidebody .hole-actions .btn { flex: 1; min-height: 52px; font-size: 16px; }
+/* the sheet only needs to be as tall as that card */
+body.coaching[data-tut-only] #side[data-sheet="half"] { height: auto !important; max-height: 60vh; }
