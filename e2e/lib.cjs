@@ -42,7 +42,7 @@ async function freshCourse(browser, base, kind) {
   await page.waitForTimeout(800);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('.start-play', { timeout: 15000 });
+  await page.waitForSelector('.start-play', { timeout: 15000, state: 'attached' }); // it is on the start screen's second step; clicking it from script starts the course either way
   await page.evaluate(() => document.querySelector('.start-play').click());
   await page.waitForFunction(() => window.scg && window.scg.game, null, { timeout: 15000 });
   await page.waitForTimeout(3000);
