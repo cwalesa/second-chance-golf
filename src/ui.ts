@@ -1128,8 +1128,8 @@ export class UI {
     set('starsTxt', stars(g.stars));
     set('clubName', g.name);
     set('dayk', this.mobile ? `Day ${g.day}${WEATHER[g.weather].mark ? ' ' + WEATHER[g.weather].mark : ''}` : `Day ${g.day}, ${g.season.name}`);
-    if (this.cache.get('logo') !== g.logo.primary + g.logo.secondary + g.logo.icon + g.logo.shape + g.logo.initials) {
-      this.cache.set('logo', g.logo.primary + g.logo.secondary + g.logo.icon + g.logo.shape + g.logo.initials);
+    if (this.cache.get('logo') !== JSON.stringify(g.logo)) {
+      this.cache.set('logo', JSON.stringify(g.logo));
       paintLogo(this.$('topLogo') as HTMLCanvasElement, g.logo);
     }
     const nb = g.bookings[0];
