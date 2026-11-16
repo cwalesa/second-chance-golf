@@ -9,6 +9,7 @@ import { REGIONS } from './progression';
 import { CHAIN, CHAIN_MOVED, CHAIN_V1, regionComplete } from './campaign';
 import { ITEMS } from './items';
 import { defaultLogo } from './logo';
+import { loadRequests } from './requests';
 import { reserveLots } from './lots';
 
 const KEY = 'second-chance-golf.save.v2';
@@ -33,6 +34,7 @@ export function serialize(g: Game): string {
     members: g.members,
     ownerRecords: g.ownerRecords,
     stormDamage: g.stormDamage,
+    requests: g.requests,
     fallen: g.fallen,
     region: g.region,
     name: g.name,
@@ -158,6 +160,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.ownerRecords = Array.isArray(d.ownerRecords) ? d.ownerRecords : [];
     // what a storm left behind, so its repair prompts are still there after the game is closed and reopened
     g.stormDamage = d.stormDamage === true;
+    g.requests = loadRequests(d.requests);
     g.fallen = Array.isArray(d.fallen) ? d.fallen.filter((f: { hole?: unknown; tiles?: unknown }) => Number.isInteger(f?.hole) && Array.isArray(f?.tiles) && (f.tiles as unknown[]).every((i) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < n)) : [];
     g.region = d.region;
     g.name = d.name ?? g.name;
