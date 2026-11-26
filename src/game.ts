@@ -116,7 +116,13 @@ export class Game {
   owner = new OwnerRound();
   ownerRecords: OwnerRecord[] = [];
   landings: Landing[] = [];
-  heatmap = false;
+  /** Optional map overlay: shot landings, trouble spots, queues at tees, or each hole's quality flag. Not saved. */
+  overlay: 'off' | 'landings' | 'trouble' | 'queues' | 'quality' = 'off';
+  /** Older name for the landings overlay. */
+  get heatmap() { return this.overlay === 'landings'; }
+  set heatmap(v: boolean) { this.overlay = v ? 'landings' : 'off'; }
+  /** The full quality report for a hole, as golfers here judge it (quality.ts). */
+  holeReport(h: Hole) { return holeQuality(this.world, h, this.qualityCtx); }
   followGolfer = 0;
   designMode = false;
   world: World;

@@ -10,11 +10,11 @@ import { facLevel } from './facilities';
 import { holeQuality } from './quality';
 
 export type IdentityId = 'community' | 'competitive' | 'learning' | 'resort';
-export const IDENTITY: Record<IdentityId, { name: string; blurb: string; perk: string }> = {
-  community: { name: 'Affordable community course', blurb: 'Fair prices and lots of everyday golfers.', perk: 'Word of mouth: a little more everyday demand while prices stay fair.' },
-  competitive: { name: 'Competitive tournament club', blurb: 'Strategic holes, competitions and a growing reputation.', perk: 'Tournament fields are bigger and earn more prestige.' },
-  learning: { name: 'Family learning center', blurb: 'Lessons, juniors and forgiving holes.', perk: 'More golfers book lessons, and more juniors come.' },
-  resort: { name: 'Scenic resort', blurb: 'Beautiful holes, good food and visitors who pay for both.', perk: 'More local diners and resort visitors.' },
+export const IDENTITY: Record<IdentityId, { name: string; short: string; blurb: string; perk: string }> = {
+  community: { short: 'Community', name: 'Affordable community course', blurb: 'Fair prices and lots of everyday golfers.', perk: 'Word of mouth: a little more everyday demand while prices stay fair.' },
+  competitive: { short: 'Competitive', name: 'Competitive tournament club', blurb: 'Strategic holes, competitions and a growing reputation.', perk: 'Tournament fields are bigger and earn more prestige.' },
+  learning: { short: 'Learning', name: 'Family learning center', blurb: 'Lessons, juniors and forgiving holes.', perk: 'More golfers book lessons, and more juniors come.' },
+  resort: { short: 'Resort', name: 'Scenic resort', blurb: 'Beautiful holes, good food and visitors who pay for both.', perk: 'More local diners and resort visitors.' },
 };
 export interface Identity { scores: Record<IdentityId, number>; top: IdentityId | null; evidence: Record<IdentityId, string[]> }
 

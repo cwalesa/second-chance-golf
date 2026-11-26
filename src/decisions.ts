@@ -54,7 +54,7 @@ const add = (g: Game, d: Omit<Decision, 'id'>) => {
   s.open.push({ ...d, id: s.seq++ });
   s.last[d.kind] = g.day;
   s.last.any = g.day;
-  g.notify('info', `Decision needed by day ${d.until}: ${d.title}. See Goals.`);
+  g.notify('info', `Decision needed by day ${d.until}: ${d.title.replace(/[?.]$/, '')}. See Goals.`);
   g.dirtySave = true;
 };
 

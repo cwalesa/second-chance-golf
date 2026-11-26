@@ -126,7 +126,8 @@ function layoutParts(w: World, h: Hole): LayoutParts {
     if (dist < 1.3) inPlay++;
     else if (dist < 5.5) flank++;
   }
-  const hazards = clamp(inPlay + flank === 0 ? 45 : 55 + Math.min(35, flank * 1.6) - inPlay * 3.5 - Math.max(0, flank - 30) * 1.2);
+  // the first few tiles of flanking sand or water add the most; past a pond and a couple of bunkers it is spam, and it starts to count against
+  const hazards = clamp(inPlay + flank === 0 ? 45 : 52 + Math.min(38, 8 * Math.sqrt(flank)) - inPlay * 3.5 - Math.max(0, flank - 70) * 0.8);
   const beauty = beautyNear(w, h.tee) + beautyNear(w, h.cup);
   // decorations help, with sharply diminishing returns: a few well-placed things matter, a carpet of them does not
   const scenery = clamp(d.scenery * 0.8 + 20 * (1 - Math.exp(-beauty / 5)));
@@ -143,7 +144,7 @@ function contextParts(w: World, h: Hole, hasCarts: boolean): { variety: number; 
   const others = w.holes.filter((x) => x.open && x.id !== h.id);
   const twins = twinsOf(w.holes, h);
   // variety: repeats hurt, and so does being the same par as both neighbours
-  const order = playOrder(w);
+  const order = w.holes.filter((x) => x.open || x.id === h.id).sort((a, b) => a.id - b.id);
   const at = order.findIndex((x) => x.id === h.id);
   const prev = at > 0 ? order[at - 1] : order.length > 1 && at === 0 ? order[order.length - 1] : null;
   const next = at >= 0 && at < order.length - 1 ? order[at + 1] : null;

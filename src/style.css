@@ -1253,3 +1253,83 @@ body.coaching[data-tut-only] #side[data-sheet="half"] { height: auto !important;
 .req-row { display: flex; align-items: center; gap: 8px; }
 .req-who { flex: 1; min-width: 0; font: 600 12px var(--font); color: var(--ink-2); }
 .req-row .btn { flex: none; min-height: 40px; padding: 0 12px; }
+
+/* ---- hole report ---- */
+.hole-report { padding: 12px; }
+.qhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.qhead small { display: block; }
+.qscore { flex: none; width: 48px; height: 48px; border-radius: 12px; border: 3px solid var(--edge); display: flex; align-items: center; justify-content: center; font: 900 20px var(--font); color: #fff; }
+.qscore.good { background: #3f9a52; } .qscore.warn { background: #d99b2b; } .qscore.bad { background: #d2503a; }
+.qbar { flex: 1; height: 10px; min-width: 40px; border: 2px solid var(--edge); border-radius: 6px; background: #f1efe6; overflow: hidden; }
+.qbar i { display: block; height: 100%; }
+.seg-grid { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 4px 0 8px; }
+.seg { display: grid; grid-template-columns: 7.5em 1fr 2.2em; align-items: center; gap: 8px; font: 700 12px var(--font); padding: 3px 6px; border-radius: 8px; }
+.seg b { text-align: right; }
+.seg.like { background: #dcf7d2; } .seg.dislike { background: #ffe3e6; }
+.rep-line { margin: 4px 0; font-size: 13px; line-height: 1.35; }
+.rep-line.good b { color: var(--good); } .rep-line.bad b { color: var(--bad); }
+.note.suggest { background: var(--yellow-soft); }
+.rep-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 4px; }
+.rep-stats > div { border: 2px solid var(--edge); border-radius: 10px; padding: 5px 4px; text-align: center; background: #fff; }
+.rep-stats b { display: block; font: 900 15px var(--font); }
+.rep-stats small { font-size: 10px; line-height: 1.15; display: block; }
+.reno { margin: 8px 0; padding: 8px; border: 2px dashed var(--edge); border-radius: 10px; background: var(--sky-soft); }
+.reno table, .board { width: 100%; border-collapse: collapse; font: 700 13px var(--font); margin-top: 4px; }
+.reno th, .reno td, .board th, .board td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #e1dff0; }
+.board tr.reg td { background: var(--yellow-soft); }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.ovl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.seg-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 6px 0; }
+.seg-pick .btn { flex-direction: column; height: auto; min-height: 48px; padding: 4px; line-height: 1.15; white-space: normal; }
+.seg-pick .btn small { font-size: 10px; display: block; }
+.tiny { font-size: 11px; margin: -2px 0 4px; }
+
+/* ---- regulars and membership ---- */
+.reg-card { display: flex; gap: 10px; align-items: flex-start; padding: 10px; margin: 0 0 8px; border: 3px solid var(--edge); border-radius: 12px; background: #fff; }
+.reg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.reg-main .row { border: 0; padding: 0; display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.reg-goal { margin: 3px 0; padding: 5px 7px; border-radius: 8px; background: var(--sky-soft); font: 700 12px/1.3 var(--font); }
+.reg-goal.done { background: #dcf7d2; }
+.story { padding: 5px 0; border-bottom: 1px solid #e1dff0; font-size: 13px; line-height: 1.35; }
+.story.good b { color: var(--good); } .story.bad b { color: var(--bad); }
+.prospect { display: grid; grid-template-columns: 1fr 70px 2.2em; gap: 8px; align-items: center; padding: 4px 0; font-size: 13px; }
+.prospect small { display: block; }
+
+/* ---- facilities ---- */
+.fac-up { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 2px solid #e1dff0; flex-wrap: wrap; }
+.fac-up > div { flex: 1 1 160px; }
+
+/* ---- calendar ---- */
+.cal-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+.cal-day { min-height: 62px; border: 2px solid var(--line); border-radius: 10px; padding: 4px; background: #fff; display: flex; flex-direction: column; gap: 1px; font-size: 11px; overflow: hidden; }
+.cal-day b { font: 900 11px var(--font); }
+.cal-day small { font-size: 10px; line-height: 1.15; color: var(--ink); }
+.cal-day .wx { font-size: 13px; }
+.cal-day.today { border-color: var(--edge); background: var(--yellow-soft); }
+.cal-day.booked { border: 3px solid var(--edge); background: #dcf7d2; }
+.cal-day.offer { border: 2px dashed var(--edge); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.chip { min-width: 52px; min-height: 44px; border: 2px solid var(--edge); border-radius: 10px; background: #fff; font: 900 14px var(--font); color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2px 6px; }
+.chip small { font-size: 9px; font-weight: 700; }
+.chip.on { background: var(--green, #3ecf5a); }
+.card.offer { border-style: dashed; }
+
+/* ---- decisions, money, return ---- */
+.decision .opt { display: block; width: 100%; text-align: left; margin: 6px 0 0; padding: 8px 10px; min-height: var(--tap); border: 2px solid var(--edge); border-radius: 10px; background: #fff; color: var(--ink); font: 700 13px var(--font); }
+.decision .opt small { display: block; font-weight: 600; margin-top: 2px; }
+.decision .opt:active { background: var(--yellow-soft); }
+.money-sum { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 0 0 12px; }
+.money-sum > div { border: 3px solid var(--edge); border-radius: 12px; background: #fff; padding: 6px 8px; }
+.money-sum > div:first-child { grid-column: 1 / -1; background: var(--yellow-soft); }
+.money-sum b { display: block; font: 900 17px var(--font); }
+.ret h3 { margin: 12px 0 4px; font: 900 14px var(--font); }
+.ret-lines > div { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 2px solid #e1dff0; font-size: 14px; }
+.ret-list { list-style: none; margin: 0; padding: 0; }
+.ret-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid #e1dff0; font-size: 13px; line-height: 1.35; }
+.ret-list li .btn { flex: none; }
+.tool.hand.on { outline: 3px solid var(--edge); }
+@media (max-width: 360px) {
+  .rep-stats { grid-template-columns: repeat(2, 1fr); }
+  .seg { grid-template-columns: 6.5em 1fr 2em; }
+  .cal-strip { grid-template-columns: repeat(4, 1fr); }
+}

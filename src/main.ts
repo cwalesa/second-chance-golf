@@ -11,6 +11,7 @@ import { UI } from './ui';
 import { clearSave, loadGame, restoreParked, saveGame, serialize, importSave } from './save';
 import { startScreen } from './start';
 import { suggestClubhouse } from './wilderness';
+import { Snapshot, returnSummary, worthSummary } from './returns';
 
 async function boot() {
   const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -24,8 +25,10 @@ async function boot() {
   }
   let game: Game;
   let away: { days: number; net: number } | null = null;
+  let seen: Snapshot | null = null;
   if (loaded) {
     game = loaded.game;
+    seen = game.seen;
     away = game.applyAway((Date.now() - loaded.savedAt) / 1000);
   } else {
     const opts = await startScreen();
@@ -110,7 +113,9 @@ async function boot() {
 
   if (startNote) ui.toast(startNote, 'info');
   if (loaded?.recovered) ui.toast('Your previous save was recovered from the automatic backup.', 'info');
-  if (away) {
+  // a returning player gets a short summary of what changed and what is worth doing (returns.ts); a quick reload just a toast
+  if (loaded && seen && game.tutorial.done && worthSummary(game, seen, away?.days ?? 0)) ui.showReturn(returnSummary(game, seen, away));
+  else if (away) {
     ui.toast(`While you were away (${away.days} day${away.days === 1 ? '' : 's'}) your course earned ${away.net >= 0 ? '+' : ''}$${Math.round(away.net).toLocaleString('en-US')}.`, away.net >= 0 ? 'good' : 'bad');
   } else if (loaded) game.notify('info', `Welcome back. Day ${game.day}, ${game.clockText}.`);
 

@@ -6,6 +6,7 @@ import { drawCar, drawCart, drawFacility, isFacilityKind } from './art/facilitie
 import { makeTree, makeTreeShadow, SHADOW_AX, SHADOW_AY, SHADOW_H, SHADOW_W, TREE_BASE, TREE_H, TREE_VARIANTS, TREE_W } from './art/trees';
 import { CFG } from './config';
 import { Game } from './game';
+import { facilityPeople } from './facilities';
 import { Golfer, cartDriving, cartOut, inCar } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
@@ -83,6 +84,8 @@ export interface Overlay {
   hold: { x: number; y: number; t0: number; ms?: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
   bGhost: { x: number; y: number; k: string; ok: boolean; sell: boolean; move?: number } | null;
+  /** While placing a hole: the areas around other holes' tees and greens where a new tee or green cannot go. */
+  exclude?: { x: number; y: number; r: number }[] | null;
 }
 
 export class Renderer {
@@ -1837,7 +1840,7 @@ export class Renderer {
       const d = ITEMS[it.k];
       // the putting green and the range are ground, so people and trees are drawn over them
       const flat = it.k === 'puttingGreen' || it.k === 'range';
-      items.push({ y: flat ? -1e9 + it.x + it.y : it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => { const a = this.toScreen(it.x + (d.w ?? 1) / 2, it.y + (d.h ?? 1)); this.withRise(`item:${it.x},${it.y}`, a.x, a.y, () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, cartsHome) : 0)); } });
+      items.push({ y: flat ? -1e9 + it.x + it.y : it.x + it.y + (d.w ?? 1) / 2 + (d.h ?? 1) / 2 + 0.6, draw: () => { const a = this.toScreen(it.x + (d.w ?? 1) / 2, it.y + (d.h ?? 1)); this.withRise(`item:${it.x},${it.y}`, a.x, a.y, () => this.drawPlaced(it.k, it.x, it.y, 1, it.k === 'barn' ? Math.min(3, cartsHome) : it.k === 'academy' || it.k === 'restaurant' || it.k === 'tourney' ? game.fac[it.k].level * 10 + facilityPeople(game, it.k) : 0)); } });
       // the fleet: three carts in the bays (drawn with the barn), up to eight more nose-in along striped rows in front
       if (it.k === 'barn') {
         const out = Math.max(0, Math.min(cartsHome, 11) - 3);
@@ -1909,15 +1912,47 @@ export class Renderer {
   private drawStudio(game: Game) {
     const ctx = this.ctx, ts = this.ts;
     ctx.save();
-    if (game.heatmap) {
+    const mode = game.overlay;
+    if (mode === 'queues') {
+      // how many are waiting on each tee, and how long they have been waiting lately
+      for (const h of game.openHoles) {
+        const n = game.sim.queueFor(h.id).length;
+        const plays = (h.log ?? []).slice(-10);
+        const wait = plays.length ? plays.reduce((a, p) => a + p.t, 0) / plays.length : 0;
+        const p = this.toScreen(h.tee.x + 0.5, h.tee.y + 0.5);
+        const hot = n >= 3 || wait > 30, warm = n >= 1 || wait > 12;
+        ctx.fillStyle = hot ? 'rgba(230,80,60,.85)' : warm ? 'rgba(236,180,70,.85)' : 'rgba(90,170,100,.8)';
+        const r = Math.max(9, ts * (0.45 + Math.min(4, n) * 0.12));
+        ctx.beginPath(); ctx.arc(p.x, p.y - ts * 0.6, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#102238'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.max(10, Math.round(r * 0.9))}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(n), p.x, p.y - ts * 0.6);
+        ctx.font = `bold ${Math.max(9, Math.round(ts * 0.3))}px system-ui`; ctx.fillStyle = '#102238';
+        ctx.fillText(`${Math.round(wait)}s avg`, p.x, p.y - ts * 0.6 + r + 8);
+      }
+    }
+    if (mode === 'quality') {
+      // a score flag by every tee: green is strong, amber middling, red needs work
+      for (const h of game.openHoles) {
+        const q = game.holeReport(h).overall;
+        const p = this.toScreen(h.tee.x + 0.5, h.tee.y + 0.5);
+        ctx.fillStyle = q >= 70 ? '#3f9a52' : q >= 55 ? '#d99b2b' : '#d2503a';
+        ctx.beginPath(); ctx.roundRect(p.x - 16, p.y - ts - 12, 32, 18, 6); ctx.fill();
+        ctx.strokeStyle = '#102238'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(q), p.x, p.y - ts - 3);
+      }
+    }
+    if (mode === 'landings' || mode === 'trouble') {
       for (const dot of game.landings) {
         if (dot.hole !== game.selectedHole) continue;
+        if (mode === 'trouble' && !dot.bad) continue;
         const p = this.toScreen(dot.x, dot.y);
         ctx.fillStyle = dot.bad ? 'rgba(246,111,78,.65)' : 'rgba(250,221,139,.4)';
         ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, ts * .35), 0, Math.PI * 2); ctx.fill();
       }
     }
-    if (game.heatmap) {
+    if (mode === 'landings' || mode === 'trouble') {
       const h = game.hole(game.selectedHole);
       if (h) {
         const pts = [h.tee, h.bend, h.cup].map(p => this.toScreen(p.x + .5, p.y + .5));
@@ -3093,6 +3128,17 @@ export class Renderer {
       if(blocked||changed){ctx.fillStyle=blocked||ov.tooExpensive?'rgba(220,70,50,.45)':`rgba(${rgb},${staged ? .58 : .48})`;ctx.fill();}
       ctx.strokeStyle=blocked?'#e08e70':staged?'rgba(255,226,140,.95)':changed?'rgba(250,245,213,.9)':'rgba(244,241,211,.4)';ctx.lineWidth=changed?1.3:.7;ctx.stroke();
     };
+    if (ov.exclude?.length) {
+      // where a new tee or green cannot go: the tees and greens of the other holes, with the margin planNewHole keeps
+      ctx.save();
+      for (const e of ov.exclude) {
+        const p = this.toScreen(e.x + 0.5, e.y + 0.5);
+        ctx.fillStyle = 'rgba(214,72,52,.22)'; ctx.strokeStyle = 'rgba(214,72,52,.75)'; ctx.lineWidth = 1.4; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, ts * e.r * 1.0, ts * e.r * 0.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     for(const i of ov.hoverTiles)tile(i);
     for(const i of ov.staged)tile(i,true);
     if (ov.club) this.drawClubGhost(game, ov.club, time);
