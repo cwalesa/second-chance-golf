@@ -1333,3 +1333,9 @@ body.coaching[data-tut-only] #side[data-sheet="half"] { height: auto !important;
   .seg { grid-template-columns: 6.5em 1fr 2em; }
   .cal-strip { grid-template-columns: repeat(4, 1fr); }
 }
+/* very narrow screens: the time control shows its icon only (the words stay for screen readers) instead of a clipped "Pa" */
+@media (max-width: 360px) {
+  #tstate .ts-cap { display: none; }
+  #tstate .ts-act { font-size: 0 !important; gap: 0; justify-content: center; }
+  #tstate .ts-act .ic { width: 20px; height: 20px; }
+}

@@ -98,7 +98,7 @@ export function facilitiesHtml(g: Game): string {
 }
 function facilityCard(g: Game, id: FacilityId): string {
   const d = FACILITIES[id], it = ITEMS[id], built = hasFacility(g, id), lv = facLevel(g, id), t = g.today;
-  let html = `<div class="card fac"><div class="row"><span class="t">${d.name}</span><span class="dim">${built ? `Level ${lv}: ${d.levels[lv - 1].name}` : `${fmtMoney(it.cost)} · ${it.w}×${it.h} tiles`}</span></div><p class="dim small"><b>For:</b> ${d.serves}. ${d.effect}</p><p class="dim small"><b>Where:</b> ${d.placement}</p>`;
+  let html = `<div class="card fac" data-fac="${id}"><div class="row"><span class="t">${d.name}</span><span class="dim">${built ? `Level ${lv}: ${d.levels[lv - 1].name}` : `${fmtMoney(it.cost)} · ${it.w}×${it.h} tiles`}</span></div><p class="dim small"><b>For:</b> ${d.serves}. ${d.effect}</p><p class="dim small"><b>Where:</b> ${d.placement}</p>`;
   if (!built) return html + `<button class="btn primary" data-act="facbuild" data-id="${id}" ${g.cash < it.cost ? 'disabled' : ''}>Place it${g.cash < it.cost ? ` (need ${fmtMoney(it.cost - g.cash)} more)` : ''}</button></div>`;
   if (id === 'academy') {
     const a = g.fac.academy, prac = academyPractice(g.world), cap = a.coaches * FAC.academy.lessonsPerCoach[lv];

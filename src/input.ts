@@ -166,6 +166,8 @@ export class Editor {
   /** True once the player has clicked or tapped a spot, so wandering the mouse to the Build button does not move it. */
   clubLocked = false;
   inspectTile: Pt | null = null;
+  /** A facility the player just tapped: the Clubhouse panel scrolls to its card. */
+  focusFacility: string | null = null;
   onChange: () => void = () => {};
   onSelect: (what: 'golfer' | 'hole' | 'club') => void = () => {};
 
@@ -1413,6 +1415,15 @@ export class Editor {
         this.onChange();
         return;
       }
+    }
+    // the academy, restaurant and tournament center open their cards in the Clubhouse panel (roofs overhang a tile behind)
+    const fac = (this.game.world.items ?? []).find((it) => (it.k === 'academy' || it.k === 'restaurant' || it.k === 'tourney') && tx >= it.x - 1 && ty >= it.y - 1 && tx < it.x + (ITEMS[it.k].w ?? 1) && ty < it.y + (ITEMS[it.k].h ?? 1));
+    if (fac) {
+      this.game.selectedGolfer = 0;
+      this.focusFacility = fac.k;
+      this.onSelect('club');
+      this.onChange();
+      return;
     }
     this.inspectTile = { x: tx, y: ty };
     const z = this.game.world.zone[idx(this.game.world, tx, ty)];

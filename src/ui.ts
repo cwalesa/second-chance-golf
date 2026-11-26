@@ -940,6 +940,9 @@ export class UI {
       ${sec('Guest requests', ['Now and then a golfer asks for something: a safer hole, a smoother green, somewhere to stop. Requests are in Goals, with Show me and a few days to do it.', 'Put it right in time and you are paid. Each one comes from something golfers really found on your course.'])}
       ${sec('Weather', ['Most days are clear. Rain keeps golfers away but rests the turf; a heatwave wears it faster.', 'A storm washes out patches of turf on every hole. The bar at the top offers one button to repair it all.', 'Once in a long while a storm brings trees down across a fairway and closes that hole until you clear them.'])}
       ${sec('Growing', ['The starting shack has room for 4 holes. Clubhouse upgrades allow 9, 12 and 18, and each needs a better star rating.', 'Rating rises with open holes, healthy turf, happy guests and improvements.'])}
+      ${sec('Hole quality', ['Every hole has a report in Course: how beginners, regulars, skilled players and resort visitors each rate it, its main weakness and one thing to try.', 'Harder is not better. Hazards beside the fairway make choices; hazards across it just punish. Copies of the same short hole count for less.', 'After you rework a hole, its report compares how it played before and after.', 'Overlays show shot landings, trouble spots, queues at tees, or every hole\'s score on the map.'])}
+      ${sec('Facilities', ['The golf academy gives lessons after rounds: pupils really improve, and some join. Put it near the putting green or range.', 'The restaurant feeds golfers and local diners. A view and a short walk from the clubhouse bring more custom; choose the service level.', 'The tournament center runs competitions on the holes you choose, with a leaderboard and a report. Results build prestige.'])}
+      ${sec('Your club', ['Regulars come back by name, with goals of their own. Golfers shows their stories and who is close to joining.', 'Calendar offers events with notice. Commit to what suits your club; nothing is forced.', 'Now and then a decision comes up with a deadline, such as watering before a heatwave. If you let it pass, a sensible default is taken.', 'Your club identity comes from how you run it: prices, holes, facilities and events.'])}
     </div><div class="actions"><button class="btn primary" id="helpDone">Got it</button></div>`);
     (m.querySelector('#helpDone') as HTMLElement).onclick = () => this.closeModal();
   }
@@ -1371,6 +1374,11 @@ export class UI {
       else body.scrollTop = top;
       this.cache.set('side', html);
       this.restoreFocus(body, focus);
+      if (this.editor.focusFacility && this.tab === 'club') {
+        const card = body.querySelector<HTMLElement>(`[data-fac="${this.editor.focusFacility}"]`);
+        this.editor.focusFacility = null;
+        if (card) body.scrollTop = card.offsetTop - 8;
+      }
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }

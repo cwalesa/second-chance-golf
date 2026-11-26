@@ -29,10 +29,10 @@ export interface FacilityDef {
 /** All of the facilities' tuning in one place. Money is per game day unless it says otherwise. */
 export const FAC = {
   academy: {
-    lessonFee: 30,
-    coachWage: 70,
+    lessonFee: 40,
+    coachWage: 60,
     /** lessons one coach can give in a day, by academy level */
-    lessonsPerCoach: [0, 4, 5, 6],
+    lessonsPerCoach: [0, 5, 6, 7],
     maxCoaches: 3,
     /** chance a beginner (or a regular working on their game) books a lesson after the round */
     bookBeginner: 0.4,
@@ -49,12 +49,12 @@ export const FAC = {
   restaurant: {
     seats: [0, 26, 42, 60],
     service: {
-      lean: { label: 'Lean', wage: 90, spend: 15, sat: -2, locals: 0.85, blurb: 'Two staff and a short menu. Cheap to run; golfers notice the wait.' },
-      standard: { label: 'Standard', wage: 160, spend: 19, sat: 2, locals: 1, blurb: 'A full kitchen and table service.' },
-      premium: { label: 'Premium', wage: 280, spend: 26, sat: 5, locals: 1.3, blurb: 'A chef and a sommelier. Draws resort visitors and locals from town.' },
+      lean: { label: 'Lean', wage: 90, spend: 19, sat: -2, locals: 0.85, blurb: 'Two staff and a short menu. Cheap to run; golfers notice the wait.' },
+      standard: { label: 'Standard', wage: 160, spend: 24, sat: 2, locals: 1, blurb: 'A full kitchen and table service.' },
+      premium: { label: 'Premium', wage: 280, spend: 32, sat: 5, locals: 1.3, blurb: 'A chef and a sommelier. Draws resort visitors and locals from town.' },
     },
     /** share of the food bill that is ingredients */
-    foodCost: 0.38,
+    foodCost: 0.35,
     /** share of finishing golfers who stay to eat, before satisfaction and service */
     golferShare: 0.42,
     /** local diners a day at a plain spot with standard service */
@@ -221,8 +221,9 @@ export function afterRound(g: Game, type: 'beginner' | 'regular' | 'skilled', sa
   if (ac && g.fac.academy.coaches > 0) {
     const p = wantsLesson ? 0.85 : type === 'beginner' || seg === 'junior' ? FAC.academy.bookBeginner : type === 'skilled' ? (ac >= 3 ? FAC.academy.bookSkilled : 0) : FAC.academy.bookOther;
     if (g.rng.next() < p) {
-      const cap = g.fac.academy.coaches * FAC.academy.lessonsPerCoach[ac];
-      if ((t.lessons ?? 0) < cap) { const d = facilityDoor(g.world, 'academy'); if (d) return { ...d, what: 'lesson' }; }
+      const cap = academyCap(g);
+      // pupils already walking over hold their slot
+      if ((t.lessons ?? 0) + onTheWay(g, 'lesson') < cap) { const d = facilityDoor(g.world, 'academy'); if (d) return { ...d, what: 'lesson' }; }
       else t.turnedAway = (t.turnedAway ?? 0) + 1;
     }
   }
@@ -232,12 +233,17 @@ export function afterRound(g: Game, type: 'beginner' | 'regular' | 'skilled', sa
     const set = restaurantSetting(g.world);
     const p = FAC.restaurant.golferShare * set.access * (0.6 + sat / 160) * (svc.sat >= 2 ? 1.1 : 0.9);
     if (g.rng.next() < p) {
-      if ((t.covers ?? 0) < seatsToday(g)) { const d = facilityDoor(g.world, 'restaurant'); if (d) return { ...d, what: 'dine' }; }
+      if ((t.covers ?? 0) + onTheWay(g, 'dine') < seatsToday(g)) { const d = facilityDoor(g.world, 'restaurant'); if (d) return { ...d, what: 'dine' }; }
       else t.diningTurnedAway = (t.diningTurnedAway ?? 0) + 1;
     }
   }
   return null;
 }
+
+/** Lessons the coaches can give today. */
+export const academyCap = (g: Game) => g.fac.academy.coaches * FAC.academy.lessonsPerCoach[facLevel(g, 'academy')];
+/** Golfers walking over for a lesson or a meal right now. */
+const onTheWay = (g: Game, what: 'lesson' | 'dine') => g.sim.golfers.filter((x) => x.stopAt?.what === what).length;
 
 /** Local diners arrive through the day (they do not play golf): a share of the day's locals each game hour. */
 export function hourlyLocals(g: Game): number {
@@ -247,7 +253,7 @@ export function hourlyLocals(g: Game): number {
   const svc = FAC.restaurant.service[g.fac.restaurant.service];
   const identityBoost = g.identity?.top === 'resort' ? 1.15 : 1;
   const perDay = set.locals * svc.locals * (0.75 + 0.25 * lv) * (0.7 + g.reputation / 160) * identityBoost;
-  const free = Math.max(0, seatsToday(g) - (g.today.covers ?? 0));
+  const free = Math.max(0, seatsToday(g) - (g.today.covers ?? 0) - onTheWay(g, 'dine'));
   const want = perDay / 12;
   const n = Math.floor(want) + (g.rng.next() < want - Math.floor(want) ? 1 : 0);
   return Math.min(free, n);

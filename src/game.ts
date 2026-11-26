@@ -23,7 +23,7 @@ import { Logo, defaultLogo } from './logo';
 import { WEATHER, Weather, weatherOn } from './weather';
 import { RequestState, freshRequests, requestDone, rollRequests } from './requests';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
-import { FAC, FacilityState, restaurantSetting, academyPractice, afterRound, facLevel, facilityDailyCost, freshFacilities, hourlyLocals, mealMargin, seatsToday } from './facilities';
+import { FAC, FacilityState, academyCap, restaurantSetting, academyPractice, afterRound, facLevel, facilityDailyCost, freshFacilities, hourlyLocals, mealMargin, seatsToday } from './facilities';
 import { RegularsState, addInterest, dailyRegulars, dueRegular, fadeProspects, findRegular, freshRegulars, growRoster, regularLesson, regularRound, roundInterest } from './regulars';
 import { CalendarState, applyPrep, boardHole, eventIssues, fieldNames, freshCalendar, readinessOf, refreshOffers, routeOf, tournamentReport } from './calendar';
 import { DecisionState, dailyDecisions, freshDecisions, heatPlan } from './decisions';
@@ -808,6 +808,9 @@ export class Game {
     const stop = g.stopAt;
     if (!stop) return;
     const t = this.today;
+    // a slot can still be gone by the time they arrive (a new day began on the way): then they simply go home
+    if (stop.what === 'lesson' && (t.lessons ?? 0) >= academyCap(this)) { t.turnedAway = (t.turnedAway ?? 0) + 1; return; }
+    if (stop.what === 'dine' && (t.covers ?? 0) >= seatsToday(this)) { t.diningTurnedAway = (t.diningTurnedAway ?? 0) + 1; return; }
     if (stop.what === 'lesson') {
       t.lessons = (t.lessons ?? 0) + 1;
       this.earn('fees', FAC.academy.lessonFee, `Lesson, ${g.name}`);
