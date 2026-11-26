@@ -1756,7 +1756,13 @@ export class UI {
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
       <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${g.maxHoles}</span></div>`;
-    html += next ? `<div class="note ${why ? 'warn' : 'good'}">Next: ${next.name}. ${why ?? 'Requirements met.'}</div><button class="btn primary" data-act="club" ${why || g.cash < next.cost ? 'disabled' : ''}>Upgrade for ${fmtMoney(next.cost)}</button>` : '<div class="note good">Fully upgraded.</div>';
+    if (next) {
+      // the rating gate and the price are separate: meeting one says nothing about the other
+      const short = Math.max(0, next.cost - g.cash);
+      const rating = why ? `Rating: ${why}` : `Rating: ${next.minStars}-star requirement met.`;
+      const cash = short > 0 ? `Cash: ${fmtMoney(next.cost)} needed. You have ${fmtMoney(Math.max(0, g.cash))}, so ${fmtMoney(short)} still to save.` : `Cash: ${fmtMoney(next.cost)} needed. You have enough.`;
+      html += `<div class="t">Next: ${next.name}</div><div class="note ${why ? 'warn' : 'good'}" data-club-rating>${rating}</div><div class="note ${short > 0 ? 'warn' : 'good'}" data-club-cash>${cash}</div><button class="btn primary" data-act="club" ${why || short > 0 ? 'disabled' : ''}>Upgrade for ${fmtMoney(next.cost)}</button>`;
+    } else html += '<div class="note good">Fully upgraded.</div>';
     html += `</div></div>`;
     html += `<div class="sec"><h3>What raises your rating</h3><div class="dim">Open holes (${g.openHoles.length}), turf condition (${Math.round(g.avgCondition)}), guest satisfaction (${Math.round(g.reputation)}), improvements owned and the clubhouse level. Higher ratings lift demand and fees, and unlock bigger clubhouse upgrades and events.</div></div>`;
     html += `<div class="sec"><h3>${r.name}</h3><div class="dim">${r.perks.join(' · ')}</div><div class="note">${SEASON_NAMES2[nextSeason]} comes next: demand ${r.seasonDemand[nextSeason] >= 1.1 ? 'rises' : r.seasonDemand[nextSeason] <= 0.7 ? 'drops sharply' : 'is steady'}, turf wear ${r.seasonWear[nextSeason] > 1.1 ? 'is heavier' : 'is normal'}.</div></div>`;
