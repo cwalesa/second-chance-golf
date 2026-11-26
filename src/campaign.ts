@@ -2,8 +2,8 @@ import type { Game } from './game';
 import { BUILDING_KINDS as BUILDINGS } from './items';
 
 /** `stage` and `completed` are legacy fields from the old chapter system; they are kept only so old saves still load. */
-export interface CampaignState { /** position in the goal chain (CHAIN) */ step?: number; /** id of the current goal, so the chain can change between versions */ goalId?: string; stage: number; claimed: string[]; completed: string[]; rounds: number; profit: number; events: number; medals: number; }
-export const freshCampaign = (): CampaignState => ({ step: 0, goalId: 'c-hole1', stage: 0, claimed: [], completed: [], rounds: 0, profit: 0, events: 0, medals: 0 });
+export interface CampaignState { /** goals reached, in any order (ids from CHAIN) */ done?: string[]; /** the first goal not yet reached (kept for older code and saves) */ step?: number; /** id of the current goal, so the chain can change between versions */ goalId?: string; stage: number; claimed: string[]; completed: string[]; rounds: number; profit: number; events: number; medals: number; }
+export const freshCampaign = (): CampaignState => ({ done: [], step: 0, goalId: 'c-hole1', stage: 0, claimed: [], completed: [], rounds: 0, profit: 0, events: 0, medals: 0 });
 export interface Objective { id: string; title: string; detail: string; reward: number; target: number; value(g: Game): number; }
 const objective = (id: string, title: string, detail: string, reward: number, target: number, value: (g: Game) => number): Objective => ({ id, title, detail, reward, target, value });
 const holes = (n: number) => objective(`holes${n}`, `Open ${n} holes`, 'Build holes, then open them for guests.', 550, n, g => g.openHoles.length);
@@ -38,15 +38,17 @@ export interface ChainGoal {
   guide?: string;
   /** Shown as a count (3 / 6), as money ($1,200 / $1,500) or as stars. */
   unit?: 'money' | 'stars';
+  /** Progress can be at the target while something still stands in the way (a hole closed for work): say what. */
+  blocked?(g: Game): string | null;
 }
 const cg = (id: string, title: string, how: string, reward: number, target: number, value: (g: Game) => number, more: Partial<ChainGoal> = {}): ChainGoal => ({ id, title, how, reward, target, value, ...more });
 const openHoles = (g: Game) => g.openHoles.length;
-/** Sand within a short pitch of an open green: the player has started shaping holes, not just laying them out. */
-function bunkersByGreens(g: Game) {
+/** Sand within a short pitch of a green: the player has started shaping holes, not just laying them out. Closed holes count toward progress. */
+function bunkersByGreens(g: Game, openOnly = false) {
   const w = g.world;
   let n = 0;
   for (const h of w.holes) {
-    if (!h.open) continue;
+    if (openOnly && !h.open) continue;
     for (let y = h.cup.y - 6; y <= h.cup.y + 6; y++)
       for (let x = h.cup.x - 6; x <= h.cup.x + 6; x++) if (x >= 0 && y >= 0 && x < w.w && y < w.h && w.terrain[y * w.w + x] === 4) n++;
   }
@@ -61,10 +63,14 @@ const doglegs = (g: Game) => g.world.holes.filter((h) => h.open && (h.bends?.len
 export const CHAIN: ChainGoal[] = [
   cg('c-hole1', 'Open your first hole', 'Build a hole (Design, then New hole), then open it in Course.', 400, 1, openHoles, { go: 'build', tool: 'build' }),
   cg('c-rounds10', 'Welcome 25 rounds', 'Golfers come on their own. Tap Fast in the menu to speed the day up.', 450, 25, (g) => g.stats.rounds, { guide: '#nav [data-mspeed="3"]' }),
-  cg('c-bunker', 'Guard a green with sand', 'Pick Bunker in Design and paint a few tiles beside a green. Building closes the hole, so open it again when you are done.', 450, 4, bunkersByGreens, { go: 'build', tool: 'bunker' }),
+  cg('c-bunker', 'Guard a green with sand', 'Pick Bunker in Design and paint a few tiles beside a green. Building closes the hole, so open it again when you are done.', 450, 4, (g) => bunkersByGreens(g), { go: 'build', tool: 'bunker', blocked: (g) => {
+    if (bunkersByGreens(g, true) >= 4) return null;
+    const closed = g.world.holes.filter((h) => !h.open);
+    return closed.length ? `The sand is in. Reopen hole ${closed.map((h) => h.id).join(', ')} to finish this goal.` : null;
+  } }),
   cg('c-hole3', 'Open 3 holes', 'More holes bring more golfers. Build two more and open them.', 600, 3, openHoles, { go: 'build', tool: 'build' }),
   cg('c-dogleg', 'Build a dogleg', 'Start a New hole, tap + Bend, then drag the bend to where the fairway should turn. Build it and open it.', 600, 1, doglegs, { go: 'build', tool: 'build' }),
-  cg('c-profit1500', 'Earn $3,500 profit', 'Profit is green fees and sales minus upkeep. In Finances, keep each fee close to what guests think is fair.', 700, 3500, (g) => g.campaign.profit, { go: 'money', guide: '[data-act="bandfee"]', unit: 'money' }),
+  cg('c-profit1500', 'Earn $3,500 profit', 'Profit is green fees and sales minus upkeep. In Finances, keep each fee close to what guests think is fair.', 700, 3500, (g) => liveProfit(g), { go: 'money', guide: '[data-act="bandfee"]', unit: 'money' }),
   cg('c-club1', 'Upgrade to a real clubhouse', 'The shack has room for 4 holes; the clubhouse allows 9. Needs a 1-star rating. Upgrade it in the Clubhouse panel.', 800, 1, (g) => g.clubLevel, { go: 'club', guide: '[data-act="club"]' }),
   cg('c-staff', 'Hire your first staff member', 'A greenkeeper keeps turf healthy and a ranger keeps play moving. Hire one in Clubhouse.', 600, 1, (g) => Object.values(g.staff).filter(Boolean).length, { go: 'club', guide: '[data-act="hire"]' }),
   cg('c-hole6', 'Open 6 holes', 'Keep building. Mix pars 3, 4 and 5 for variety.', 1100, 6, openHoles, { go: 'build', tool: 'build' }),
@@ -86,14 +92,28 @@ export const CHAIN: ChainGoal[] = [
 ];
 /** Reaching this goal completes the region: the start screen marks it, and Goals offers a new course elsewhere. */
 export const REGION_GOAL = 'c-hole18';
-export const regionComplete = (g: Game) => chainStep(g) > CHAIN.findIndex((x) => x.id === REGION_GOAL);
+export const regionComplete = (g: Game) => goalDone(g, REGION_GOAL);
 /** The first version of the chain, by position, so saves that stored only a number land on the same goal. */
 export const CHAIN_V1 = ['c-hole1', 'c-rounds10', 'c-hole3', 'c-profit1500', 'c-club1', 'c-hole6', 'c-members3', 'c-event1', 'c-hole9', 'c-star25', 'c-club2', 'c-hole12', 'c-star35', 'c-club3', 'c-hole18'];
 /** Goals taken out of the chain, and the goal a save that was standing on one continues with. */
 export const CHAIN_MOVED: Record<string, string> = { 'c-play': 'c-profit1500', done: 'c-members20' }; // 'done' was the end of the chain before the resort goals were added
-export const chainStep = (g: Game) => Math.min(CHAIN.length, g.campaign.step ?? 0);
+/** Lifetime operating profit including today so far: goals and panels show it live, not only when the day closes. */
+export const liveProfit = (g: Game) => g.campaign.profit + (g.today.fees + g.today.shop - g.today.maintenance);
+export const goalDone = (g: Game, id: string) => (g.campaign.done ?? []).includes(id);
+/** Reached: at the target and nothing standing in the way. */
+export const goalMet = (g: Game, c: ChainGoal) => c.value(g) >= c.target && !c.blocked?.(g);
+/** The first goal not yet reached. Goals are recognised in any order; this is just the earliest one still open. */
+export const chainStep = (g: Game) => { const i = CHAIN.findIndex((c) => !goalDone(g, c.id)); return i < 0 ? CHAIN.length : i; };
 export const currentGoal = (g: Game): ChainGoal | null => CHAIN[chainStep(g)] ?? null;
+/** The few goals to show as active opportunities: the earliest open ones, plus any that are close to done. */
+export function activeGoals(g: Game, n = 3): ChainGoal[] {
+  const open = CHAIN.filter((c) => !goalDone(g, c.id));
+  const first = open.slice(0, n);
+  const close = open.slice(n).filter((c) => c.value(g) / c.target >= 0.75).slice(0, 1);
+  return [...first, ...close];
+}
 export function goalProgressText(goal: ChainGoal, g: Game): string {
+  if (goalDone(g, goal.id)) return 'Done';
   const v = Math.max(0, Math.min(goal.target, goal.value(g)));
   if (goal.unit === 'money') return '$' + Math.round(v).toLocaleString('en-US') + ' / $' + goal.target.toLocaleString('en-US');
   if (goal.unit === 'stars') return v + ' / ' + goal.target + ' stars';

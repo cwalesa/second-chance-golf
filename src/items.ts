@@ -10,7 +10,8 @@ import { lotFor, lotKindAt, reserveLots } from './lots';
  */
 export type ItemKind = 'flowers' | 'shrub' | 'bench' | 'lamp' | 'washer' | 'fountain' | 'statue' | 'birdbath' | 'picnic' | 'flagpole' | 'rockgarden' | 'planter' | 'arch' | 'hedge'
   | 'bush' | 'wildflowers' | 'tallgrass' | 'reeds' | 'boulder' | 'restroom' | 'starter' | 'windmill' | 'carpark'
-  | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'barn' | 'shed' | 'puttingGreen' | 'range';
+  | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'barn' | 'shed' | 'puttingGreen' | 'range'
+  | 'academy' | 'restaurant' | 'tourney';
 export interface Item { x: number; y: number; k: ItemKind }
 
 export interface ItemDef { label: string; cost: number; beauty: number; hint: string; /** footprint in tiles, for buildings */ w?: number; h?: number; max?: number; /** dollars per day */ upkeep?: number }
@@ -47,9 +48,12 @@ export const ITEMS: Record<ItemKind, ItemDef> = {
   barn: { label: 'Cart barn', cost: 4500, beauty: 1, w: 4, h: 2, max: 1, upkeep: 5, hint: 'Shelter for the cart fleet. Raises the most carts you can own from 6 to 16 and parks them in view.' },
   puttingGreen: { label: 'Putting green', cost: CFG.upgrades.puttingGreen.cost, beauty: 1, w: 4, h: 3, max: 1, hint: 'A practice green for warm-ups. Guests rate their day higher. Its upkeep is part of your hourly costs.' },
   range: { label: 'Driving range', cost: CFG.upgrades.range.cost, beauty: 0, w: 7, h: 3, max: 1, hint: 'Hitting mats and target greens. Draws about 15% more golfers. Its upkeep is part of your hourly costs.' },
+  academy: { label: 'Golf academy', cost: 5600, beauty: 1, w: 5, h: 3, max: 1, upkeep: 10, hint: 'Lessons for beginners and juniors. Pupils really improve and often join. Best near the putting green or range.' },
+  restaurant: { label: 'Restaurant', cost: 7200, beauty: 2, w: 5, h: 4, max: 1, upkeep: 12, hint: 'Meals for golfers and local diners. A view and a short walk from the clubhouse bring more custom.' },
+  tourney: { label: 'Tournament center', cost: 6800, beauty: 1, w: 4, h: 3, max: 1, upkeep: 10, hint: 'Run competitions with a leaderboard: choose holes, preparation and access. Best near the first tee.' },
   shed: { label: 'Maintenance shed', cost: 3800, beauty: 0, w: 3, h: 2, max: 1, upkeep: 8, hint: 'Mowers and tools kept close. Turf wears about 15% more slowly across the course.' },
 };
-export const BUILDING_KINDS: ItemKind[] = ['halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'carpark', 'barn', 'shed', 'puttingGreen', 'range'];
+export const BUILDING_KINDS: ItemKind[] = ['academy', 'restaurant', 'tourney', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'carpark', 'barn', 'shed', 'puttingGreen', 'range'];
 /** Improvements that used to be bought from the Finances panel and are now placed on the property. Owning one means it stands somewhere. */
 export const AMENITY_KINDS = ['puttingGreen', 'range'] as const;
 export const isAmenity = (k: ItemKind): k is (typeof AMENITY_KINDS)[number] => (AMENITY_KINDS as readonly string[]).includes(k);

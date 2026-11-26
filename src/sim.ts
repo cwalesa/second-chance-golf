@@ -51,6 +51,10 @@ export interface RoundStats {
   closedOnMe: number;
 }
 export interface HoleTrack {
+  /** water balls, sand shots and seconds spent waiting on this hole (for the hole report) */
+  water?: number;
+  sand?: number;
+  wait?: number;
   strokes: number;
   shots: number;
   rough: number;
@@ -97,7 +101,7 @@ export interface Golfer {
   stats: RoundStats;
   hs: HoleTrack;
   designSum: number;
-  scorecard: { hole: number; par: number; strokes: number }[];
+  scorecard: { hole: number; par: number; strokes: number; water?: number; sand?: number }[];
   holesDone: number;
   parDone: number;
   strokesDone: number;
@@ -119,6 +123,14 @@ export interface Golfer {
   rby: number;
   rbz: number;
   event: boolean;
+  /** Dispersion multiplier for this golfer: 1 is typical for the type; lessons bring a regular's below 1. */
+  skill?: number;
+  /** A recurring golfer the club tracks by name (see regulars.ts). */
+  regId?: number;
+  /** Who this golfer is beyond skill: a resort visitor, a junior from the academy, or a tournament competitor. */
+  seg?: 'resort' | 'junior' | 'field';
+  /** After the round: stop at the academy or the restaurant before leaving (a tile to walk to). */
+  stopAt?: { x: number; y: number; what: 'lesson' | 'dine' } | null;
   /** A free test golfer sent by the owner to try the layout: no fee, no sales, no ratings. */
   test?: boolean;
   fairFee: number | null;
@@ -138,6 +150,10 @@ export interface RoundResult {
   test?: boolean;
   holeIds?: number[];
   fairFee: number | null;
+  skill?: number;
+  regId?: number;
+  seg?: Golfer['seg'];
+  scorecard?: Golfer['scorecard'];
 }
 export interface GuestComment {
   t: number;
@@ -153,6 +169,10 @@ export interface SimHooks {
   /** every finished hole, with strokes against par (-1 birdie, -2 eagle) */
   onHoleOut?(g: Golfer, h: Hole, diff: number): void;
   onHole?(g: Golfer, h: Hole): number;
+  /** a finished hole with what happened on it, for the hole's own recent record */
+  onHoleDone?(g: Golfer, h: Hole, strokes: number, picked: boolean): void;
+  /** a golfer reached the academy or restaurant after the round */
+  onStop?(g: Golfer): void;
   onShot?(h: Hole, shot: ExecutedShot): void;
 }
 
@@ -173,7 +193,7 @@ export function scoreName(diff: number, strokes: number): string {
 const PLAYING: Phase[] = ['toBall', 'address', 'swing', 'flight', 'holed'];
 const isPlaying = (g: Golfer) => PLAYING.includes(g.phase);
 const newStats = (): RoundStats => ({ shots: 0, rough: 0, bunker: 0, water: 0, tree: 0, condSum: 0, condN: 0, wait: 0, picked: 0, closedOnMe: 0 });
-const newTrack = (now: number): HoleTrack => ({ strokes: 0, shots: 0, rough: 0, carryWarned: false, saidRough: false, saidGreen: false, start: now, fwyHit: null, onGreenAt: null });
+const newTrack = (now: number): HoleTrack => ({ water: 0, sand: 0, wait: 0, strokes: 0, shots: 0, rough: 0, carryWarned: false, saidRough: false, saidGreen: false, start: now, fwyHit: null, onGreenAt: null });
 
 export class CourseSim {
   golfers: Golfer[] = [];
@@ -239,7 +259,7 @@ export class CourseSim {
     return { x: tee.x + bx * (2.4 + i * 0.9) + px * side, y: tee.y + by * (2.4 + i * 0.9) + py * side };
   }
 
-  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[] } = {}): Golfer | null {
+  spawn(type: GolferType, fee: number, opts: { event?: boolean; fair?: number; test?: boolean; holes?: number[]; name?: string; skill?: number; regId?: number; seg?: Golfer['seg'] } = {}): Golfer | null {
     const open = this.world.holes.filter((h) => h.open && (!opts.holes || opts.holes.includes(h.id)));
     if (!open.length) return null;
     // start on the least busy open hole, then play the rest in order
@@ -255,7 +275,7 @@ export class CourseSim {
     const route = open.map((_, i) => open[(startIdx + i) % open.length].id);
     const g: Golfer = {
       id: this.nextId++,
-      name: `${this.rng.pick(FIRST)} ${this.rng.pick(LAST.split(''))}.`,
+      name: opts.name ?? `${this.rng.pick(FIRST)} ${this.rng.pick(LAST.split(''))}.`,
       type,
       returning: this.rng.next() < 0.4,
       speed: this.rng.range(0.9, 1.12),
@@ -303,6 +323,9 @@ export class CourseSim {
       event: !!opts.event,
       test: !!opts.test,
       fairFee: opts.fair ?? null,
+      skill: opts.skill,
+      regId: opts.regId,
+      seg: opts.seg,
     };
     this.golfers.push(g);
     return g;
@@ -434,7 +457,8 @@ export class CourseSim {
   private completeHole(g: Golfer, h: Hole, strokes: number, picked: boolean) {
     const diff = strokes - h.par;
     g.designSum += this.hooks.onHole?.(g, h) ?? 0;
-    g.scorecard.push({ hole: h.id, par: h.par, strokes });
+    if (!g.test) this.hooks.onHoleDone?.(g, h, strokes, picked);
+    g.scorecard.push({ hole: h.id, par: h.par, strokes, water: g.hs.water ?? 0, sand: g.hs.sand ?? 0 });
     g.holesDone++;
     g.parDone += h.par;
     g.strokesDone += strokes;
@@ -518,6 +542,7 @@ export class CourseSim {
       g.ball = { x: c.x + this.rng.range(-0.8, 0.8), y: c.y + this.rng.range(-0.8, 0.8) };
       g.ballVisible = true;
       g.stats.wait += g.phaseTime;
+      g.hs.wait = (g.hs.wait ?? 0) + g.phaseTime;
       if (g.phaseTime > 28) this.sayOnce(g, 'slowTee', 'Backed up at the tee again.');
       else if (g.returning && h.reopenedAt >= 0 && this.now - h.reopenedAt < 900) this.sayOnce(g, 'reopen' + h.id, 'Good to see this hole open again.');
       this.setPhase(g, 'toBall');
@@ -574,6 +599,7 @@ export class CourseSim {
     } else if (lie.kind === 'bunker') {
       g.stats.bunker++;
       g.hs.rough++;
+      g.hs.sand = (g.hs.sand ?? 0) + 1;
     }
     if (lie.kind !== 'bunker') {
       g.stats.condSum += lie.cond * (lie.kind === 'green' ? 1.5 : 1);
@@ -581,7 +607,7 @@ export class CourseSim {
     }
     if (lie.kind === 'green' && toCup < 6) {
       const feet = toCup * CFG.grid.feetPerTile;
-      const holed = this.rng.next() < puttProbability(feet, g.type, lie.cond);
+      const holed = this.rng.next() < puttProbability(feet, g.type, lie.cond, g.skill ?? 1);
       let end = cup;
       if (!holed) {
         const left = puttLeave(this.rng, feet) / CFG.grid.feetPerTile;
@@ -603,7 +629,7 @@ export class CourseSim {
       return;
     }
     const plan = g.plan ?? planShot(world, h, g.type, g.ball);
-    const shot = executeShot(world, this.rng, g.type, g.ball, plan);
+    const shot = executeShot(world, this.rng, g.type, g.ball, plan, g.skill ?? 1);
     this.addFx(lie.kind === 'bunker' ? 'sand' : 'divot', g.ball.x, g.ball.y);
     if (box.length) {
       // the same wear as before, shared across the box
@@ -652,6 +678,7 @@ export class CourseSim {
         this.addFx('splash', sh.air.x, sh.air.y);
         g.stats.water++;
         h.stats.water++;
+        g.hs.water = (g.hs.water ?? 0) + 1;
         this.say(g, this.rng.pick(['Splash. That is a penalty stroke.', 'Into the water. One-stroke penalty.']));
       } else if (sh.kind === 'oob') this.say(g, 'Out of bounds. Hitting again.');
       else if (sh.kind === 'tree' || sh.kind === 'treeLand') {
@@ -719,6 +746,10 @@ export class CourseSim {
       test: g.test,
       holeIds: g.scorecard.map((c) => c.hole),
       fairFee: g.fairFee,
+      skill: g.skill,
+      regId: g.regId,
+      seg: g.seg,
+      scorecard: g.scorecard,
     });
     if (farewell) this.say(g, farewell, true);
     this.setPhase(g, 'leave');
@@ -858,9 +889,21 @@ export class CourseSim {
         else if (!h) this.startNextHole(g);
         break;
       case 'toExit':
+        if (g.timer === 2 && g.stopAt) {
+          // walking to the academy or the restaurant after the round (the round is already scored)
+          if (this.walk(g, g.stopAt.x, g.stopAt.y, dt) || g.phaseTime > 70) {
+            this.hooks.onStop?.(g);
+            g.stopAt = null;
+            g.timer = 0;
+            this.setPhase(g, 'leave');
+          }
+          break;
+        }
         if (this.walk(g, this.sites.door.x, this.sites.door.y, dt) || g.phaseTime > 90) {
           g.timer = 0;
           this.finishRound(g);
+          // a lesson at the academy or a meal on the restaurant patio: they walk over before driving home
+          if (g.stopAt) { this.setPhase(g, 'toExit'); g.timer = 2; }
         }
         break;
       case 'leave':

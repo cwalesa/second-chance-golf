@@ -11,9 +11,21 @@ import { ITEMS } from './items';
 import { defaultLogo } from './logo';
 import { loadRequests } from './requests';
 import { reserveLots } from './lots';
+import { loadFacilities } from './facilities';
+import { loadRegulars } from './regulars';
+import { loadCalendar } from './calendar';
+import { loadDecisions } from './decisions';
+import { computeIdentity } from './identity';
+import { snapshotFor } from './returns';
 
 const KEY = 'second-chance-golf.save.v2';
 const VERSION = 2;
+/**
+ * Content revision inside the version-2 format. Rev 3 adds the facilities, regulars, calendar, decisions, prestige,
+ * course setup, per-hole play logs and goals tracked one by one. Older saves (no rev) load with safe defaults for all of
+ * these and their goal position converted; nothing they already had is changed.
+ */
+export const SAVE_REV = 3;
 const BACKUP_KEY = KEY + '.backup';
 export interface LoadedSave { game: Game; savedAt: number; recovered?: boolean; }
 
@@ -21,7 +33,15 @@ export function serialize(g: Game): string {
   const w = g.world;
   return JSON.stringify({
     v: VERSION,
+    rev: SAVE_REV,
     savedAt: Date.now(),
+    fac: g.fac,
+    regulars: g.regulars,
+    calendar: g.calendar,
+    decisions: g.decisions,
+    prestige: g.prestige,
+    setup: g.setup,
+    seen: snapshotFor(g),
     campaign: g.campaign,
     daily: g.daily,
     practice: g.practice,
@@ -133,7 +153,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.campaign = { ...g.campaign, ...(d.campaign ?? {}) };
     g.practice = d.practice === true;
     if (d.daily && typeof d.daily.date === 'string' && Array.isArray(d.daily.challenges)) g.daily = { ...g.daily, ...d.daily };
-    if (d.campaign?.step === undefined) g.catchUpGoals();
+    if (d.campaign?.step === undefined) { g.campaign.done = Array.isArray(d.campaign?.done) ? d.campaign.done : []; g.catchUpGoals(); }
     else {
       // find the saved goal in the current chain; saves from before ids were stored used the first chain's order
       const saved = d.campaign.goalId ?? CHAIN_V1[d.campaign.step] ?? 'done';
@@ -141,6 +161,9 @@ export function deserialize(text: string): LoadedSave | null {
       const at = CHAIN.findIndex((c) => c.id === id);
       g.campaign.step = at >= 0 ? at : CHAIN.length;
       g.campaign.goalId = id;
+      // goals are now tracked one by one: a save from the chain had reached everything before its position
+      if (!Array.isArray(d.campaign.done)) g.campaign.done = CHAIN.slice(0, g.campaign.step).map((c) => c.id);
+      else g.campaign.done = d.campaign.done.filter((x: unknown) => typeof x === 'string');
       // goals added before this point that the course has already met are skipped, unpaid
       g.catchUpGoals();
     }
@@ -161,6 +184,15 @@ export function deserialize(text: string): LoadedSave | null {
     // what a storm left behind, so its repair prompts are still there after the game is closed and reopened
     g.stormDamage = d.stormDamage === true;
     g.requests = loadRequests(d.requests);
+    // rev 3: everything below defaults safely when an older save does not have it
+    g.fac = loadFacilities(d.fac);
+    g.regulars = loadRegulars(d.regulars);
+    g.calendar = loadCalendar(d.calendar);
+    g.decisions = loadDecisions(d.decisions);
+    g.prestige = Number.isFinite(d.prestige) ? Math.max(0, Math.min(100, d.prestige)) : 0;
+    g.setup = d.setup === 'forgiving' || d.setup === 'championship' ? d.setup : 'standard';
+    g.seen = d.seen && Number.isInteger(d.seen.day) ? d.seen : null;
+    for (const h of world.holes) { if (h.log && !Array.isArray(h.log)) delete h.log; if (h.reno && !h.reno.before) delete h.reno; }
     g.fallen = Array.isArray(d.fallen) ? d.fallen.filter((f: { hole?: unknown; tiles?: unknown }) => Number.isInteger(f?.hole) && Array.isArray(f?.tiles) && (f.tiles as unknown[]).every((i) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < n)) : [];
     g.region = d.region;
     g.name = d.name ?? g.name;
@@ -204,6 +236,7 @@ export function deserialize(text: string): LoadedSave | null {
     g.selectedHole = d.selectedHole ?? world.holes[0]?.id ?? 0;
     g.sim.now = d.sim?.now ?? g.total;
     g.applyRegion();
+    g.identity = computeIdentity(g);
     // a putting green or range owned before they could be placed now stands beside the clubhouse
     reserveLots(g.world); // courses from before lots existed get theirs now
     g.placeOwnedAmenities();
