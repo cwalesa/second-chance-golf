@@ -103,8 +103,9 @@ export class Studio {
     const o = this.g.owner, h = this.g.world.holes.find((x) => x.id === o.holeId);
     if (!o.active || !h) return;
     const cup = { x: h.cup.x + 0.5, y: h.cup.y + 0.5 };
-    const d = Math.hypot(cup.x - o.ball.x, cup.y - o.ball.y), reach = o.reach(this.g) + 3;
-    const target = o.aim ?? (d > reach ? { x: o.ball.x + ((cup.x - o.ball.x) * reach) / d, y: o.ball.y + ((cup.y - o.ball.y) * reach) / d } : cup);
+    // the green stays in the frame for any shot that could reach it, whichever club is in hand (a wrong club must not hide it)
+    const d = Math.hypot(cup.x - o.ball.x, cup.y - o.ball.y), reach = Math.max(o.reach(this.g), 17) + 3;
+    const target = o.aim ?? (d > 30 ? { x: o.ball.x + ((cup.x - o.ball.x) * reach) / d, y: o.ball.y + ((cup.y - o.ball.y) * reach) / d } : cup);
     // fit both points in the free area between the panels, with room for the labels above them
     const ins = this.r.insets;
     const a = projectGround(o.ball.x * 32, o.ball.y * 32), b = projectGround(target.x * 32, target.y * 32);
@@ -157,16 +158,20 @@ export class Studio {
       const quality = this.hud.querySelector<HTMLElement>('#swingQuality');
       if (quality && o.swing.active) quality.textContent = o.swing.quality > .88 ? 'Perfect window' : o.swing.quality > .6 ? 'Good contact' : 'Find the center';
     }
+    // While a round is on, the free map area is between the header (and the coach) and the round panel. Other parts of the
+    // interface reset the margins when they change, so they are set again here every frame, and the shot re-framed when they move.
+    if (o.active) {
+      const box = this.hud.getBoundingClientRect();
+      const top = Math.max(document.getElementById('top')!.getBoundingClientRect().bottom, coachBottom()) + 12;
+      const want = this.ui.landscape ? { l: this.ui.insets().l, r: this.r.cw - box.left + 10, t: top, b: 12 } : { l: 0, r: 0, t: top, b: this.r.ch - box.top + 12 };
+      const cur = this.r.insets;
+      if (Math.abs(cur.l - want.l) + Math.abs(cur.r - want.r) + Math.abs(cur.t - want.t) + Math.abs(cur.b - want.b) > 1) this.r.insets = want;
+    }
     const layoutKey = `${o.active}:${o.holeId}:${this.r.cw}:${this.r.ch}:${this.hud.offsetHeight}:${Math.round(coachBottom())}`;
     if (layoutKey !== this.layoutKey) {
       const wasPlaying = this.layoutKey.startsWith('true'); this.layoutKey = layoutKey;
-      if (o.active) {
-        const box = this.hud.getBoundingClientRect();
-        this.r.insets = this.ui.landscape
-          ? { l: this.ui.insets().l, r: this.r.cw - box.left + 10, t: document.getElementById('top')!.getBoundingClientRect().bottom + 12, b: 12 }
-          : { l: 0, r: 0, t: Math.max(document.getElementById('top')!.getBoundingClientRect().bottom, coachBottom()) + 12, b: this.r.ch - box.top + 12 };
-        this.frameShot();
-      } else if (wasPlaying) { this.ui.refresh(true); this.r.insets = this.ui.insets(); this.editor.focusHole(); }
+      if (o.active) this.frameShot();
+      else if (wasPlaying) { this.ui.refresh(true); this.r.insets = this.ui.insets(); this.editor.focusHole(); }
     }
     this.miniTime += dt;
     if (this.miniTime > .5 || dt === 0) { this.miniTime = 0; this.drawMini(); }

@@ -527,7 +527,11 @@ body.coaching.placing-club #confirm .cf-text { display: none; }
 .report-actions .btn { flex: 1; }
 .logo-box { margin-top: 10px; padding: 10px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--panel); }
 .logo-prev { display: flex; justify-content: center; margin-bottom: 6px; }
-.logo-prev canvas { width: 84px; height: 84px; }
+.logo-prev { align-items: flex-end; gap: 12px; }
+.logo-prev canvas#lgPrev { width: 150px; height: 150px; }
+.logo-prev canvas#lgEmb { width: 44px; height: 44px; border-radius: 6px; }
+.logo-opts .opts.pics[data-k="style"] .opt.pic canvas { max-width: 76px; max-height: 76px; }
+.clubhead canvas#clubLogo { width: 120px; height: 120px; flex: none; }
 .logo-opts .opt { min-height: 38px; padding: 0 10px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--raise); font: 600 12.5px var(--font); text-transform: capitalize; box-shadow: inset 1px 1px 0 var(--bevel-hi); }
 .logo-opts .opt.on { background: #cfe3cf; box-shadow: inset 1px 1px 3px rgba(0, 0, 0, .3), inset 0 0 0 2px var(--accent); }
 .logo-opts .sw { width: 38px; height: 38px; border: 2px solid var(--edge); border-radius: 4px; padding: 0; }

@@ -145,5 +145,9 @@ export function setUpOpening(world: World): { hole: Hole; plan: OpeningPlan } | 
     reserveLots(world);
   }
   if (world.holes.length) return null;
-  return layOpening(world);
+  const res = layOpening(world);
+  // the hole's ground may now cover a lot reserved for the putting green or range: settle them now, so the course is
+  // already exactly what it will be when it is saved and loaded again
+  if (res) reserveLots(world);
+  return res;
 }

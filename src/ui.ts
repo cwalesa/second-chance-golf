@@ -915,6 +915,7 @@ export class UI {
   logoModal() {
     const m = this.modal(`<h2>Club logo</h2><div id="lgBox" class="logo-box"></div><div class="actions"><button class="btn primary" id="lgOk">Done</button></div>`);
     logoDesigner(m.querySelector('#lgBox') as HTMLElement, this.game.logo, () => this.game.name, () => {
+      this.cache.delete('side');
       this.game.dirtySave = true;
       this.cache.delete('logo');
     });
@@ -958,7 +959,9 @@ export class UI {
     const sec = (t: string, items: string[]) => `<h3>${t}</h3><ul class="help-list">${items.map((x) => `<li>${x}</li>`).join('')}</ul>`;
     const m = this.modal(`<h2>How to play</h2><div class="help">
       ${sec('The idea', ['Build golf holes, open them, and golfers pay to play.', 'Happy golfers come back, spend more and join as members.', 'The bar under the clock always shows your next goal. Tap it for the full list.'])}
-      ${sec('Moving around', ['Drag with one finger to move the map. Pinch to zoom, or double-tap.', 'Tap a hole, a golfer or the clubhouse to open its panel.', 'The two buttons above the menu jump to the clubhouse and to the selected hole.'])}
+      ${sec('Moving around', ['Drag with one finger (or the mouse) to move the map. Pinch, the mouse wheel or + and − to zoom; arrow keys pan.', 'Tap a hole, a golfer or the clubhouse to open its panel.', 'The buttons on the right jump to the clubhouse, the active hole and, in a round of your own, your ball. The map button shows the whole property, with its landmarks.'])}
+      ${sec('Playing a hole yourself', ['Open hole panels have Play it yourself. Tap where you want the ball to go: it flies toward that spot, up to the club\'s range.', 'Pick a club by distance: Driver about 250 yards, Iron 170, Wedge 80, Putter on the green.', 'Start the swing, then Strike as the marker crosses the centre line. Early pulls left, late pushes right.', 'Replay the tutorial any time from this menu.'])}
+      ${sec('Your land', ['You start with the middle of the property. Buy land (in the Design tray) to build beyond it.', 'Landmarks out there (a lake, an orchard, a high meadow) make the holes beside them more scenic.'])}
       ${sec('Building', ['Menu, then Design. Pick <b>New hole</b>, tap where the tee goes, then where the green goes, then <b>Build</b>.', 'To paint fairway, sand, water or trees: press and hold, then drag. A quick tap paints one spot.', 'Nothing is charged until you tap Build, and Undo gives the money back.', 'Building on a hole closes it. The bar at the top offers <b>Open it</b> when you are done.'])}
       ${sec('Time', ['Course tools pause the clock so you can design without hurry. <b>Resume</b> starts it again.', 'Decorating, placing buildings and repairing turf do not pause.', 'The button beside Pause changes speed: 1×, 3× or 8×.'])}
       ${sec('Keeping golfers happy', ['Keep each fee close to what Finances says guests think is fair.', 'Greens wear out around the cup. Tap a hole and use <b>Repair green</b>, or buy the Grounds crew.', 'Flowers, benches and buildings near tees and greens make holes more enjoyable.'])}
@@ -1265,9 +1268,10 @@ export class UI {
     set('starsTxt', stars(g.stars));
     set('clubName', g.name);
     set('dayk', this.mobile ? `Day ${g.day}${WEATHER[g.weather].mark ? ' ' + WEATHER[g.weather].mark : ''}` : `Day ${g.day}, ${g.season.name}`);
-    if (this.cache.get('logo') !== JSON.stringify(g.logo)) {
-      this.cache.set('logo', JSON.stringify(g.logo));
-      paintLogo(this.$('topLogo') as HTMLCanvasElement, g.logo);
+    if (this.cache.get('logo') !== JSON.stringify(g.logo) + g.name) {
+      this.cache.set('logo', JSON.stringify(g.logo) + g.name);
+      // the header has room for the emblem only; the full logo with the name is in the Clubhouse panel
+      paintLogo(this.$('topLogo') as HTMLCanvasElement, g.logo, g.name, 'emblem');
     }
     const nb = g.bookings[0];
     const evText = g.activeEvent ? `${EVENTS[g.activeEvent.id].name}, today` : nb ? `${EVENTS[nb.id].name}, day ${nb.day}` : '';
@@ -1411,7 +1415,7 @@ export class UI {
         if (card) body.scrollTop = card.offsetTop - 8;
       }
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
-      if (cl) paintLogo(cl, g.logo);
+      if (cl) paintLogo(cl, g.logo, g.name, 'full');
     }
   }
 
@@ -1882,7 +1886,7 @@ export class UI {
     const r = REGIONS[g.region];
     const si = g.season.index;
     const nextSeason = (si + 1) % 4;
-    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="96" height="96"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
+    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="240" height="240" aria-label="Club logo"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
       <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${g.maxHoles}</span></div>`;

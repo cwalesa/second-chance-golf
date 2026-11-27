@@ -258,9 +258,8 @@ export class Game {
     const res = setUpOpening(this.world);
     if (!res) return false;
     this.selectedHole = 1;
-    this.campaign.done = [...new Set([...(this.campaign.done ?? []), 'c-hole1'])];
-    this.campaign.step = 1;
-    this.campaign.goalId = CHAIN[1]?.id ?? 'complete';
+    // goals the course is handed (an open first hole, sand beside its green) count as done, without a payment
+    this.catchUpGoals(true);
     this.dirtySave = true;
     return true;
   }
