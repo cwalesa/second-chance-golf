@@ -25,7 +25,15 @@ export interface Hole {
   /** Newly built, or closed by building work, and not opened since: the interface keeps a reminder up until it is. */
   awaiting?: boolean;
   stats: HoleStats;
+  /** The most recent plays of this hole, newest last (see quality.ts). Absent on older saves. */
+  log?: HolePlay[];
+  /** The last renovation: how the hole played before work started, for a before-and-after comparison. */
+  reno?: Renovation;
 }
+/** One golfer's play of one hole: strokes against par, water balls, sand shots, seconds waited, picked up, golfer kind. */
+export interface HolePlay { d: number; w: number; s: number; t: number; p: 0 | 1; k: 'b' | 'r' | 's' | 'v' | 'j' | 'f'; day: number; }
+export interface PlaySummary { n: number; over: number; water: number; sand: number; wait: number; picked: number; quality: number; byKind: Partial<Record<HolePlay['k'], number>>; }
+export interface Renovation { day: number; before: PlaySummary; }
 export interface HoleStats {
   rounds: number;
   strokes: number;

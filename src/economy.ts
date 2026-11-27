@@ -11,8 +11,19 @@ export interface DayLedger {
   rounds: number;
   satSum: number;
   arrivals: number;
+  /** academy lessons given, and golfers who wanted one when the coaches were full */
+  lessons?: number;
+  turnedAway?: number;
+  /** restaurant meals served (golfers and locals), locals among them, and diners turned away when it was full */
+  covers?: number;
+  locals?: number;
+  diningTurnedAway?: number;
+  /** finished rounds by kind of golfer: b beginner, r regular, s skilled, v resort visitor, j junior, f tournament field */
+  kinds?: Partial<Record<'b' | 'r' | 's' | 'v' | 'j' | 'f', number>>;
+  /** fee paid against the fair price, summed over rounds (for the club identity) */
+  feeRatio?: number;
 }
-export const emptyLedger = (): DayLedger => ({ fees: 0, shop: 0, maintenance: 0, construction: 0, bonus: 0, rounds: 0, satSum: 0, arrivals: 0 });
+export const emptyLedger = (): DayLedger => ({ fees: 0, shop: 0, maintenance: 0, construction: 0, bonus: 0, rounds: 0, satSum: 0, arrivals: 0, lessons: 0, turnedAway: 0, covers: 0, locals: 0, diningTurnedAway: 0, kinds: {}, feeRatio: 0 });
 export const operatingProfit = (l: DayLedger) => l.fees + l.shop - l.maintenance;
 export const netChange = (l: DayLedger) => operatingProfit(l) - l.construction + l.bonus;
 

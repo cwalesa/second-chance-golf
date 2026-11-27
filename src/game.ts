@@ -1,12 +1,12 @@
 import { Experience, freshExperience, awardExperience, constructionFactor } from './experience';
 import type { Feedback } from './feedback';
 import { createWilderness, newLandSeed, placeClubhouse, relocateClubhouse, suggestClubhouse } from './wilderness';
-import { assessDesign, designEnjoyment } from './design';
-import { CampaignState, freshCampaign, GOALS, CHAIN, chainStep } from './campaign';
+import { assessDesign } from './design';
+import { CampaignState, freshCampaign, GOALS, CHAIN, goalMet } from './campaign';
 import { DailyState, KINDS, challengeDone, freshDaily } from './daily';
 import { reserveLots, lotFor } from './lots';
 import { FirstRoundState, firstRoundResult, freshFirstRound, isPayingRound } from './first-round';
-import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, beautyNear, buildingUpkeep, countOf } from './items';
+import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, buildingUpkeep, countOf } from './items';
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
@@ -23,6 +23,14 @@ import { Logo, defaultLogo } from './logo';
 import { WEATHER, Weather, weatherOn } from './weather';
 import { RequestState, freshRequests, requestDone, rollRequests } from './requests';
 import { baseDemand, priceFactor, reputationFactor } from './economy';
+import { FAC, FacilityState, academyCap, restaurantSetting, academyPractice, afterRound, facLevel, facilityDailyCost, freshFacilities, hourlyLocals, mealMargin, seatsToday } from './facilities';
+import { RegularsState, addInterest, dailyRegulars, dueRegular, fadeProspects, findRegular, freshRegulars, growRoster, regularLesson, regularRound, roundInterest } from './regulars';
+import { CalendarState, applyPrep, boardHole, eventIssues, fieldNames, freshCalendar, readinessOf, refreshOffers, routeOf, tournamentReport } from './calendar';
+import { DecisionState, dailyDecisions, freshDecisions, heatPlan } from './decisions';
+import { Identity, computeIdentity } from './identity';
+import { QualityContext, effectiveHoles, holeEnjoyment, holeQuality, playKind, segmentMix, segmentOf, summarisePlays } from './quality';
+import { setCourseSetup } from './physics';
+import type { Golfer } from './sim';
 
 export interface LogEntry {
   day: number;
@@ -108,7 +116,13 @@ export class Game {
   owner = new OwnerRound();
   ownerRecords: OwnerRecord[] = [];
   landings: Landing[] = [];
-  heatmap = false;
+  /** Optional map overlay: shot landings, trouble spots, queues at tees, or each hole's quality flag. Not saved. */
+  overlay: 'off' | 'landings' | 'trouble' | 'queues' | 'quality' = 'off';
+  /** Older name for the landings overlay. */
+  get heatmap() { return this.overlay === 'landings'; }
+  set heatmap(v: boolean) { this.overlay = v ? 'landings' : 'off'; }
+  /** The full quality report for a hole, as golfers here judge it (quality.ts). */
+  holeReport(h: Hole) { return holeQuality(this.world, h, this.qualityCtx); }
   followGolfer = 0;
   designMode = false;
   world: World;
@@ -193,7 +207,7 @@ export class Game {
       if (spot) { placeClubhouse(this.world, spot); reserveLots(this.world); }
     }
     // a course handed in ready-made starts its goals at the first one it has not reached, unpaid
-    if (world) this.catchUpGoals();
+    if (world) this.catchUpGoals(true);
     this.rng = new Rng(seed);
     this.sim = new CourseSim(this.world, this.rng, {
       onRound: (r) => this.onRoundComplete(r),
@@ -202,13 +216,18 @@ export class Game {
         if (this.comments.length > 40) this.comments.shift();
       },
       onHole: (g, h) => {
-        const report = assessDesign(this.world, h);
-        const pretty = beautyNear(this.world, h.tee) + beautyNear(this.world, h.cup);
-        if (pretty >= 4 && this.rng.next() < 0.25) this.sim.say(g, pretty >= 8 ? 'What a beautiful hole. Like a postcard.' : 'Love the flowers out here.');
-        const bonus = designEnjoyment(report, g.type) + Math.min(4, Math.floor(pretty / 2));
-        if (bonus >= 4) this.sim.say(g, g.type === 'beginner' ? 'Room to miss. I could play here every week.' : g.type === 'skilled' ? 'A proper choice of shots. I like this hole.' : 'Lovely hole. Worth coming back for.');
+        // each kind of golfer judges the hole on what they care about (quality.ts); what they say is true to that judgement
+        const q = holeQuality(this.world, h, this.qualityCtx);
+        const seg = segmentOf(g.type, g.seg);
+        const bonus = holeEnjoyment(q, seg);
+        const reg = findRegular(this, g.regId);
+        if (reg) reg.love[h.id] = (reg.love[h.id] ?? 0) + bonus;
+        if (bonus >= 4 && this.rng.next() < 0.5) this.sim.say(g, seg === 'beginner' ? 'Room to miss. I could play here every week.' : seg === 'skilled' ? 'A proper choice of shots. I like this hole.' : seg === 'resort' ? 'What a setting. Like a postcard.' : 'Lovely hole. Worth coming back for.');
+        else if (bonus <= -4 && this.rng.next() < 0.5) this.sim.say(g, seg === 'beginner' ? 'Nowhere to miss on that one.' : seg === 'skilled' ? 'Nothing to think about on that hole.' : seg === 'resort' ? 'Not much to look at here.' : q.parts.pace < 60 ? 'Too much waiting on that hole.' : 'That hole felt like the last one.');
         return bonus;
       },
+      onHoleDone: (g, h, strokes, picked) => this.recordPlay(g, h, strokes, picked),
+      onStop: (g) => this.facilityStop(g),
       onShot: (h, shot) => {
         this.landings.push({ x: shot.air.x, y: shot.air.y, hole: h.id, bad: shot.kind !== 'ok' });
         if (this.landings.length > 400) this.landings.shift();
@@ -291,16 +310,49 @@ export class Game {
   applyRegion() {
     const r = REGIONS[this.region];
     setPhysics(r.wind, r.distance);
+    setCourseSetup(this.setup === 'forgiving' ? 0.86 : this.setup === 'championship' ? 1.14 : 1);
     setCostMultiplier(r.buildMult * constructionFactor(this));
     this.updateWear();
   }
   private updateWear() {
     const r = REGIONS[this.region];
-    this.sim.wearMult = WEATHER[this.weather].wear * (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1);
+    this.sim.wearMult = WEATHER[this.weather].wear * (this.upgrades.crew ? CFG.upgrades.crew.wearMultiplier : 1) * r.wear * r.seasonWear[seasonIndex(this.day)] * (this.experience.site.irrigation ? .8 : 1) * (countOf(this.world, 'shed') ? 0.85 : 1) * (countOf(this.world, 'nursery') ? 0.92 : 1) * heatPlan(this);
   }
 
   /** Things guests have asked for, and what putting each right pays (see requests.ts). */
   requests: RequestState = freshRequests();
+  /** The academy, restaurant and tournament center: their levels and how they are staffed (see facilities.ts). */
+  fac: FacilityState = freshFacilities();
+  /** Golfers the club knows by name, their stories, and guests on their way to membership (see regulars.ts). */
+  regulars: RegularsState = freshRegulars();
+  /** Dated opportunities and past tournament reports (see calendar.ts). */
+  calendar: CalendarState = freshCalendar();
+  /** Choices announced ahead of the day they matter (see decisions.ts). */
+  decisions: DecisionState = freshDecisions();
+  /** Standing earned from competitions: bigger fields, the qualifier, skilled and resort visitors. 0 to 100. */
+  prestige = 0;
+  /** How the pins and rough are set: forgiving helps beginners, championship rewards skill. */
+  setup: 'forgiving' | 'standard' | 'championship' = 'standard';
+  /** What the club has become, worked out each morning from the last week (see identity.ts). Not saved. */
+  identity: Identity | null = null;
+  /** A snapshot of the club when it was last saved, for the summary a returning player sees (see returns.ts). */
+  seen: { day: number; cash: number; rounds: number; members: number; prestige: number; profit: number; stories: number; at: number; regulars: Record<number, { visits: number; skill: number; done: boolean }> } | null = null;
+  /** The setup in force before a championship-prepared tournament day, restored afterwards. */
+  private setupBefore: Game['setup'] | null = null;
+  setSetup(s: Game['setup']) {
+    this.setup = s;
+    setCourseSetup(s === 'forgiving' ? 0.86 : s === 'championship' ? 1.14 : 1);
+    this.dirtySave = true;
+  }
+  /** Weather for any day: deterministic, so the next few days can be forecast. */
+  weatherFor(day: number): Weather { return weatherOn(this.world.landSeed, day, this.region, seasonIndex(day)); }
+  /** What the quality model needs to know about the whole club: carts, and the mix of golfers lately. */
+  get qualityCtx(): QualityContext {
+    const last = this.days.slice(-5);
+    const k = (c: 'b' | 'r' | 's' | 'v' | 'j' | 'f') => last.reduce((sum, d) => sum + (d.kinds?.[c] ?? 0), 0);
+    const counts = last.length ? { beginner: k('b') + k('j'), regular: k('r'), skilled: k('s') + k('f'), resort: k('v') } : null;
+    return { carts: this.upgrades.carts, mix: segmentMix(counts) };
+  }
   /** Today's weather. */
   get weather(): Weather { return weatherOn(this.world.landSeed, this.day, this.region, seasonIndex(this.day)); }
   /** A storm has washed out turf and it has not been put right yet. The interface keeps a repair prompt up while this is set. */
@@ -490,7 +542,8 @@ export class Game {
     return { index: i, name: SEASON_NAMES[i], demand: this.regionDef.seasonDemand[i], wear: this.regionDef.seasonWear[i] };
   }
   get stars(): number {
-    return ratingStars({ openHoles: this.openHoles.length, avgCond: this.avgCondition, rep: this.reputation, amenities: Object.values(this.upgrades).filter(Boolean).length, clubLevel: this.clubLevel });
+    // repeats of the same hole count for less: the rating reads distinct holes (see quality.ts)
+    return ratingStars({ openHoles: effectiveHoles(this.world.holes), avgCond: this.avgCondition, rep: this.reputation, amenities: Object.values(this.upgrades).filter(Boolean).length, clubLevel: this.clubLevel });
   }
   get fair(): number {
     return fairFee(this.avgCondition, this.openHoles.length) * this.regionDef.fairMult * (1 + 0.04 * this.stars) + this.club.fair;
@@ -513,7 +566,7 @@ export class Game {
   }
   /** Demand per day before price: reputation, season, region, clubhouse, rating and range all count. */
   get dailyBase(): number {
-    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1) * (1 + 0.08 * countOf(this.world, 'carpark')) * WEATHER[this.weather].demand;
+    return baseDemand(this.openHoles.length) * reputationFactor(this.reputation) * this.regionDef.demand * this.season.demand * this.club.demand * (1 + 0.06 * this.stars) * (this.upgrades.range ? CFG.extras.rangeDemand : 1) * (1 + 0.08 * countOf(this.world, 'carpark')) * WEATHER[this.weather].demand * (this.identity?.top === 'community' && BANDS.every((b) => this.fees[b.id] <= this.fair * b.fair + 1) ? 1.06 : 1) * (1 + this.prestige / 500);
   }
   bandArrivals(id: BandId): number {
     const b = BANDS.find((x) => x.id === id)!;
@@ -542,7 +595,7 @@ export class Game {
   get maintenanceRate(): number {
     const open = this.openHoles.length;
     // the region's upkeep modifier applies to everything that is kept up: turf, improvements and buildings
-    return (maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours) * this.regionDef.upkeep;
+    return (maintenancePerHour(open, this.world.holes.length - open, this.upgrades) + (this.experience.site.irrigation ? 1 : 0) + buildingUpkeep(this.world) / CFG.day.hours) * this.regionDef.upkeep + facilityDailyCost(this) / CFG.day.hours;
   }
   hole(id: number): Hole {
     return this.world.holes.find((h) => h.id === id)!;
@@ -600,6 +653,13 @@ export class Game {
 
   private hourly() {
     this.spend('maintenance', this.maintenanceRate, 'Hourly maintenance');
+    // local diners who come for the restaurant, not the golf
+    const locals = hourlyLocals(this);
+    if (locals) {
+      this.today.covers = (this.today.covers ?? 0) + locals;
+      this.today.locals = (this.today.locals ?? 0) + locals;
+      this.earn('shop', locals * mealMargin(this), `Restaurant: ${locals} local diner${locals === 1 ? '' : 's'}`);
+    }
     if (this.dailyWages) this.spend('maintenance', this.dailyWages / CFG.day.hours, 'Staff wages');
     if (this.upgrades.crew || this.staff.gardener || this.experience.site.irrigation) {
       const w = this.world;
@@ -619,6 +679,14 @@ export class Game {
     if (this.clock / CFG.day.seconds > CFG.day.lastArrivalFrac) return;
     const open = this.openHoles.length;
     if (!open) return;
+    // juniors from the academy's program arrive through the morning
+    const jl = FAC.academy.juniorsPerDay[facLevel(this, 'academy')] + (this.identity?.top === 'learning' && facLevel(this, 'academy') >= 2 ? 1 : 0);
+    if (jl && this.rng.next() < 1 - Math.exp(-(jl / (CFG.day.seconds * 0.5)) * dt) && this.clock < CFG.day.seconds * 0.5) {
+      const g = this.sim.spawn('beginner', FAC.academy.juniorFee, { seg: 'junior', fair: FAC.academy.juniorFee + 4, holes: this.openHoles.sort((a, b) => a.id - b.id).slice(0, 3).map((h) => h.id), skill: 1.15 });
+      if (g) { this.today.arrivals++; this.earn('fees', FAC.academy.juniorFee, `Junior program, ${g.name}`); }
+    }
+    // an event can limit who else plays today
+    const access = this.todayAccess;
     // the very first guests of a new game show up right away so there is something to watch
     if (this.day === 1 && this.today.arrivals < 2 && this.clock > 1 + this.today.arrivals * 7) {
       this.arrive();
@@ -628,18 +696,31 @@ export class Game {
     const b = bandAt(frac);
     const window = (Math.min(b.to, CFG.day.lastArrivalFrac) - b.from) * CFG.day.seconds;
     if (window <= 0) return;
-    const lambda = this.bandArrivals(b.id) / window;
-    if (this.rng.next() < 1 - Math.exp(-lambda * dt)) this.arrive();
+    const lambda = (this.bandArrivals(b.id) / window) * (access === 'closed' ? 0 : access === 'members' ? 0.3 : this.activeEvent?.id === 'memberday' && frac < 0.5 ? 0.6 : 1);
+    if (this.rng.next() < 1 - Math.exp(-lambda * dt)) this.arrive(access === 'members');
+  }
+  /** Who else may play today: set by an event's access choice. */
+  get todayAccess(): 'open' | 'members' | 'closed' {
+    const e = this.activeEvent;
+    return e?.access ?? 'open';
   }
 
-  private arrive() {
+  private arrive(membersOnly = false) {
     const cap = 12 + 3 * this.openHoles.length + (this.activeEvent ? 18 : 0) + 8 * countOf(this.world, 'carpark');
     if (this.sim.golfers.length >= cap) return; // course is full, they drive on by
     const band = this.band;
     const fee = this.fees[band.id];
-    const availableMembers = this.members.filter(m => !this.sim.golfers.some(g => g.name === m.name));
-    const returning = availableMembers.length && this.rng.next() < .35 ? this.rng.pick(availableMembers) : null;
-    const g = this.sim.spawn(returning ? returning.type : pickGolferType(this.rng), fee, { fair: this.fair * band.fair });
+    // a regular who is due comes by name, with their own ability
+    const reg = dueRegular(this);
+    const availableMembers = this.members.filter(m => !this.sim.golfers.some(g => g.name === m.name) && !this.regulars.list.some((r) => r.name === m.name));
+    const returning = !reg && availableMembers.length && (membersOnly || this.rng.next() < .35) ? this.rng.pick(availableMembers) : null;
+    if (membersOnly && !reg && !returning) return;
+    // resort visitors come for the scenery and the food; prestige and a premium restaurant draw more
+    const resortShare = 0.04 + this.prestige / 900 + (facLevel(this, 'restaurant') && this.fac.restaurant.service === 'premium' ? 0.07 : 0) + (this.identity?.top === 'resort' ? 0.06 : 0);
+    const resort = !reg && !returning && this.rng.next() < resortShare;
+    const type = reg ? reg.type : returning ? returning.type : resort ? 'regular' : pickGolferType(this.rng);
+    const g = this.sim.spawn(type, fee, { fair: this.fair * band.fair, ...(reg ? { name: reg.name, regId: reg.id, skill: reg.skill } : {}), ...(resort ? { seg: 'resort' as const } : {}) });
+    if (g && reg) { g.returning = true; reg.lastVisit = this.day; }
     if (g && returning) { g.name = returning.name; g.returning = true; }
     if (g) {
       this.today.arrivals++;
@@ -670,23 +751,40 @@ export class Game {
       if (golfer) golfer.cheer = this.sim.now; // a small cheer as they head home (drawing only)
       this.dirtySave = true;
     }
-    const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades) + this.club.sat);
+    const svc = facLevel(this, 'restaurant') ? FAC.restaurant.service[this.fac.restaurant.service].sat : 0;
+    const sc = scoreRound(r, r.fee, r.fairFee ?? this.fair, amenityBonus(this.upgrades) + this.club.sat + svc);
     const designBonus = r.holes ? (r.designSum ?? 0) / r.holes : 0;
     sc.total = Math.max(0, Math.min(100, sc.total + designBonus + (this.staff.host ? 4 : 0) + (this.experience.site.terrace ? 3 : 0) + (this.experience.site.garden ? 2 : 0) + (this.staff.ranger ? Math.min(5, r.stats.wait / 20) : 0)));
     this.campaign.rounds++;
     awardExperience(this, 2);
+    const k = playKind(r.type, r.seg);
+    this.today.kinds = this.today.kinds ?? {};
+    this.today.kinds[k] = (this.today.kinds[k] ?? 0) + 1;
+    if (r.fairFee && !r.event) this.today.feeRatio = (this.today.feeRatio ?? 0) + r.fee / Math.max(1, r.fairFee);
+    else this.today.feeRatio = (this.today.feeRatio ?? 0) + 1;
+    const reg = findRegular(this, r.regId);
+    let regSay: string | null = null;
+    if (reg) regSay = regularRound(this, reg, r, sc.total);
     const member = this.members.find(m => m.name === r.name);
-    if (member) { member.visits++; member.happiness = Math.round(member.happiness * .5 + sc.total * .5); }
-    else if (sc.total >= (this.staff.host ? 70 : 76) && r.holes >= 2 && this.members.length < 30 && this.members.filter(m => m.joined === this.day).length < (this.staff.host ? 2 : 1)) {
-      this.members.push({ name: r.name, type: r.type, visits: 1, happiness: Math.round(sc.total), joined: this.day });
-      awardExperience(this, 12, `${this.campaign.stage}:member:${r.name}`);
-      this.notify('good', `${r.name} joined as a member. Members pay daily dues.`);
+    if (member && !reg) { member.visits++; member.happiness = Math.round(member.happiness * .5 + sc.total * .5); }
+    else if (!member && !reg && !r.event) {
+      // enjoying a round builds interest in joining; the panel shows who is close and why (regulars.ts)
+      const before = this.members.length;
+      const gain = roundInterest(this, sc.total, r.holes);
+      addInterest(this, r.name, r.type, gain.amount, gain.why);
+      if (this.members.length > before) awardExperience(this, 12, `${this.campaign.stage}:member:${r.name}`);
     }
+    // after the round: a lesson at the academy or a meal on the patio (the golfer walks over before leaving)
+    const golfer = this.sim.golfers.find((x) => x.id === r.golferId);
+    if (golfer && !r.event) golfer.stopAt = afterRound(this, r.type, sc.total, r.seg, !!reg && (reg.goal.kind === 'break' || reg.goal.kind === 'championship') && !reg.goal.done);
+    else if (golfer && r.event && this.activeEvent?.id !== 'function' && facLevel(this, 'restaurant') && this.rng.next() < 0.5 && (this.today.covers ?? 0) < seatsToday(this)) golfer.stopAt = afterRound(this, r.type, sc.total, r.seg, false);
     if (r.event && this.activeEvent) {
       this.activeEvent.rounds++;
       this.activeEvent.satSum += sc.total;
     }
-    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (1 + 0.18 * countOf(this.world, 'halfway') + 0.15 * countOf(this.world, 'proShop') + 0.22 * countOf(this.world, 'grill')) * (this.experience.site.terrace ? 1.15 : 1));
+    // the restaurant takes over from the grill room: its meals are counted when golfers sit down (facilityStop)
+    const grill = facLevel(this, 'restaurant') ? 0 : 0.22 * countOf(this.world, 'grill');
+    const spend = Math.round(shopSpend(this.rng, sc.total, this.upgrades, this.club.shop) * REGIONS[this.region].spend * (1 + 0.18 * countOf(this.world, 'halfway') + 0.15 * countOf(this.world, 'proShop') + grill) * (this.experience.site.terrace ? 1.15 : 1) * (r.seg === 'resort' ? 1.45 : 1));
     this.stats.rounds++;
     this.earn('shop', spend, `Clubhouse sales, ${r.name}`);
     this.today.rounds++;
@@ -694,7 +792,45 @@ export class Game {
     this.recent.push({ ...sc, rough: r.stats.shots ? r.stats.rough / r.stats.shots : 0, water: r.stats.water, wait: r.stats.wait, fee: r.fee, fair: this.fair, name: r.name });
     if (this.recent.length > CFG.satisfaction.window) this.recent.shift();
     this.warnWornTurf();
-    return farewellFor(sc);
+    return regSay ?? farewellFor(sc);
+  }
+
+  /** One golfer's play of one hole goes into that hole's recent record, and onto the leaderboard if they are in the field. */
+  private recordPlay(g: Golfer, h: Hole, strokes: number, picked: boolean) {
+    h.log ??= [];
+    h.log.push({ d: strokes - h.par, w: g.hs.water ?? 0, s: g.hs.sand ?? 0, t: Math.round(g.hs.wait ?? 0), p: picked ? 1 : 0, k: playKind(g.type, g.seg), day: this.day });
+    if (h.log.length > 30) h.log.shift();
+    if (g.event && g.seg === 'field') boardHole(this, g.name, g.regId, h.par, strokes, g.hs.water ?? 0);
+  }
+
+  /** A golfer reached the academy or the restaurant after the round. */
+  private facilityStop(g: Golfer) {
+    const stop = g.stopAt;
+    if (!stop) return;
+    const t = this.today;
+    // a slot can still be gone by the time they arrive (a new day began on the way): then they simply go home
+    if (stop.what === 'lesson' && (t.lessons ?? 0) >= academyCap(this)) { t.turnedAway = (t.turnedAway ?? 0) + 1; return; }
+    if (stop.what === 'dine' && (t.covers ?? 0) >= seatsToday(this)) { t.diningTurnedAway = (t.diningTurnedAway ?? 0) + 1; return; }
+    if (stop.what === 'lesson') {
+      t.lessons = (t.lessons ?? 0) + 1;
+      this.earn('fees', FAC.academy.lessonFee, `Lesson, ${g.name}`);
+      const reg = findRegular(this, g.regId);
+      if (reg) regularLesson(this, reg, academyPractice(this.world).quality);
+      else if (!this.members.some((m) => m.name === g.name)) addInterest(this, g.name, g.type, 35, 'took a lesson');
+    } else {
+      t.covers = (t.covers ?? 0) + 1;
+      this.earn('shop', mealMargin(this), `Restaurant, ${g.name}`);
+      const reg = findRegular(this, g.regId);
+      if (reg && reg.goal.kind === 'patio' && !reg.goal.done) {
+        reg.goal.progress++;
+        if (reg.goal.progress >= reg.goal.target) { reg.goal.done = true; reg.goal.doneDay = this.day; this.regularsStory(reg.name, 'has lunched on the patio three times and tells everyone about it. More locals come.'); }
+      }
+    }
+  }
+  private regularsStory(who: string, text: string) {
+    this.regulars.stories.push({ day: this.day, who, text, tone: 'good' });
+    if (this.regulars.stories.length > 40) this.regulars.stories.shift();
+    this.notify('good', `${who} ${text}`);
   }
 
   private turfWarnDay = -9;
@@ -740,9 +876,22 @@ export class Game {
     if (!this.practice) {
       const asked = rollRequests(this);
       if (asked) this.notify('info', `${asked.who} asks: \u201c${asked.text}\u201d See Goals.`);
+      this.morning();
     }
     this.startEvent();
     this.dirtySave = true;
+  }
+
+  /** What happens as each day begins, also run for days that pass while the player is away. */
+  morning() {
+    if (this.fac.restaurant.functionDay !== undefined && this.fac.restaurant.functionDay < this.day) this.fac.restaurant.functionDay = undefined;
+    this.identity = computeIdentity(this);
+    growRoster(this);
+    dailyRegulars(this);
+    fadeProspects(this);
+    refreshOffers(this);
+    dailyDecisions(this);
+    this.updateWear();
   }
 
   // ---- events ----
@@ -758,7 +907,7 @@ export class Game {
   }
   /** Book the next free day. Nothing is charged until the event starts. */
   bookEvent(id: EventId): boolean {
-    const p = this.eventProblemsFor(id);
+    const p = EVENTS[id].dated ? ['It is offered on set days: see the calendar.'] : this.eventProblemsFor(id);
     if (p.length) {
       this.notify('bad', `Cannot book ${EVENTS[id].name}: ${p[0]}`);
       return false;
@@ -787,32 +936,71 @@ export class Game {
     if (i < 0) return;
     const [b] = this.bookings.splice(i, 1);
     const d = EVENTS[b.id];
-    const problems = this.eventProblemsFor(b.id);
+    const route = routeOf(this, b);
+    const problems = d.dated || d.tournament ? eventIssues(this, b.id, route).filter((p) => !p.startsWith('Course readiness')) : this.eventProblemsFor(b.id);
     if (problems.length) {
       this.notify('bad', `${d.name} was cancelled, no charge: ${problems[0]}`);
       return;
     }
-    const total = eventGuests(b.id, b.fee, this.reputation);
-    this.spend('maintenance', d.cost, `Event setup: ${d.name}`);
-    this.activeEvent = { id: b.id, fee: b.fee, total, spawned: 0, nextAt: 0.5, revenue: 0, rounds: 0, satSum: 0 };
-    this.notify('good', `${d.name} today: ${total} golfers expected for a shotgun start.`);
+    let total = eventGuests(b.id, b.fee, this.reputation);
+    if (d.tournament) total = Math.round(total * (0.8 + this.prestige / 250) * (this.identity?.top === 'competitive' ? 1.15 : 1));
+    if (b.id === 'memberday') total = this.members.length;
+    if (b.id === 'function') total = 0;
+    const prepCost = d.tournament ? applyPrep(this, route, b.prep ?? 'none') : 0;
+    const memberCost = b.id === 'memberday' ? 25 * this.members.length : 0;
+    this.spend('maintenance', d.cost + prepCost + memberCost, `Event setup: ${d.name}${prepCost ? ` (with ${b.prep} preparation)` : ''}`);
+    this.activeEvent = { id: b.id, fee: b.fee, total, spawned: 0, nextAt: 0.5, revenue: 0, rounds: 0, satSum: 0, route: d.tournament || b.id === 'junior' ? (b.id === 'junior' ? route.slice(0, 3) : route) : undefined, prep: b.prep, access: d.tournament ? b.access ?? 'open' : 'open' };
+    if (d.tournament) {
+      this.activeEvent.board = [];
+      this.activeEvent.readiness = readinessOf(this, route).score;
+      this.activeEvent.gallery = 0;
+      if (b.prep === 'championship' && this.setup !== 'championship') { this.setupBefore = this.setup; this.setSetup('championship'); }
+    }
+    if (b.id === 'function') {
+      const fee = FAC.restaurant.functionFee[facLevel(this, 'restaurant')] || FAC.restaurant.functionFee[1];
+      this.earn('shop', fee, 'Restaurant function');
+      this.spend('maintenance', FAC.restaurant.functionCost, 'Function staff and food');
+      this.activeEvent.revenue = fee - FAC.restaurant.functionCost;
+      this.notify('good', `A private function has the dining room tonight: ${fmtMoney(fee)}. Golfers have fewer seats today.`);
+      return;
+    }
+    this.notify('good', `${d.name} today: ${total} ${b.id === 'memberday' ? 'members' : 'golfers'} expected${d.tournament ? ` over ${route.length} holes. Follow the leaderboard in Calendar.` : ' for a shotgun start.'}`);
   }
+  private fieldQueue: ReturnType<typeof fieldNames> = [];
   private eventArrivals() {
     const e = this.activeEvent;
     if (!e || e.spawned >= e.total || this.clock < e.nextAt) return;
-    const g = this.sim.spawn(pickEventGolfer(e.id, this.rng), e.fee, { event: true, fair: EVENTS[e.id].fair });
+    const d = EVENTS[e.id];
+    if (e.spawned === 0) this.fieldQueue = d.tournament ? fieldNames(this, e.total, e.id) : e.id === 'memberday' ? this.members.map((m) => ({ name: m.name, type: m.type })) : [];
+    const named = this.fieldQueue.shift();
+    const reg = named?.regId ? findRegular(this, named.regId) : undefined;
+    const fee = e.id === 'memberday' ? 0 : e.fee;
+    const g = this.sim.spawn(named?.type ?? pickEventGolfer(e.id, this.rng), fee, { event: true, fair: EVENTS[e.id].fair, holes: e.route, name: named?.name, regId: named?.regId, skill: reg?.skill ?? named?.skill, seg: d.tournament ? 'field' : e.id === 'junior' ? 'junior' : undefined });
     if (g) {
       e.spawned++;
-      e.revenue += e.fee;
+      e.revenue += fee;
       this.today.arrivals++;
-      this.earn('fees', e.fee, `Event entry, ${g.name}`);
+      if (fee) this.earn('fees', fee, `Event entry, ${g.name}`);
+      if (d.tournament && facLevel(this, 'tourney') >= 2) {
+        e.gallery = (e.gallery ?? 0) + FAC.tourney.galleryPerPlayer;
+        this.earn('fees', FAC.tourney.galleryPerPlayer, 'Grandstand tickets');
+      }
+      if (e.id === 'junior') addInterest(this, `${g.name.split(' ')[0]}'s parents`, 'beginner', 45, 'junior camp');
     }
     e.nextAt = this.clock + 35 / Math.max(1, e.total);
   }
   private finishEvent(day: number) {
     const e = this.activeEvent;
     if (!e) return;
-    const res: EventResult = { id: e.id, day, guests: e.spawned, revenue: e.revenue, cost: EVENTS[e.id].cost, rounds: e.rounds, avgSat: e.rounds ? e.satSum / e.rounds : 0 };
+    const report = tournamentReport(this, day) ?? undefined;
+    if (report) { this.calendar.history.push(report); if (this.calendar.history.length > 6) this.calendar.history.shift(); }
+    if (this.setupBefore) { this.setSetup(this.setupBefore); this.setupBefore = null; }
+    if (e.id === 'memberday') {
+      for (const m of this.members) m.happiness = Math.min(100, m.happiness + 12);
+      for (const r of this.regulars.list.filter((x) => x.member)) r.happiness = Math.min(100, r.happiness + 10);
+      for (const p of [...this.regulars.prospects]) addInterest(this, p.name, p.type, 40, 'member appreciation day');
+    }
+    const res: EventResult = { id: e.id, day, guests: e.spawned, revenue: e.revenue, cost: EVENTS[e.id].cost, rounds: e.rounds, avgSat: e.rounds ? e.satSum / e.rounds : 0, report };
     this.lastEvent = res;
     this.stats.events++;
     this.campaign.events++;
@@ -884,24 +1072,40 @@ export class Game {
   checkGoals() {
     if (this.practice) return;
     this.checkRequests();
-    const i = chainStep(this);
-    const goal = CHAIN[i];
-    if (!goal || goal.value(this) < goal.target) return;
-    this.campaign.step = i + 1;
-    this.campaign.goalId = CHAIN[i + 1]?.id ?? 'complete';
-    this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
-    awardExperience(this, Math.round(goal.reward / 18));
-    const next = CHAIN[i + 1] ?? null;
-    this.goalJustDone = { title: goal.title, reward: goal.reward, next: next ? next.title : null };
+    // every goal is checked on its own: anything reached is recognised and paid once, in whatever order it happened
+    const done = (this.campaign.done ??= []);
+    const reached: typeof CHAIN = [];
+    for (const goal of CHAIN) {
+      if (done.includes(goal.id) || !goalMet(this, goal)) continue;
+      done.push(goal.id);
+      reached.push(goal);
+      this.earn('bonus', goal.reward, 'Goal: ' + goal.title);
+      awardExperience(this, Math.round(goal.reward / 18));
+    }
+    if (!reached.length) return;
+    const next = CHAIN.find((c) => !done.includes(c.id)) ?? null;
+    this.campaign.step = next ? CHAIN.indexOf(next) : CHAIN.length;
+    this.campaign.goalId = next?.id ?? 'complete';
+    const first = reached[0];
+    this.goalJustDone = { title: reached.length > 1 ? `${first.title} and ${reached.length - 1} more` : first.title, reward: reached.reduce((s2, x) => s2 + x.reward, 0), next: next ? next.title : null };
     this.onFeedback('reward');
     this.dirtySave = true;
   }
-  /** Older saves had no chain: skip, without paying, the goals the course has already reached. */
-  catchUpGoals() {
-    let i = chainStep(this);
-    while (CHAIN[i] && CHAIN[i].value(this) >= CHAIN[i].target) i++;
-    this.campaign.step = i;
-    this.campaign.goalId = CHAIN[i]?.id ?? 'complete';
+  /**
+   * Mark, without paying, goals the course has already met. A ready-made course (all) comes with everything it already has;
+   * an older save marks those up to the first one it has not met, and anything further it has achieved is recognised and paid
+   * by the next check, since under the old chain it simply had not been reached in order.
+   */
+  catchUpGoals(all = false) {
+    const done = (this.campaign.done ??= []);
+    for (const c of CHAIN) {
+      if (done.includes(c.id)) continue;
+      if (!goalMet(this, c)) { if (all) continue; break; }
+      done.push(c.id);
+    }
+    const next = CHAIN.find((c) => !done.includes(c.id));
+    this.campaign.step = next ? CHAIN.indexOf(next) : CHAIN.length;
+    this.campaign.goalId = next?.id ?? 'complete';
   }
 
   // ---- player actions ----
@@ -1074,6 +1278,16 @@ export class Game {
   }
 
   private afterTerrainChange(touched: number[], greenBefore: Map<number, number> | null, keepOpen = false) {
+    // a renovation begins: remember how the hole played, so the report can compare once golfers have played it again
+    if (!keepOpen) for (const id of touched) {
+      const h = this.world.holes.find((x) => x.id === id);
+      if (!h || !h.log || h.log.length < 4) continue;
+      const inProgress = h.reno && summarisePlays(h.log.filter((p) => p.day >= h.reno!.day)).n < 3 && (h.log[h.log.length - 1]?.day ?? 0) <= h.reno.day;
+      if (inProgress) continue;
+      const q = holeQuality(this.world, h, this.qualityCtx);
+      h.reno = { day: this.day, before: summarisePlays(h.log, q.overall) };
+      h.log = [];
+    }
     computeZones(this.world);
     for (const id of touched) {
       const h = this.world.holes.find((x) => x.id === id);
@@ -1184,7 +1398,10 @@ export class Game {
       const fees = BANDS.reduce((s, b) => s + this.bandArrivals(b.id) * CFG.offline.efficiency * this.fees[b.id], 0);
       const shop = arrivals * (CFG.economy.shopBase + this.reputation * CFG.economy.shopSatFactor + 1.5 + (this.upgrades.snackBar ? CFG.extras.snackSpend : 0)) * (this.upgrades.proShop ? CFG.economy.proShopMultiplier : 1) * this.club.shop;
       const maint = this.maintenanceRate * CFG.day.hours + this.dailyWages;
-      const profit = Math.round(fees + shop - maint);
+      // the restaurant and academy keep working too, at the same quieter pace
+      const meals = facLevel(this, 'restaurant') ? Math.min(seatsToday(this), arrivals * 0.3 + restaurantSetting(this.world).locals * CFG.offline.efficiency) * mealMargin(this) : 0;
+      const lessons = facLevel(this, 'academy') ? Math.min(this.fac.academy.coaches * FAC.academy.lessonsPerCoach[facLevel(this, 'academy')], arrivals * 0.12) * FAC.academy.lessonFee : 0;
+      const profit = Math.round(fees + shop + meals + lessons - maint);
       this.cash += profit;
       net += profit;
       this.stats.rounds += Math.round(arrivals);
@@ -1192,7 +1409,15 @@ export class Game {
       this.campaign.profit += profit;
       this.stats.revenue += Math.round(fees + shop);
       this.stats.bestDayProfit = Math.max(this.stats.bestDayProfit, profit);
+      // regulars keep coming while you are away; pupils keep taking lessons (one a day, if the academy has coaches)
+      for (const r of this.regulars.list) {
+        if (this.day - r.lastVisit < (r.kind === 'competitor' || r.kind === 'socialite' ? 2 : 1)) continue;
+        r.visits++; r.lastVisit = this.day;
+        if ((r.kind === 'learner' || r.kind === 'junior') && facLevel(this, 'academy') && this.fac.academy.coaches > 0 && !r.goal.done) { regularLesson(this, r, academyPractice(this.world).quality); this.cash += FAC.academy.lessonFee; net += FAC.academy.lessonFee; }
+      }
       this.day++;
+      this.today = emptyLedger();
+      this.morning();
     }
     this.stats.years = yearOf(this.day);
     this.pendingRecap = null;

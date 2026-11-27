@@ -189,6 +189,26 @@ function overlapsHole(world: World, skip: number, x: number, y: number, kind: 't
   const mine = kind === 'tee' ? 1.5 : 2.6;
   return world.holes.find((o) => o.id !== skip && (Math.hypot(o.tee.x - x, o.tee.y - y) < mine + 1.5 + 0.5 || Math.hypot(o.cup.x - x, o.cup.y - y) < mine + 2.6 + 0.5)) ?? null;
 }
+/** Why a new hole's tee (or green) cannot go here, checked the moment it is tapped rather than after the other end is placed. */
+export function endpointProblem(world: World, p: Pt, kind: 'tee' | 'green', skip = 0): string | null {
+  const edge = kind === 'tee' ? (p.x < 3 || p.y < 3 || p.x > world.w - 4 || p.y > world.h - 4) : (p.x < 4 || p.y < 4 || p.x > world.w - 5 || p.y > world.h - 5);
+  if (edge) return 'Too close to the edge of the property.';
+  if (!isOwned(world, p.x, p.y)) return 'You do not own that land.';
+  if (!solidAt(world, p.x, p.y)) return kind === 'tee' ? 'A tee needs solid ground: not water, a path, a bridge or the clubhouse.' : 'A green needs solid ground. Islands are fine; open water is not.';
+  const hit = overlapsHole(world, skip, p.x, p.y, kind);
+  if (hit) return `That ${kind} runs into hole ${hit.id}'s tee or green. Keep clear of the red rings.`;
+  return null;
+}
+/** The rings around other holes' tees and greens that a new tee (or green) must stay out of, for drawing while placing. */
+export function exclusionZones(world: World, kind: 'tee' | 'green', skip = 0): { x: number; y: number; r: number }[] {
+  const mine = kind === 'tee' ? 1.5 : 2.6;
+  const out: { x: number; y: number; r: number }[] = [];
+  for (const o of world.holes) {
+    if (o.id === skip) continue;
+    out.push({ x: o.tee.x, y: o.tee.y, r: mine + 1.5 + 0.5 }, { x: o.cup.x, y: o.cup.y, r: mine + 2.6 + 0.5 });
+  }
+  return out;
+}
 const SOLID_NOT: number[] = [T.WATER, T.BUILDING, T.PATH, T.BRIDGE];
 const solidAt = (world: World, x: number, y: number) => inBounds(world, x, y) && !SOLID_NOT.includes(world.terrain[idx(world, x, y)]);
 

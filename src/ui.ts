@@ -1,10 +1,16 @@
 import { paintToolTile } from './classic-art';
 import { journalPanel, JournalView } from './journal';
 import { projectOffers, commissionProject, nextSuggestion, CAREER, careerLevel, useOperatingReserve } from './experience';
-import { designPanel, staffPanel, membersPanel, escapeHtml } from './panels';
+import { designPanel, staffPanel, escapeHtml } from './panels';
 import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { calendarHtml, courseSetupHtml, facilitiesHtml, holeReportHtml, identityHtml, moneySummaryHtml, regularsHtml, returnSummaryHtml } from './clubpanels';
+import { FacilityId, upgradeFacility } from './facilities';
+import { FAC } from './facilities';
+import { commit as commitOffer } from './calendar';
+import { choose as chooseDecision } from './decisions';
+import type { ReturnSummary } from './returns';
 import { panelControl } from './panel-click';
 import { nextStep, scoreText } from './first-round';
 import { MomentKind, MomentState, nextMoment } from './moments';
@@ -22,7 +28,7 @@ import { Game, fmtMoney } from './game';
 import { TUTORIAL_STEPS } from './tutorial';
 import { Editor, terrainLabel } from './input';
 import { BRUSH_RADII, PAINT_TOOLS, TOOL_INFO, ToolId, planPaint, planStraighten } from './editing';
-import { EVENTS, EVENT_IDS, EventId } from './events';
+import { EVENTS, EventId } from './events';
 import { Hole, MAX_BENDS, PAR_YARDS, holeBends, holeCondition, holeYards, idx } from './terrain';
 import { BANDS, CLUB_LEVELS, REGIONS } from './progression';
 import { WEATHER } from './weather';
@@ -52,12 +58,12 @@ const TAB_TIPS: Partial<Record<string, string>> = {
   guests: 'How happy your golfers are, and why. Happy golfers come back and may join as members.',
   money: 'Set green fees for each time of day; keep them near what guests think is fair. Improvements here earn extra money.',
   club: 'Each clubhouse upgrade allows more holes (4, then 9, 12 and 18) and draws more golfers. Hire staff here and see what raises your rating.',
-  events: 'Book a tournament or outing for a big one-day crowd. Each event lists what it needs.',
+  events: 'Opportunities come and go with notice: commit to the ones that suit your club. Tournaments let you choose holes, preparation and access.',
   journey: 'Your goal, daily challenges and streak. Tap Show me on a goal and the game points to what to do. Menu, then Help and settings, has a How to play page.',
 };
-const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Events', club: 'Clubhouse' };
+const TAB_LABEL: Record<string, string> = { journey: 'Goals', build: 'Design', course: 'Course', guests: 'Golfers', money: 'Finances', events: 'Calendar', club: 'Clubhouse' };
 /** What each menu entry is for, in a few words, shown under its name. */
-const TAB_SUB: Record<string, string> = { build: 'Build and decorate', course: 'Your holes', guests: 'Who is playing', money: 'Fees and upgrades', club: 'Upgrades and staff', events: 'Book a big day', journey: 'What to do next' };
+const TAB_SUB: Record<string, string> = { build: 'Build and decorate', course: 'Your holes', guests: 'Who is playing', money: 'Fees and upgrades', club: 'Upgrades and staff', events: 'Season and tournaments', journey: 'What to do next' };
 const stars = (n: number) => `${'★'.repeat(Math.floor(n))}${n % 1 ? '½' : ''}${'☆'.repeat(5 - Math.ceil(n))}`;
 
 const svg = (name: string) => icon(name);
@@ -133,7 +139,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('pan', 'Move map', 'hand')}${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -171,8 +177,16 @@ export class UI {
       if (b.dataset.trayset) { this.traySet = b.dataset.trayset as 'course' | 'decor' | 'buildings'; if (this.traySet === 'decor' || this.traySet === 'buildings') { if (this.traySet === 'buildings' && !isBuilding(this.editor.decorKind)) this.editor.decorKind = 'halfway'; if (this.traySet === 'decor' && isBuilding(this.editor.decorKind)) this.editor.decorKind = 'flowers'; this.editor.setTool('decor'); } else if (this.editor.tool === 'decor') this.editor.setTool('inspect'); this.refresh(true); return; }
       if (b.dataset.moveclub) { this.editor.setTool('decor'); this.editor.startMoveClub(); this.refresh(true); return; }
       if (b.dataset.decor) { this.editor.decorKind = b.dataset.decor as ItemKind; this.editor.setTool('decor'); this.refresh(true); return; }
-      if (b.dataset.done) { this.tab = 'none'; this.editor.setTool('inspect'); this.designPause = this.game.designMode; this.game.exitDesign(); this.refresh(true); this.onInsets(); return; }
-      if (b.dataset.tool) this.editor.setTool(b.dataset.tool as ToolId);
+      if (b.dataset.done) {
+        if (this.editor.proposal) { this.toast('Build or cancel the change in progress first.', 'info'); return; }
+        this.tab = 'none'; this.editor.setTool('inspect'); this.designPause = this.game.designMode; this.game.exitDesign();
+        this.finishAndReopen();
+        this.refresh(true); this.onInsets(); return;
+      }
+      if (b.dataset.tool) {
+        this.editor.setTool(b.dataset.tool as ToolId);
+        if (b.dataset.tool === 'pan') this.toast('Hand tool: drag to move the map. Nothing is painted until you pick a tool again.', 'info');
+      }
       else if (b.dataset.cat) {
         const order: ToolCat[] = ['terrain', 'nature', 'holes'];
         // On a short landscape screen only the current group is shown, and tapping it advances to the next.
@@ -330,6 +344,31 @@ export class UI {
           this.editor.setTool('decor');
           this.tab = 'build';
         }
+        else if (el.dataset.act === 'overlay') { const m = el.dataset.id as typeof this.game.overlay; this.game.overlay = this.game.overlay === m ? 'off' : m; if (this.game.overlay !== 'off' && this.mobile) this.sheet = 'peek'; }
+        else if (el.dataset.act === 'setup') this.game.setSetup(el.dataset.id as 'forgiving' | 'standard' | 'championship');
+        else if (el.dataset.act === 'facbuild') {
+          this.traySet = 'buildings'; this.editor.decorKind = el.dataset.id as ItemKind; this.editor.setTool('decor'); this.tab = 'build';
+          this.toast(`Tap the map where the ${ITEMS[el.dataset.id as ItemKind].label.toLowerCase()} should stand.`, 'info');
+        }
+        else if (el.dataset.act === 'facup') upgradeFacility(this.game, el.dataset.id as FacilityId);
+        else if (el.dataset.act === 'coach') { const a = this.game.fac.academy; a.coaches = Math.max(0, Math.min(FAC.academy.maxCoaches, a.coaches + id)); this.game.dirtySave = true; }
+        else if (el.dataset.act === 'service') { this.game.fac.restaurant.service = el.dataset.id as 'lean' | 'standard' | 'premium'; this.game.dirtySave = true; }
+        else if (el.dataset.act === 'commit') { const o = this.game.calendar.offers.find((x) => x.id === id); if (o && commitOffer(this.game, o.ev, o.day)) { if (EVENTS[o.ev].tournament) this.tourEdit = o.day; } }
+        else if (el.dataset.act === 'touredit') this.tourEdit = this.tourEdit === id ? null : id;
+        else if (el.dataset.act === 'tourhole' || el.dataset.act === 'tourprep' || el.dataset.act === 'touraccess' || el.dataset.act === 'tourfee') {
+          const b = this.game.bookings.find((x) => x.day === Number(el.dataset.day));
+          if (b) {
+            if (el.dataset.act === 'tourhole') {
+              const cur = b.route?.length ? [...b.route] : this.game.openHoles.map((h) => h.id);
+              const r = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].sort((x, y) => x - y);
+              b.route = r.length ? r : cur;
+            } else if (el.dataset.act === 'tourprep') b.prep = el.dataset.id as 'none' | 'standard' | 'championship';
+            else if (el.dataset.act === 'touraccess') b.access = el.dataset.id as 'open' | 'members' | 'closed';
+            else b.fee = Math.max(5, Math.min(250, b.fee + id));
+            this.game.dirtySave = true;
+          }
+        }
+        else if (el.dataset.act === 'decide') chooseDecision(this.game, id, el.dataset.opt!);
         else if (el.dataset.act === 'book') this.game.bookEvent(el.dataset.id as EventId);
         else if (el.dataset.act === 'cancelev') this.game.cancelEvent(id);
         else if (el.dataset.act === 'evfee') this.game.setEventFee(el.dataset.ev as EventId, this.game.eventFees[el.dataset.ev as EventId] + Number(el.dataset.id));
@@ -654,15 +693,18 @@ export class UI {
     const bendBtns = shaping
       ? `<button class="mini wide" id="cfBend" ${bends.length >= MAX_BENDS ? 'disabled' : ''}>+ Bend</button>${sel >= 0 && sel < bends.length ? `<button class="mini wide warn" id="cfRemove">Remove bend ${sel + 1}</button>` : ''}${bends.length && !(sel >= 0 && sel < bends.length) ? '<button class="mini wide" id="cfStraight">Straight</button>' : ''}`
       : '';
+    const endBtns = building && nh && this.editor.buildStarted
+      ? `<button class="mini wide ${this.editor.moveEnd === 'tee' ? 'on' : ''}" id="cfMoveTee">Move tee</button><button class="mini wide ${this.editor.moveEnd === 'cup' ? 'on' : ''}" id="cfMoveCup">Move green</button>`
+      : '';
     const parBar = (building && (nh || placing)) || bendBtns
-      ? `<span class="cf-pars" role="group" aria-label="${building ? 'Par and bends' : 'Bends'}">${building && (nh || placing) ? `<b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}` : ''}${bendBtns}</span>`
+      ? `<span class="cf-pars" role="group" aria-label="${building ? 'Par and bends' : 'Bends'}">${building && (nh || placing) ? `<b>Par</b>${[3, 4, 5].map((n) => `<button class="mini ${n === this.editor.newPar ? 'on' : ''}" data-par="${n}">${n}</button>`).join('')}` : ''}${bendBtns}${endBtns}</span>`
       : '';
     // live numbers for the route being shaped: the same total the finished hole reports, each leg, and what Build would charge
     const legs = ui && ui.legs.length > 1 ? ` (${ui.legs.join(' + ')})` : '';
     const route = ui ? `${ui.total} yd${legs} · par ${ui.par} · ` : nh ? `${holeYards(nh)} yd · par ${nh.par} · ` : '';
     const problem = ui?.drag?.problem;
     const dragHint = shaping && !problem && !(sel >= 0 && sel < bends.length) ? `<span class="cf-hint">${bends.length ? (coarse ? 'Press and hold a bend, then drag it.' : 'Drag a bend to shape the hole.') : 'Add a bend, then drag it where the turn should be.'}${this.editor.tool === 'bend' ? ' Tap empty ground to add one.' : ''}</span>` : '';
-    const badLine = problem ? `<span class="cf-sub bad">${escapeHtml(problem)}</span>` : '';
+    const badLine = problem ? `<span class="cf-sub bad">${escapeHtml(problem)}</span>` : this.editor.moveEnd ? `<span class="cf-sub">Tap where the ${this.editor.moveEnd === 'tee' ? 'tee' : 'green'} should go. Stay out of the red rings.</span>` : '';
     // every caution is shown in full, one under another: they wrap instead of being cut off
     const noteLine = p?.notes?.length ? p.notes.map((n) => `<span class="cf-note">${escapeHtml(n)}</span>`).join('') : '';
     const costText = p ? `<span class="cf-cost">${fmtMoney(p.cost)}</span>` : '<span class="dim">No change yet</span>';
@@ -681,6 +723,10 @@ export class UI {
     el.classList.toggle('placing', placing);
     document.body.classList.toggle('has-proposal', !!p || placing || bendTool);
     el.querySelectorAll<HTMLElement>('[data-par]').forEach((b) => { b.onclick = () => this.editor.setNewPar(Number(b.dataset.par)); });
+    const mt = el.querySelector<HTMLElement>('#cfMoveTee');
+    if (mt) mt.onclick = () => this.editor.startMoveEnd(this.editor.moveEnd === 'tee' ? null : 'tee');
+    const mc = el.querySelector<HTMLElement>('#cfMoveCup');
+    if (mc) mc.onclick = () => this.editor.startMoveEnd(this.editor.moveEnd === 'cup' ? null : 'cup');
     const bendBtn = el.querySelector<HTMLElement>('#cfBend');
     if (bendBtn) bendBtn.onclick = () => this.editor.addBend();
     const removeBtn = el.querySelector<HTMLElement>('#cfRemove');
@@ -708,6 +754,36 @@ export class UI {
     if (!v.ok && v.issues[0]?.at) this.editor.focusPoint(v.issues[0].at);
   }
 
+  /** Finishing design work: reopen every hole the work closed that is ready, and say plainly why any other cannot open yet. */
+  finishAndReopen(): { opened: number[]; blocked: { id: number; why: string }[] } {
+    const g = this.game;
+    const { waiting } = this.closedHoles();
+    const opened: number[] = [], blocked: { id: number; why: string }[] = [];
+    for (const h of waiting) {
+      const v = g.validate(h.id);
+      if (v.ok) { g.openHole(h.id); opened.push(h.id); } else blocked.push({ id: h.id, why: v.problems[0] ?? 'It cannot open yet.' });
+    }
+    if (opened.length || blocked.length) this.toast(`${opened.length ? `Reopened hole ${opened.join(', ')}.` : ''}${blocked.length ? ` Hole ${blocked[0].id} stays closed: ${blocked[0].why.split(/(?<=\.) /)[0]}` : ''}`.trim(), blocked.length ? 'bad' : 'good');
+    return { opened, blocked };
+  }
+  /** The return summary: what changed while away, what needs attention, what is coming, each with a button that goes there. */
+  showReturn(sum: ReturnSummary) {
+    const m = this.modal(returnSummaryHtml(sum));
+    m.querySelectorAll<HTMLElement>('[data-ret]').forEach((b) => {
+      b.onclick = () => {
+        const act = b.dataset.ret, id = Number(b.dataset.id);
+        this.closeModal();
+        if (act === 'hole' && id) { this.editor.selectHole(id); this.editor.focusHole(); this.tab = 'course'; this.sheet = 'half'; }
+        else if (act === 'calendar') { this.tab = 'events'; this.sheet = 'half'; }
+        else if (act === 'regulars') { this.tab = 'guests'; this.sheet = 'half'; }
+        else if (act === 'goals') { this.tab = 'journey'; this.sheet = 'half'; }
+        else if (act === 'finances') { this.tab = 'money'; this.sheet = 'half'; }
+        this.cache.delete('side');
+        this.refresh(true);
+        this.onInsets();
+      };
+    });
+  }
   /** Pause, or choose a running speed (which resumes an open course). Closes the build tray when time restarts. */
   setTimeSpeed(speed: number) {
     if (speed <= 0) { this.game.pause(); return; }
@@ -738,19 +814,47 @@ export class UI {
   // ---------- menu and modals ----------
   /** What the × (or a tap outside the dialog) does: closing is always the safe choice, the same as the dialog's own Cancel or Done. */
   private modalDismiss: () => void = () => {};
+  private modalReturn: HTMLElement | null = null;
   private modal(html: string, onDismiss?: () => void): HTMLElement {
     const m = this.$('modal');
+    const wasOpen = !m.hidden;
     m.hidden = false;
-    m.innerHTML = `<div class="boxwrap"><div class="box" role="dialog">${html}</div><button class="mx" data-mx="1" aria-label="Close">${icon('close')}</button></div>`;
+    m.innerHTML = `<div class="boxwrap"><div class="box" role="dialog" aria-modal="true" tabindex="-1">${html}</div><button class="mx" data-mx="1" aria-label="Close">${icon('close')}</button></div>`;
+    const box = m.querySelector<HTMLElement>('.box')!;
+    const h = box.querySelector('h2');
+    if (h) { h.id = 'modalTitle'; box.setAttribute('aria-labelledby', 'modalTitle'); }
     this.modalDismiss = onDismiss ?? (() => { this.closeModal(); this.refresh(true); });
     m.onclick = (e) => {
       const t = e.target as HTMLElement;
       if (t === m || t.closest('[data-mx]')) this.modalDismiss();
     };
+    // Everything behind the dialog is out of reach: no taps, no keyboard focus, hidden from screen readers.
+    if (!wasOpen) this.modalReturn = document.activeElement as HTMLElement | null;
+    for (const el of Array.from(document.getElementById('app')!.children) as HTMLElement[]) if (el !== m && el.id !== 'toasts') el.inert = true;
+    m.onkeydown = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); this.modalDismiss(); return; }
+      if (e.key !== 'Tab') return;
+      const f = Array.from(m.querySelectorAll<HTMLElement>('button:not([disabled]), input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])')).filter((x) => x.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    // focus moves into the dialog: its first field, else its main action, else the dialog itself
+    requestAnimationFrame(() => {
+      const target = box.querySelector<HTMLElement>('input, select, textarea') ?? box.querySelector<HTMLElement>('.btn.primary:not([disabled])') ?? box;
+      target.focus({ preventScroll: true });
+    });
     return m;
   }
   closeModal() {
-    this.$('modal').hidden = true;
+    const m = this.$('modal');
+    m.hidden = true;
+    m.onkeydown = null;
+    for (const el of Array.from(document.getElementById('app')!.children) as HTMLElement[]) el.inert = false;
+    const back = this.modalReturn;
+    this.modalReturn = null;
+    if (back && back.isConnected) back.focus({ preventScroll: true });
   }
   openMenu() {
     const g = this.game;
@@ -836,6 +940,9 @@ export class UI {
       ${sec('Guest requests', ['Now and then a golfer asks for something: a safer hole, a smoother green, somewhere to stop. Requests are in Goals, with Show me and a few days to do it.', 'Put it right in time and you are paid. Each one comes from something golfers really found on your course.'])}
       ${sec('Weather', ['Most days are clear. Rain keeps golfers away but rests the turf; a heatwave wears it faster.', 'A storm washes out patches of turf on every hole. The bar at the top offers one button to repair it all.', 'Once in a long while a storm brings trees down across a fairway and closes that hole until you clear them.'])}
       ${sec('Growing', ['The starting shack has room for 4 holes. Clubhouse upgrades allow 9, 12 and 18, and each needs a better star rating.', 'Rating rises with open holes, healthy turf, happy guests and improvements.'])}
+      ${sec('Hole quality', ['Every hole has a report in Course: how beginners, regulars, skilled players and resort visitors each rate it, its main weakness and one thing to try.', 'Harder is not better. Hazards beside the fairway make choices; hazards across it just punish. Copies of the same short hole count for less.', 'After you rework a hole, its report compares how it played before and after.', 'Overlays show shot landings, trouble spots, queues at tees, or every hole\'s score on the map.'])}
+      ${sec('Facilities', ['The golf academy gives lessons after rounds: pupils really improve, and some join. Put it near the putting green or range.', 'The restaurant feeds golfers and local diners. A view and a short walk from the clubhouse bring more custom; choose the service level.', 'The tournament center runs competitions on the holes you choose, with a leaderboard and a report. Results build prestige.'])}
+      ${sec('Your club', ['Regulars come back by name, with goals of their own. Golfers shows their stories and who is close to joining.', 'Calendar offers events with notice. Commit to what suits your club; nothing is forced.', 'Now and then a decision comes up with a deadline, such as watering before a heatwave. If you let it pass, a sensible default is taken.', 'Your club identity comes from how you run it: prices, holes, facilities and events.'])}
     </div><div class="actions"><button class="btn primary" id="helpDone">Got it</button></div>`);
     (m.querySelector('#helpDone') as HTMLElement).onclick = () => this.closeModal();
   }
@@ -1115,9 +1222,9 @@ export class UI {
       // The very first day's reward and challenges arrive quietly (a badge on the menu and on Goals): a brand-new course
       // has nobody to welcome back, and the player is busy opening for the first time.
       const firstEver = !g.daily.date;
-      if (!g.practice && !document.body.classList.contains('coaching') && rollDay(g) && !firstEver) {
-        g.cheer({ kind: 'streak', title: g.daily.streak > 1 ? `Day ${g.daily.streak} streak!` : 'Welcome back!', sub: 'Three new daily challenges are waiting in Goals.', reward: g.daily.pending });
-      }
+      // the daily extras arrive quietly (Goals, Daily extras): coming back is about the club, not a streak to protect
+      if (!g.practice && !document.body.classList.contains('coaching')) rollDay(g);
+      void firstEver;
     }
     document.body.classList.toggle('practice', g.practice);
     const badge = g.practice ? 0 : claimable(g);
@@ -1172,6 +1279,12 @@ export class UI {
       const redo = this.$('tools').querySelector<HTMLButtonElement>('.ph-redo')!, undo = this.$('tools').querySelector<HTMLButtonElement>('.ph-undo:not(.ph-redo)')!;
       redo.hidden = !!this.editor.proposal || !g.redoStack.length;
       undo.disabled = !this.editor.proposal && !g.undoStack.length;
+    }
+    {
+      const done = this.$('tools').querySelector<HTMLElement>('.tray-done');
+      const n = this.closedHoles().waiting.length;
+      const label = n ? `Done · reopen ${n}` : 'Done';
+      if (done && done.textContent !== label) { done.textContent = label; done.setAttribute('aria-label', n ? `Finish and reopen ${n} affected hole${n === 1 ? '' : 's'}` : 'Done building'); }
     }
     {
       const ct = document.getElementById('cartTile');
@@ -1261,6 +1374,11 @@ export class UI {
       else body.scrollTop = top;
       this.cache.set('side', html);
       this.restoreFocus(body, focus);
+      if (this.editor.focusFacility && this.tab === 'club') {
+        const card = body.querySelector<HTMLElement>(`[data-fac="${this.editor.focusFacility}"]`);
+        this.editor.focusFacility = null;
+        if (card) body.scrollTop = card.offsetTop - 8;
+      }
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
       if (cl) paintLogo(cl, g.logo);
     }
@@ -1593,6 +1711,7 @@ export class UI {
       ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
+    html += holeReportHtml(g, h);
     if (v.warnings.length) html += xp('warn', 'Things to check', `${v.warnings.length}`, v.warnings.map((p) => `<div class="note warn">${p}</div>`).join(''));
     const icon = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
     html += xp('edit', 'Edit hole', 'Par, tee, green, turns', `<div class="par-row"><span>Par</span>${[3, 4, 5].map((n) => `<button class="mini ${n === h.par ? 'on' : ''}" data-act="setpar" data-id="${n}">${n}</button>`).join('')}<small class="dim">${PAR_YARDS[h.par][0]} to ${PAR_YARDS[h.par][1]} yd suits a par ${h.par}</small></div>
@@ -1618,7 +1737,7 @@ export class UI {
       const xs = this.holeState(x);
       return `<button class="hole-card ${x.id === h.id ? 'on' : ''}" data-hole="${x.id}"><span class="hole-num">${x.id}</span><span class="hole-main"><b>${escapeHtml(x.name)}</b><small>Par ${x.par} · ${holeYards(x)} yd</small></span><span class="hole-state ${xs.cls}">${xs.text}</span></button>`;
     }).join('')}</div>`;
-    html += xp('course', 'All holes', `${nHoles} · Par ${totalPar}`, list);
+    html += xp('course', 'All holes', `${nHoles} · Par ${totalPar}`, list + courseSetupHtml(g));
     const it = this.editor.inspectTile;
     if (it) {
       const i = idx(w, it.x, it.y);
@@ -1642,8 +1761,9 @@ export class UI {
     }
     html += `</div><div class="sec"><h3>Why</h3>`;
     const notes: string[] = [];
-    const fair = g.fair;
-    notes.push(`<div class="note ${g.fee > fair + 6 ? 'bad' : g.fee > fair + 2 ? 'warn' : 'good'}">Fee ${fmtMoney(g.fee)} against a fair price of about ${fmtMoney(fair)}.${g.fee > fair + 2 ? ' Guests feel overcharged.' : g.fee < fair - 8 ? ' Great value, but you are leaving money behind.' : ''}</div>`);
+    // compare the fee for the band running now with what guests think is fair for that same band
+    const fair = g.fair * g.band.fair;
+    notes.push(`<div class="note ${g.fee > fair + 6 ? 'bad' : g.fee > fair + 2 ? 'warn' : 'good'}">${g.band.name} fee ${fmtMoney(g.fee)} against a fair ${g.band.name.toLowerCase()} price of about ${fmtMoney(fair)}.${g.fee > fair + 2 ? ' Guests feel overcharged.' : g.fee < fair - 8 ? ' Great value, but you are leaving money behind.' : ''}</div>`);
     if (rec.length) {
       const wornHoles = g.world.holes.filter((h) => h.open && holeCondition(g.world, h).green < CFG.turf.wornBelow);
       if (avg('cond') < 65) notes.push(`<div class="note ${avg('cond') < 45 ? 'bad' : 'warn'}">Turf: average lie condition is low${wornHoles.length ? `. The green on hole ${wornHoles.map((h) => h.id).join(', ')} is worn` : ''}. Use Repair in Design.</div>`);
@@ -1673,7 +1793,7 @@ export class UI {
     }
     const selected = g.sim.golfers.find(x => x.id === g.selectedGolfer);
     if (selected?.scorecard.length) html += `<div class="card"><div class="t">${escapeHtml(selected.name)} · scorecard</div>${selected.scorecard.map(x => `<div class="row"><span>Hole ${x.hole} · par ${x.par}</span><b>${x.strokes}</b></div>`).join('')}</div>`;
-    html += membersPanel(g);
+    html += regularsHtml(g);
     html += `<div class="sec"><h3>Watch a golfer</h3><div class="golfer-list">${g.sim.golfers.slice(0, 12).map(x => `<button class="golfer-row" data-act="watch" data-id="${x.id}"><span class="avatar" style="background:${CFG.golfers.types[x.type].shirt}">${escapeHtml(x.name[0])}</span><span><b>${escapeHtml(x.name)}</b><small>${x.type} · ${x.holeId ? 'Hole ' + x.holeId : 'At the clubhouse'}</small></span><span>Follow →</span></button>`).join('') || '<p class="dim">The next guests will arrive shortly.</p>'}</div></div>`;
     html += `<div class="sec"><h3>Recent comments</h3><div class="feed">${g.comments.length ? g.comments.slice(-9).reverse().map((c) => `<div><b>${c.name}</b> <span class="dim">${CFG.golfers.types[c.type].label}${c.hole ? `, hole ${c.hole}` : ''}</span><br>${c.text}</div>`).join('') : '<div class="dim">Quiet so far. Golfers react to what happens to them.</div>'}</div></div>`;
     return html;
@@ -1685,7 +1805,7 @@ export class UI {
     const toNext = g.hourLen - (g.clock % g.hourLen);
     const row = (k: string, v: number, sign = 1) => `<div class="row"><span class="k">${k}</span>${money(sign * v)}</div>`;
     const offFair = BANDS.some((b) => Math.abs(g.fees[b.id] - Math.round(g.fair * b.fair)) >= 2);
-    let html = `<div class="sec"><h3>Tee time pricing</h3><div class="fee-all"><button class="btn ${offFair ? 'primary' : ''}" data-act="fairfees" ${offFair ? '' : 'disabled'}>${offFair ? 'Set all three to the fair price' : 'All three are at the fair price'}</button></div>${BANDS.map((b) => {
+    let html = moneySummaryHtml(g) + `<div class="sec"><h3>Tee time pricing</h3><div class="fee-all"><button class="btn ${offFair ? 'primary' : ''}" data-act="fairfees" ${offFair ? '' : 'disabled'}>${offFair ? 'Set all three to the fair price' : 'All three are at the fair price'}</button></div>${BANDS.map((b) => {
       const fee = g.fees[b.id];
       const fair = g.fair * b.fair;
       const n = g.bandArrivals(b.id);
@@ -1694,7 +1814,7 @@ export class UI {
         <div class="row" style="align-items:center"><span class="k">Fee</span><span><button class="btn sm" data-act="bandfee" data-band="${b.id}" data-id="-5">−5</button> <button class="btn sm" data-act="bandfee" data-band="${b.id}" data-id="-1">−</button> <b>${fmtMoney(fee)}</b> <button class="btn sm" data-act="bandfee" data-band="${b.id}" data-id="1">+</button> <button class="btn sm" data-act="bandfee" data-band="${b.id}" data-id="5">+5</button></span></div>
         <div class="note ${tone}">Guests think about ${fmtMoney(fair)} is fair. About ${n.toFixed(1)} golfers a day book this band.</div></div>`;
     }).join('')}<div class="dim">Expected ${Math.round(g.arrivalRate)} golfers a day. ${g.season.name} demand is ${g.season.demand >= 1.1 ? 'strong' : g.season.demand <= 0.7 ? 'weak' : 'normal'} in ${REGIONS[g.region].name}.</div></div>
-      <div class="sec"><h3>Today, day ${g.day}</h3>${row('Green fees and cart rentals', t.fees)}${row('Clubhouse sales', t.shop)}${row('Maintenance', t.maintenance, -1)}<div class="row total"><span>Operating profit</span>${money(operatingProfit(t))}</div>${row('Construction and upgrades', t.construction, -1)}${t.bonus ? row('Goal bonuses', t.bonus) : ''}<div class="row total"><span>Net change in cash</span>${money(netChange(t))}</div>
+      <div class="sec"><h3>Today, day ${g.day}</h3>${row('Green fees and cart rentals', t.fees)}${row('Clubhouse sales, meals and dues', t.shop)}${t.lessons || t.covers ? `<div class="dim small">${t.lessons ? `${t.lessons} lesson${t.lessons === 1 ? '' : 's'} (in fees)` : ''}${t.lessons && t.covers ? ' · ' : ''}${t.covers ? `${t.covers} meal${t.covers === 1 ? '' : 's'} (in sales)` : ''}</div>` : ''}${row('Maintenance, wages and facilities', t.maintenance, -1)}<div class="row total"><span>Operating profit</span>${money(operatingProfit(t))}</div>${row('Construction and upgrades', t.construction, -1)}${t.bonus ? row('Goal bonuses', t.bonus) : ''}<div class="row total"><span>Net change in cash</span>${money(netChange(t))}</div>
       <div class="dim" style="margin-top:6px">Maintenance of ${fmtMoney(g.maintenanceRate)} is charged every game hour. Next charge in ${Math.ceil(toNext / 1)}s. ${t.arrivals} arrivals so far, expecting about ${Math.round(g.arrivalRate)} per day at these prices.</div></div>`;
     const last = g.days[g.days.length - 1];
     if (last) html += `<div class="sec"><h3>Day ${last.day} summary</h3><div class="card"><div class="row"><span class="k">Revenue</span><span>${fmtMoney(last.fees + last.shop)}</span></div><div class="row"><span class="k">Maintenance</span><span>${fmtMoney(last.maintenance)}</span></div><div class="row"><span class="k">Construction</span><span>${fmtMoney(last.construction)}</span></div><div class="row"><span class="k">Rounds / satisfaction</span><span>${last.rounds} / ${last.rounds ? Math.round(last.avgSat) : '-'}</span></div><div class="row total"><span>Operating profit</span>${money(last.profit)}</div></div></div>`;
@@ -1717,31 +1837,10 @@ export class UI {
     return html;
   }
 
+  /** Which committed tournament's setup is open in the Calendar, by day. */
+  private tourEdit: number | null = null;
   private eventsHtml(): string {
-    const g = this.game;
-    let html = '';
-    const a = g.activeEvent;
-    if (a) html += `<div class="sec"><h3>Happening today</h3><div class="card"><div class="t">${EVENTS[a.id].name}</div><div class="row"><span class="k">Golfers arrived</span><span>${a.spawned} of ${a.total}</span></div><div class="row"><span class="k">Entry fees</span><span>${fmtMoney(a.revenue)}</span></div><div class="row"><span class="k">Rounds finished</span><span>${a.rounds}</span></div></div></div>`;
-    html += `<div class="sec"><h3>Booked</h3>`;
-    html += g.bookings.length ? g.bookings.map((b) => `<div class="card"><div class="row"><span class="t">${EVENTS[b.id].name}</span><span>Day ${b.day}</span></div><div class="dim">Entry ${fmtMoney(b.fee)}, setup ${fmtMoney(EVENTS[b.id].cost)} charged at the start.</div><div style="margin-top:6px"><button class="btn" data-act="cancelev" data-id="${b.day}">Cancel, free</button></div></div>`).join('') : '<div class="dim">Nothing booked. Events bring a burst of paying golfers at a 7 AM shotgun start.</div>';
-    html += `</div><div class="sec"><h3>Host an event</h3>`;
-    for (const id of EVENT_IDS) {
-      const d = EVENTS[id];
-      const fee = g.eventFees[id];
-      const n = g.expectedGuests(id);
-      const probs = g.eventProblemsFor(id);
-      const net = n * fee - d.cost;
-      html += `<div class="card"><div class="row"><span class="t">${d.name}</span><span class="reward">${fmtMoney(d.cost)} setup</span></div><div class="dim">${d.blurb}</div>
-        <div class="row" style="margin-top:6px;align-items:center"><span class="k">Entry fee (fair: ${fmtMoney(d.fair)})</span><span><button class="btn" data-act="evfee" data-ev="${id}" data-id="-5">−</button> <b>${fmtMoney(fee)}</b> <button class="btn" data-act="evfee" data-ev="${id}" data-id="5">+</button></span></div>
-        <div class="row"><span class="k">Expected turnout</span><span>about ${n} golfers</span></div>
-        <div class="row"><span class="k">Expected profit before upkeep</span>${money(net)}</div>
-        ${probs.map((p) => `<div class="note bad">${p}</div>`).join('')}
-        <div style="margin-top:6px"><button class="btn primary" data-act="book" data-id="${id}" ${probs.length ? 'disabled' : ''}>Book next free day</button></div></div>`;
-    }
-    html += '</div>';
-    const l = g.lastEvent;
-    if (l) html += `<div class="sec"><h3>Last event</h3><div class="card"><div class="t">${EVENTS[l.id].name}, day ${l.day}</div><div class="row"><span class="k">Golfers</span><span>${l.guests}</span></div><div class="row"><span class="k">Entries minus setup</span>${money(l.revenue - l.cost)}</div><div class="row"><span class="k">Satisfaction</span><span>${l.rounds ? Math.round(l.avgSat) : '-'}</span></div></div></div>`;
-    return html;
+    return calendarHtml(this.game, this.tourEdit);
   }
 
   private clubHtml(): string {
@@ -1756,8 +1855,15 @@ export class UI {
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
       <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${g.maxHoles}</span></div>`;
-    html += next ? `<div class="note ${why ? 'warn' : 'good'}">Next: ${next.name}. ${why ?? 'Requirements met.'}</div><button class="btn primary" data-act="club" ${why || g.cash < next.cost ? 'disabled' : ''}>Upgrade for ${fmtMoney(next.cost)}</button>` : '<div class="note good">Fully upgraded.</div>';
+    if (next) {
+      // the rating gate and the price are separate: meeting one says nothing about the other
+      const short = Math.max(0, next.cost - g.cash);
+      const rating = why ? `Rating: ${why}` : `Rating: ${next.minStars}-star requirement met.`;
+      const cash = short > 0 ? `Cash: ${fmtMoney(next.cost)} needed. You have ${fmtMoney(Math.max(0, g.cash))}, so ${fmtMoney(short)} still to save.` : `Cash: ${fmtMoney(next.cost)} needed. You have enough.`;
+      html += `<div class="t">Next: ${next.name}</div><div class="note ${why ? 'warn' : 'good'}" data-club-rating>${rating}</div><div class="note ${short > 0 ? 'warn' : 'good'}" data-club-cash>${cash}</div><button class="btn primary" data-act="club" ${why || short > 0 ? 'disabled' : ''}>Upgrade for ${fmtMoney(next.cost)}</button>`;
+    } else html += '<div class="note good">Fully upgraded.</div>';
     html += `</div></div>`;
+    html += identityHtml(g) + facilitiesHtml(g);
     html += `<div class="sec"><h3>What raises your rating</h3><div class="dim">Open holes (${g.openHoles.length}), turf condition (${Math.round(g.avgCondition)}), guest satisfaction (${Math.round(g.reputation)}), improvements owned and the clubhouse level. Higher ratings lift demand and fees, and unlock bigger clubhouse upgrades and events.</div></div>`;
     html += `<div class="sec"><h3>${r.name}</h3><div class="dim">${r.perks.join(' · ')}</div><div class="note">${SEASON_NAMES2[nextSeason]} comes next: demand ${r.seasonDemand[nextSeason] >= 1.1 ? 'rises' : r.seasonDemand[nextSeason] <= 0.7 ? 'drops sharply' : 'is steady'}, turf wear ${r.seasonWear[nextSeason] > 1.1 ? 'is heavier' : 'is normal'}.</div></div>`;
     html += `<div class="sec"><h3>Staff</h3>`;

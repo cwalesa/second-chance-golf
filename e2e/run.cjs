@@ -1,7 +1,7 @@
 // Runs the browser suites against the dev server:  npm run e2e            (everything)
 //                                                    npm run e2e -- panel   (only suites whose name matches)
 const lib = require('./lib.cjs');
-const SUITES = ['tutorial', 'building', 'panel', 'first-round', 'moments', 'terrain', 'moving'];
+const SUITES = ['tutorial', 'building', 'panel', 'first-round', 'moments', 'terrain', 'moving', 'club'];
 
 (async () => {
   const want = process.argv.slice(2);

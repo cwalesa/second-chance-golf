@@ -3,7 +3,7 @@ import { Game, fmtMoney } from './game';
 import { Renderer, Overlay, BendUi } from './render';
 import { ITEMS, ItemKind, buildingProblem, isAmenity, isBuilding, itemAt, moveItem, moveProblem, toggleItem } from './items';
 import { lotFor } from './lots';
-import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, bendProblem, moveBendTo, removeBendAt, suggestBend, planBends, routeStats, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState } from './editing';
+import { BRUSH_RADII, EditPlan, PAINT_TOOLS, TOOL_INFO, TileEdit, ToolId, blockReason, brushTiles, mergeEdit, insertBend, bendProblem, moveBendTo, removeBendAt, suggestBend, planBends, routeStats, planMoveCup, planMoveTee, planNewHole, planPaint, planTile, stagedState, endpointProblem, exclusionZones } from './editing';
 import { CFG } from './config';
 import { clubDims, Hole, MAX_BENDS, Pt, holeBends, idx, inBounds } from './terrain';
 import { clubhouseProblem, relocateProblem, suggestClubhouse } from './wilderness';
@@ -166,6 +166,8 @@ export class Editor {
   /** True once the player has clicked or tapped a spot, so wandering the mouse to the Build button does not move it. */
   clubLocked = false;
   inspectTile: Pt | null = null;
+  /** A facility the player just tapped: the Clubhouse panel scrolls to its card. */
+  focusFacility: string | null = null;
   onChange: () => void = () => {};
   onSelect: (what: 'golfer' | 'hole' | 'club') => void = () => {};
 
@@ -287,7 +289,8 @@ export class Editor {
     if (t !== 'decor' && this.relocClub) this.cancelClub();
     this.cancelStroke();
     if (this.pending && !(t === 'build' && this.tool === 'build')) this.clearPending();
-    if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.overlay.buildTee = null; this.overlay.buildLine = null; }
+    if (t !== 'build') { this.buildTee = null; this.buildCup = null; this.newBends = []; this.overlay.buildTee = null; this.overlay.buildLine = null; this.overlay.exclude = null; this.moveEnd = null; }
+    else if (!this.buildTee) this.overlay.exclude = exclusionZones(this.game.world, 'tee');
     this.selBend = -1;
     this.tool = t;
     this.game.settings.tool = t;
@@ -307,6 +310,13 @@ export class Editor {
   /** New hole: true once the tee spot has been tapped. */
   get buildStarted() {
     return !!this.buildTee;
+  }
+  /** While a new hole is placed: which end the next tap moves (Move tee / Move green), or null. */
+  moveEnd: 'tee' | 'cup' | null = null;
+  startMoveEnd(which: 'tee' | 'cup' | null) {
+    this.moveEnd = which;
+    this.overlay.exclude = which ? exclusionZones(this.game.world, which === 'tee' ? 'tee' : 'green') : null;
+    this.onChange();
   }
   get isPlacement() {
     return this.tool === 'tee' || this.tool === 'cup' || this.tool === 'bend' || this.tool === 'build';
@@ -357,8 +367,10 @@ export class Editor {
     this.buildCup = null;
     this.newBends = [];
     this.selBend = -1;
+    this.moveEnd = null;
     this.overlay.buildTee = null;
     this.overlay.buildLine = null;
+    this.overlay.exclude = this.tool === 'build' ? exclusionZones(this.game.world, 'tee') : null;
     this.syncStagedOverlay();
     this.updateHover();
     this.onChange();
@@ -1020,14 +1032,17 @@ export class Editor {
       const foot = boxTiles(world, h);
       this.overlay.hoverTiles = foot;
       this.overlay.changed = new Set();
-      this.overlay.blocked = new Set();
+      const placingEnd: 'tee' | 'green' | null = this.moveEnd ? (this.moveEnd === 'tee' ? 'tee' : 'green') : !this.buildTee ? 'tee' : !this.pending ? 'green' : null;
+      this.overlay.exclude = placingEnd ? exclusionZones(world, placingEnd) : null;
+      const endWhy = placingEnd ? endpointProblem(world, h, placingEnd) : null;
+      this.overlay.blocked = endWhy ? new Set(foot) : new Set();
       this.overlay.buildTee = this.buildTee;
       this.overlay.buildLine = this.buildTee ? { from: this.buildTee, to: h } : null;
       if (this.buildTee && !this.pending) {
         const plan = this.newHolePlan(this.buildTee, h);
         if (typeof plan === 'string') this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: false, message: plan, stroking: false, limited: false };
         else this.preview = { tool: 'build', label: plan.label, tiles: plan.tiles.length, cost: plan.cost, affordable: plan.cost <= this.game.cash, message: '', stroking: false, limited: false };
-      } else if (!this.buildTee) this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: true, message: 'Step 1 of 2: tap where the tee box goes.', stroking: false, limited: false };
+      } else if (!this.buildTee) this.preview = { tool: 'build', label: '', tiles: 0, cost: 0, affordable: !endWhy, message: endWhy ?? 'Step 1 of 2: tap where the tee box goes. Keep clear of the red rings.', stroking: false, limited: false };
       this.onChange();
       return;
     }
@@ -1220,12 +1235,31 @@ export class Editor {
       return;
     }
     if (this.tool === 'build') {
+      // moving one end of a placed hole: the other end, par and bends stay as they are
+      if (this.moveEnd && this.pending?.newHole && this.buildTee && this.buildCup) {
+        const which = this.moveEnd;
+        const why = endpointProblem(this.game.world, t, which === 'tee' ? 'tee' : 'green');
+        if (why) { this.game.notify('bad', why); return; }
+        const was = { tee: this.buildTee, cup: this.buildCup };
+        if (which === 'tee') this.buildTee = t; else this.buildCup = t;
+        const fail = this.tryReplan();
+        if (fail) { this.buildTee = was.tee; this.buildCup = was.cup; this.tryReplan(); this.game.notify('bad', fail); return; }
+        this.moveEnd = null;
+        this.overlay.buildTee = this.buildTee;
+        this.overlay.exclude = null;
+        this.r.pulse(t.x + 0.5, t.y + 0.5);
+        this.onChange();
+        return;
+      }
       if (this.pending?.newHole && this.buildTee && this.buildCup) {
         // the hole is placed: a tap on bare ground never moves it, it only lets go of the selected bend
         this.tapRoute(t);
         return;
       }
       if (!this.buildTee) {
+        // the tee is checked the moment it is tapped, so a clash is never discovered only after placing the green
+        const why = endpointProblem(this.game.world, t, 'tee');
+        if (why) { this.game.notify('bad', why); return; }
         this.buildTee = t;
         this.overlay.buildTee = t;
         this.r.pulse(t.x + 0.5, t.y + 0.5);
@@ -1234,12 +1268,15 @@ export class Editor {
         this.keepInView([t]);
         return;
       }
+      const cupWhy = endpointProblem(this.game.world, t, 'green');
+      if (cupWhy) { this.game.notify('bad', cupWhy); return; }
       const plan = this.newHolePlan(this.buildTee, t);
       if (typeof plan === 'string') {
         this.game.notify('bad', plan);
         return;
       }
       this.buildCup = t;
+      this.overlay.exclude = null;
       this.r.pulse(t.x + 0.5, t.y + 0.5);
       this.pending = plan;
       this.rev++;
@@ -1378,6 +1415,15 @@ export class Editor {
         this.onChange();
         return;
       }
+    }
+    // the academy, restaurant and tournament center open their cards in the Clubhouse panel (roofs overhang a tile behind)
+    const fac = (this.game.world.items ?? []).find((it) => (it.k === 'academy' || it.k === 'restaurant' || it.k === 'tourney') && tx >= it.x - 1 && ty >= it.y - 1 && tx < it.x + (ITEMS[it.k].w ?? 1) && ty < it.y + (ITEMS[it.k].h ?? 1));
+    if (fac) {
+      this.game.selectedGolfer = 0;
+      this.focusFacility = fac.k;
+      this.onSelect('club');
+      this.onChange();
+      return;
     }
     this.inspectTile = { x: tx, y: ty };
     const z = this.game.world.zone[idx(this.game.world, tx, ty)];

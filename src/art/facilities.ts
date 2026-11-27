@@ -1024,17 +1024,403 @@ function buildWindmill(): Mesh {
   return m;
 }
 
-export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'restroom' | 'starter' | 'windmill' | 'carpark';
-export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'carpark'];
+// =====================================================================================================
+// Upgradeable buildings: the golf academy, the restaurant and the tournament centre. Each is built for a
+// level (1-3, extras added at each) and a number of people (0-9) at fixed slots, and every variant is cached.
+// =====================================================================================================
+const SHIRTS = ['#c0392b', '#2f6a8a', '#f2c230', '#3f8a5a', '#f4efe0', '#8e4a7a', '#e07a3a'];
+const SKIN = ['#efcfae', '#d2a07a', '#a06a48', '#e6bd96'];
+const PANTS = ['#3a3d48', '#c9b896', '#2f3f5c', '#5a4a3a'];
+/** A tiny figure: legs, a shirt, a head. Seated figures sit on a stool at `z`. */
+function person(m: Mesh, x: number, y: number, z: number, k: number, seated = false) {
+  const shirt = SHIRTS[k % SHIRTS.length], skin = SKIN[(k * 3 + 1) % SKIN.length], pants = PANTS[(k * 5 + 2) % PANTS.length];
+  const e = { grad: false, edge: 'rgba(28,26,46,0.55)' };
+  let zt: number;
+  if (seated) {
+    m.box(x - 0.06, y - 0.02, z, x + 0.06, y + 0.16, z + 0.08, pants, e);
+    m.box(x - 0.08, y - 0.06, z + 0.06, x + 0.08, y + 0.05, z + 0.3, shirt, e);
+    zt = z + 0.3;
+  } else {
+    m.box(x - 0.055, y - 0.04, z, x + 0.055, y + 0.04, z + 0.3, pants, e);
+    m.box(x - 0.08, y - 0.055, z + 0.28, x + 0.08, y + 0.055, z + 0.55, shirt, e);
+    zt = z + 0.55;
+  }
+  m.box(x - 0.055, y - 0.055, zt + 0.01, x + 0.055, y + 0.055, zt + 0.13, skin, { grad: false, edge: 'rgba(28,26,46,0.5)' });
+}
+
+/** A hipped roof (ridge along x, slopes on all four sides) with an overhang, fascia and courses. */
+function hipX(m: Mesh, x0: number, x1: number, y0: number, y1: number, zEave: number, rise: number, roof: string, fascia: string, ov = 0.2) {
+  const X0 = x0 - ov, X1 = x1 + ov, Y0 = y0 - ov, Y1 = y1 + ov, zE = zEave - 0.08, ym = (y0 + y1) / 2, run = (Y1 - Y0) / 2, zR = zE + rise;
+  const R0: V3 = [X0 + run, ym, zR], R1: V3 = [X1 - run, ym, zR];
+  m.quad([[X0, Y1, zE], [X1, Y1, zE], R1, R0], [0, rise, run], roof);
+  m.quad([[X0, Y0, zE], [X1, Y0, zE], R1, R0], [0, -rise, run], roof);
+  m.quad([[X1, Y0, zE], [X1, Y1, zE], R1], [rise, 0, run], roof);
+  m.quad([[X0, Y0, zE], [X0, Y1, zE], R0], [-rise, 0, run], roof);
+  const t = 0.07;
+  m.quad([[X0, Y1, zE], [X1, Y1, zE], [X1, Y1, zE - t], [X0, Y1, zE - t]], [0, 1, 0], fascia, { bias: 0.003 });
+  m.quad([[X1, Y0, zE], [X1, Y1, zE], [X1, Y1, zE - t], [X1, Y0, zE - t]], [1, 0, 0], fascia, { bias: 0.003 });
+  for (let f = 0.14; f < 0.97; f += 0.14) {
+    const z = zE + rise * f + 0.004, d = run * f;
+    m.line([X0 + d, Y1 - d, z], [X1 - d, Y1 - d, z], 'rgba(28,20,14,0.26)', 0.022, [0, rise, run]);
+    m.line([X1 - d, Y0 + d, z], [X1 - d, Y1 - d, z], 'rgba(28,20,14,0.22)', 0.022, [rise, 0, run]);
+  }
+  m.box(R0[0], ym - 0.05, zR - 0.02, R1[0], ym + 0.05, zR + 0.05, roof, { grad: false, faces: { pz: tone(roof, 1.18) } });
+}
+
+/** The two walls of a block the camera sees (+x and +y), sorted early so the windows, signs and boards
+ *  painted on them always land on top of a long wall rather than sinking behind its centre. */
+function walls(m: Mesh, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: string, side = c) {
+  m.quad([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], [0, 1, 0], c, { grad: true, bias: -1.6 });
+  m.quad([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], [1, 0, 0], side, { grad: true, bias: -1.0 });
+}
+
+/** A front window (on the +y wall at y) with a trim frame, glass and a glint. */
+function frontWindow(m: Mesh, y: number, w0: number, w1: number, z0: number, z1: number, trim: string, glass = '#4a6a72', mullion = true) {
+  m.quad([[w0 - 0.05, y + 0.01, z0 - 0.05], [w1 + 0.05, y + 0.01, z0 - 0.05], [w1 + 0.05, y + 0.01, z1 + 0.05], [w0 - 0.05, y + 0.01, z1 + 0.05]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[w0, y + 0.014, z0], [w1, y + 0.014, z0], [w1, y + 0.014, z1], [w0, y + 0.014, z1]], [0, 1, 0], glass, { lit: false, edge: null, bias: 0.014 });
+  m.quad([[w0, y + 0.016, z1 - (z1 - z0) * 0.22], [w1, y + 0.016, z1 - (z1 - z0) * 0.22], [w1, y + 0.016, z1], [w0, y + 0.016, z1]], [0, 1, 0], 'rgba(255,255,255,0.22)', { lit: false, edge: null, bias: 0.016 });
+  if (mullion) m.line([(w0 + w1) / 2, y + 0.018, z0], [(w0 + w1) / 2, y + 0.018, z1], '#f6f0dc', 0.02, [0, 1, 0], 0.018);
+}
+/** A side window on the +x wall at x. */
+function sideWindow(m: Mesh, x: number, v0: number, v1: number, z0: number, z1: number, trim: string) {
+  m.quad([[x + 0.006, v0 - 0.05, z0 - 0.05], [x + 0.006, v1 + 0.05, z0 - 0.05], [x + 0.006, v1 + 0.05, z1 + 0.05], [x + 0.006, v0 - 0.05, z1 + 0.05]], [1, 0, 0], trim, { bias: 0.01 });
+  m.quad([[x + 0.01, v0, z0], [x + 0.01, v1, z0], [x + 0.01, v1, z1], [x + 0.01, v0, z1]], [1, 0, 0], '#4a6168', { lit: false, edge: null, bias: 0.012 });
+}
+/** A flag on a pole: a pennant in the x-z plane. */
+function flagPole(m: Mesh, x: number, y: number, h: number, col: string, len = 0.5, r = 0.03, z0 = 0) {
+  m.cyl(x, y, z0, r, h - z0, 'z', '#f4efe0', { sides: 6 });
+  m.flat([[x, y, h - 0.02], [x, y, h - 0.34], [x + len, y, h - 0.18]], col, { edge: 'rgba(28,26,46,0.6)' });
+}
+/** A café table with two stools; returns the stool positions for diners. */
+function cafeTable(m: Mesh, x: number, y: number, z: number): [number, number][] {
+  m.cyl(x, y, z, 0.04, 0.32, 'z', '#3a3a36', { sides: 4, edge: null });
+  m.cyl(x, y, z + 0.32, 0.22, 0.04, 'z', '#ede4cf', { sides: 8 });
+  const seats: [number, number][] = [[x - 0.34, y + 0.04], [x + 0.28, y + 0.22]];
+  for (const [sx, sy] of seats) { m.cyl(sx, sy, z, 0.03, 0.2, 'z', '#3a3a36', { sides: 4, edge: null }); m.cyl(sx, sy, z + 0.2, 0.1, 0.04, 'z', '#9a7048', { sides: 6 }); }
+  return seats;
+}
+function parasol(m: Mesh, x: number, y: number, z: number, col: string, R = 0.46) {
+  m.line([x, y, z + 0.33], [x, y, z + 1.22], '#d9d4c6', 0.03, null, 0.2);
+  const apex: V3 = [x, y, z + 1.2];
+  for (let k = 0; k < 8; k++) {
+    const t0 = (k / 8) * Math.PI * 2, t1 = ((k + 1) / 8) * Math.PI * 2, tm = (t0 + t1) / 2;
+    m.quad([[x + Math.cos(t0) * R, y + Math.sin(t0) * R, z + 0.96], [x + Math.cos(t1) * R, y + Math.sin(t1) * R, z + 0.96], apex], [Math.cos(tm) * 0.24, Math.sin(tm) * 0.24, R], k % 2 ? '#f3ecdc' : col, { edge: 'rgba(30,40,30,0.25)', bias: 0.2 });
+  }
+}
+/** A flat ellipse on the ground (a green, a hole). */
+function disc(m: Mesh, cx: number, cy: number, rx: number, ry: number, z: number, c: string, n = 14, edge: string | null = null) {
+  const p: V3[] = [];
+  for (let k = 0; k < n; k++) { const t = (k / n) * Math.PI * 2; p.push([cx + Math.cos(t) * rx, cy + Math.sin(t) * ry, z]); }
+  m.quad(p, [0, 0, 1], c, { edge, grad: false });
+}
+/** String lights: a sagging wire from a to b with warm bulbs. */
+function lights(m: Mesh, a: V3, b: V3, sag = 0.14, bulbs = 6) {
+  const at = (t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t - sag * 4 * t * (1 - t)];
+  const segs = 4;
+  for (let k = 0; k < segs; k++) m.line(at(k / segs), at((k + 1) / segs), 'rgba(40,36,30,0.75)', 0.012, null, 0.3);
+  for (let k = 1; k <= bulbs; k++) { const p = at(k / (bulbs + 1)); m.line(p, [p[0], p[1], p[2] - 0.035], '#ffe08a', 0.05, null, 0.32); }
+}
+
+/** Golf academy: a classroom with a sign, three roofed hitting bays with mats, a bucket of balls and a target flag. 5 x 3 tiles. */
+function buildAcademy(level: number, people: number): Mesh {
+  const m = new Mesh();
+  const wall = '#f0e7cf', trim = '#2f5c44', roof = ROOF;
+  const x0 = 0.2, x1 = 2.0, y0 = 0.2, y1 = 1.4, h = 1.32;
+  m.box(0.06, 0.06, 0, 4.94, 1.78, 0.05, '#cbc6ba', { grad: false });
+  // classroom
+  m.box(x0, y0, 0.05, x1, y1, 0.2, '#a69b7e', { grad: false });
+  walls(m, x0, y0, 0.2, x1, y1, h, wall);
+  for (let z = 0.3; z < h - 0.04; z += 0.1) m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(130,112,74,0.28)', 0.012, [0, 1, 0]);
+  m.box(x0 - 0.03, y1 - 0.02, 0.2, x0 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  m.box(x1 - 0.03, y1 - 0.02, 0.2, x1 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  frontWindow(m, y1, 0.42, 1.12, 0.46, 1.0, trim);
+  // a little whiteboard seen through the window
+  m.quad([[0.52, y1 + 0.018, 0.74], [0.8, y1 + 0.018, 0.74], [0.8, y1 + 0.018, 0.92], [0.52, y1 + 0.018, 0.92]], [0, 1, 0], '#e9eee8', { lit: false, edge: null, bias: 0.02 });
+  const d0 = 1.38, d1 = 1.78;
+  m.quad([[d0 - 0.05, y1 + 0.01, 0.2], [d1 + 0.05, y1 + 0.01, 0.2], [d1 + 0.05, y1 + 0.01, 1.08], [d0 - 0.05, y1 + 0.01, 1.08]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[d0, y1 + 0.014, 0.2], [d1, y1 + 0.014, 0.2], [d1, y1 + 0.014, 1.03], [d0, y1 + 0.014, 1.03]], [0, 1, 0], '#3f6a54', { bias: 0.05, grad: true });
+  m.quad([[d0 + 0.07, y1 + 0.018, 0.62], [d1 - 0.07, y1 + 0.018, 0.62], [d1 - 0.07, y1 + 0.018, 0.96], [d0 + 0.07, y1 + 0.018, 0.96]], [0, 1, 0], '#6a8a92', { lit: false, edge: null, bias: 0.06 });
+  m.gableX(x0, x1, y0, y1, h, 0.56, roof, '#efe6cf', { ex: 0.14, ey: 0.2, t: 0.07, wall, courses: 'shingle' });
+  m.box(0.4, y1 + 0.01, h - 0.02, 1.8, y1 + 0.08, h + 0.28, trim, { grad: false });
+  m.text([1.1, y1 + 0.086, h + 0.13], [1, 0, 0], [0, 0, 1], 'ACADEMY', 0.16, '#f6ecc8', [0, 1, 0]);
+  // hitting bays: a back wall, partitions, posts, a lean-to roof, a mat in each bay
+  const bx0 = 2.22, bx1 = 4.8, by0 = 0.24, by1 = 1.52, bh = 1.0;
+  const bays = 3, bw = (bx1 - bx0) / bays;
+  m.box(bx0, 0.06, 0.05, bx1, 1.62, 0.09, '#d8d2c2', { grad: false });
+  walls(m, bx0, by0, 0.09, bx1, by0 + 0.08, bh + 0.24, wall);
+  m.box(bx1 - 0.06, by0, 0.09, bx1, 0.9, bh + 0.05, wall, { grad: false });
+  for (let k = 0; k <= bays; k++) {
+    const px = bx0 + k * bw;
+    if (k > 0 && k < bays) m.box(px - 0.03, by0 + 0.08, 0.09, px + 0.03, 0.86, 0.8, trim, { grad: false });
+    m.box(px - (k === bays ? 0.08 : 0.04), by1 - 0.08, 0.09, px + (k === 0 ? 0.08 : 0.04), by1, bh, '#f4efe0', { grad: false });
+  }
+  for (let k = 0; k < bays; k++) {
+    const a = bx0 + k * bw + 0.14, b = bx0 + (k + 1) * bw - 0.14;
+    m.box(a, 0.98, 0.09, b, 1.46, 0.11, '#3f9a52', { grad: false });
+    m.cyl((a + b) / 2, 1.3, 0.11, 0.02, 0.04, 'z', '#f6f6f0', { sides: 5, edge: null });
+    // yardage number above each bay
+    m.text([(a + b) / 2, by0 + 0.085, 0.92], [1, 0, 0], [0, 0, 1], String(k + 1), 0.14, trim, [0, 1, 0]);
+  }
+  // lean-to roof falling toward the front
+  const rz0 = bh + 0.3, rz1 = bh, ry0 = 0.12, ry1 = by1 + 0.14, rxa = bx0 - 0.06, rxb = bx1 + 0.14;
+  m.quad([[rxa, ry0, rz0], [rxb, ry0, rz0], [rxb, ry1, rz1], [rxa, ry1, rz1]], [0, rz0 - rz1, ry1 - ry0], roof);
+  m.quad([[rxa, ry1, rz1], [rxb, ry1, rz1], [rxb, ry1, rz1 - 0.07], [rxa, ry1, rz1 - 0.07]], [0, 1, 0], '#efe6cf', { bias: 0.003 });
+  m.quad([[rxb, ry0, rz0], [rxb, ry1, rz1], [rxb, ry1, rz1 - 0.07], [rxb, ry0, rz0 - 0.07]], [1, 0, 0], '#efe6cf', { bias: 0.003 });
+  for (let x = rxa + 0.22; x < rxb - 0.05; x += 0.24) m.line([x, ry0, rz0 + 0.004], [x, ry1, rz1 + 0.004], 'rgba(28,20,14,0.24)', 0.02, [0, rz0 - rz1, ry1 - ry0]);
+  m.quad([[bx1 + 0.004, by0, bh * 0.3], [bx1 + 0.004, 0.9, bh * 0.3], [bx1 + 0.004, 0.9, bh * 0.36], [bx1 + 0.004, by0, bh * 0.36]], [1, 0, 0], trim, { edge: null, bias: 0.01 });
+  // a bucket of balls by the first bay, a target flag out on the grass
+  m.cyl(bx0 + 0.2, 1.7, 0.0, 0.11, 0.18, 'z', '#c39a3a', { sides: 8 });
+  for (const [dx, dy] of [[-0.04, -0.03], [0.04, 0.0], [0.0, 0.05], [-0.03, 0.04]]) m.cyl(bx0 + 0.2 + dx, 1.7 + dy, 0.18, 0.035, 0.03, 'z', '#f8f8f2', { sides: 5, edge: null });
+  disc(m, 4.55, 2.3, 0.22, 0.14, 0.004, '#e8e2c8', 10, 'rgba(28,26,46,0.35)');
+  flagPole(m, 4.55, 2.3, 1.05, '#f2c230', 0.32, 0.022);
+  // level 2: a practice putting green with a flag, and a chipping net
+  const slots: [number, number, number, boolean][] = [];
+  for (let k = 0; k < bays; k++) slots.push([bx0 + (k + 0.5) * bw - 0.1, 1.22, 0.11, false]);
+  if (level >= 2) {
+    disc(m, 1.1, 2.3, 0.95, 0.56, 0.006, '#5f9e48', 16);
+    disc(m, 1.1, 2.3, 0.82, 0.46, 0.012, '#7cc062', 16);
+    for (let k = 0; k < 4; k++) m.line([0.42 + k * 0.4, 1.94 + (k % 2) * 0.06, 0.014], [0.6 + k * 0.4, 2.66 - (k % 2) * 0.06, 0.014], 'rgba(255,255,255,0.12)', 0.06, [0, 0, 1]);
+    disc(m, 1.5, 2.42, 0.05, 0.035, 0.016, '#1e2a1e', 8);
+    flagPole(m, 1.5, 2.42, 0.85, '#c0392b', 0.26, 0.018);
+    for (const [bx, by] of [[0.7, 2.18], [0.95, 2.5]]) m.cyl(bx, by, 0.014, 0.03, 0.03, 'z', '#f8f8f2', { sides: 5, edge: null });
+    // chipping net: a hoop on a stand
+    const nx = 2.55, ny = 2.45;
+    m.box(nx - 0.3, ny - 0.03, 0, nx + 0.3, ny + 0.03, 0.04, '#3a3a36', { grad: false });
+    m.flat([[nx - 0.26, ny, 0.06], [nx + 0.26, ny, 0.06], [nx + 0.22, ny - 0.12, 0.5], [nx - 0.22, ny - 0.12, 0.5]], 'rgba(240,240,230,0.35)', { edge: null });
+    m.ring([nx, ny - 0.06, 0.3], [1, 0, 0], [0, -0.28, 0.96], 0.26, '#d8d2c2', 0.03);
+    slots.push([0.8, 2.25, 0.012, false], [1.3, 2.62, 0.012, false]);
+  }
+  // level 3: a junior zone of bright little flags on soft turf, with a parasol
+  if (level >= 3) {
+    m.box(2.95, 1.9, 0, 4.1, 2.88, 0.03, '#8fcf6a', { grad: false });
+    const col = ['#c0392b', '#2f6a8a', '#f2c230', '#8e4a7a'];
+    [[3.15, 2.05], [3.85, 2.1], [3.25, 2.7], [3.9, 2.72]].forEach(([fx, fy], i) => {
+      disc(m, fx, fy, 0.05, 0.035, 0.034, '#1e2a1e', 6);
+      m.cyl(fx, fy, 0.03, 0.012, 0.5, 'z', '#f4efe0', { sides: 4, edge: null });
+      m.flat([[fx, fy, 0.53], [fx, fy, 0.38], [fx + 0.18, fy, 0.455]], col[i], { edge: 'rgba(28,26,46,0.5)' });
+    });
+    m.cyl(3.55, 2.4, 0.03, 0.08, 0.1, 'z', '#e07a3a', { sides: 8 });
+    for (const [a, b] of [[[2.95, 2.88], [4.1, 2.88]], [[4.1, 1.9], [4.1, 2.88]]] as [number, number][][]) {
+      m.line([a[0], a[1], 0.16], [b[0], b[1], 0.16], '#f4efe0', 0.03, null, 0.05);
+      for (let t = 0; t <= 1.001; t += 0.25) m.line([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.03], [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.2], '#f4efe0', 0.03, null, 0.05);
+    }
+    slots.push([3.3, 2.6, 0.03, false], [3.85, 2.25, 0.03, false]);
+  }
+  slots.push([2.5, 1.95, 0, false], [0.55, 1.7, 0, false], [1.95, 1.78, 0, false], [4.0, 1.95, 0, false], [0.3, 2.6, 0, false], [2.9, 2.75, 0, false]);
+  for (let k = 0; k < Math.min(people, slots.length, 9); k++) {
+    const [px, py, pz] = slots[k];
+    person(m, px, py, pz, k);
+    if (k < bays) m.line([px + 0.08, py + 0.04, pz + 0.4], [px + 0.2, py + 0.18, pz + 0.02], '#2a2a2a', 0.018, null, 0.05);
+  }
+  return m;
+}
+
+/** Restaurant: a long dining hall under a hipped roof, big windows, a patio deck in front with tables, parasols, planters and string lights. 5 x 4 tiles. */
+function buildRestaurant(level: number, people: number): Mesh {
+  const m = new Mesh();
+  const wall = '#f1e8d2', trim = '#7a3b2e', roof = ROOF;
+  const x0 = 0.25, x1 = 4.75, y0 = 0.2, y1 = 1.6, h = 1.56;
+  const deckY = level >= 2 ? 3.9 : 3.05;
+  m.box(0.08, 0.08, 0, 4.92, y1 + 0.1, 0.05, '#cbc6ba', { grad: false });
+  // deck
+  m.box(0.1, y1 + 0.05, 0, 4.9, deckY, 0.09, '#b58d62', { grad: false });
+  for (let x = 0.3; x < 4.9; x += 0.2) m.line([x, y1 + 0.05, 0.092], [x, deckY, 0.092], 'rgba(80,50,26,0.26)', 0.012, [0, 0, 1]);
+  // hall
+  m.box(x0, y0, 0.05, x1, y1, 0.22, '#a69b7e', { grad: false });
+  walls(m, x0, y0, 0.22, x1, y1, h, wall);
+  for (let z = 0.34; z < h - 0.04; z += 0.1) {
+    m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(130,112,74,0.26)', 0.012, [0, 1, 0]);
+    m.line([x1 + 0.004, y0, z], [x1 + 0.004, y1, z], 'rgba(90,76,50,0.26)', 0.012, [1, 0, 0]);
+  }
+  m.box(x0 - 0.03, y1 - 0.02, 0.22, x0 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  m.box(x1 - 0.03, y1 - 0.02, 0.22, x1 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  // big windows either side of the doors, warm light inside
+  for (const wx of [0.5, 1.28, 3.12, 3.9]) {
+    frontWindow(m, y1, wx, wx + 0.56, 0.4, 1.14, trim, '#5a6e6a');
+    m.quad([[wx + 0.04, y1 + 0.015, 0.42], [wx + 0.52, y1 + 0.015, 0.42], [wx + 0.52, y1 + 0.015, 0.62], [wx + 0.04, y1 + 0.015, 0.62]], [0, 1, 0], 'rgba(255,214,140,0.35)', { lit: false, edge: null, bias: 0.015 });
+  }
+  const d0 = 2.18, d1 = 2.82;
+  m.quad([[d0 - 0.05, y1 + 0.01, 0.22], [d1 + 0.05, y1 + 0.01, 0.22], [d1 + 0.05, y1 + 0.01, 1.14], [d0 - 0.05, y1 + 0.01, 1.14]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[d0, y1 + 0.014, 0.22], [d1, y1 + 0.014, 0.22], [d1, y1 + 0.014, 1.1], [d0, y1 + 0.014, 1.1]], [0, 1, 0], '#5b7e84', { lit: false, edge: null, bias: 0.05 });
+  m.line([2.5, y1 + 0.018, 0.22], [2.5, y1 + 0.018, 1.1], trim, 0.025, [0, 1, 0], 0.06);
+  sideWindow(m, x1, 0.45, 0.85, 0.5, 1.12, trim);
+  sideWindow(m, x1, 1.0, 1.4, 0.5, 1.12, trim);
+  // brick chimney at the back
+  m.box(3.7, 0.5, h - 0.1, 3.98, 0.78, h + 0.92, '#a85f48', { grad: false });
+  m.box(3.66, 0.46, h + 0.86, 4.02, 0.82, h + 0.96, '#8a4a38', { grad: false });
+  hipX(m, x0, x1, y0, y1, h, 0.78, roof, '#efe6cf', 0.2);
+  // sign board on the wall above the doors
+  // sign board standing on the front eave
+  m.box(1.62, y1 + 0.2, h - 0.12, 3.38, y1 + 0.27, h + 0.22, trim, { grad: false });
+  m.text([2.5, y1 + 0.276, h + 0.05], [1, 0, 0], [0, 0, 1], 'RESTAURANT', 0.17, '#f6ecc8', [0, 1, 0]);
+  // planters along the deck's front edge
+  const planter = (px: number, py: number) => {
+    m.box(px - 0.16, py - 0.12, 0.09, px + 0.16, py + 0.12, 0.3, '#9a6a48', { grad: false });
+    m.box(px - 0.13, py - 0.09, 0.3, px + 0.13, py + 0.09, 0.4, '#3f8a48', { grad: false, edge: 'rgba(20,50,30,0.5)' });
+    for (let k = 0; k < 3; k++) { const fx = px - 0.08 + k * 0.08, fy = py + (k % 2 ? -0.03 : 0.04); m.line([fx, fy, 0.41], [fx, fy, 0.44], ['#e8503f', '#f2c230', '#f4a0c0'][k], 0.06, null, 0.05); }
+  };
+  planter(0.3, deckY - 0.18);
+  planter(4.7, deckY - 0.18);
+  planter(0.3, y1 + 0.3);
+  planter(4.7, y1 + 0.3);
+  // tables: a row by the hall, and a second row when the deck is extended
+  const seats: [number, number, number, boolean][] = [];
+  const cols = ['#c0392b', '#2f5c44', '#c0392b'];
+  const rowA = 2.4;
+  [0.95, 2.5, 4.05].forEach((tx, i) => {
+    for (const [sx, sy] of cafeTable(m, tx, rowA, 0.09)) seats.push([sx, sy, 0.33, true]);
+    if (level < 3) parasol(m, tx, rowA, 0.09, cols[i]);
+  });
+  if (level >= 2) {
+    [1.7, 3.3].forEach((tx, i) => {
+      for (const [sx, sy] of cafeTable(m, tx, 3.25, 0.09)) seats.push([sx, sy, 0.33, true]);
+      parasol(m, tx, 3.25, 0.09, ['#2f5c44', '#c0392b'][i]);
+    });
+  }
+  // string lights: tall posts at the deck corners, wires back to the eave
+  const zl = 1.5;
+  const posts: V3[] = [[0.18, deckY - 0.08, zl], [4.82, deckY - 0.08, zl]];
+  for (const [px, py] of posts) m.box(px - 0.035, py - 0.035, 0.09, px + 0.035, py + 0.035, zl + 0.04, '#9a7048', { grad: false });
+  if (level < 3) {
+    lights(m, [0.4, y1 + 0.02, 1.48], posts[0], 0.16, 4);
+    lights(m, [4.6, y1 + 0.02, 1.48], posts[1], 0.16, 4);
+    lights(m, posts[0], posts[1], 0.22, 10);
+  }
+  // level 3: a garden pergola over the inner patio, hung with lights
+  if (level >= 3) {
+    const py1 = 2.95, pz = 1.42, wood = '#f4efe0';
+    const pe = { grad: false, edge: 'rgba(28,26,46,0.45)' };
+    for (const px of [0.3, 1.72, 3.28, 4.7]) m.box(px - 0.06, py1 - 0.06, 0.09, px + 0.06, py1 + 0.06, pz, wood, pe);
+    m.box(0.2, py1 - 0.08, pz, 4.8, py1 + 0.08, pz + 0.14, wood, pe);
+    m.box(0.2, y1 + 0.02, pz, 4.8, y1 + 0.1, pz + 0.1, wood, pe);
+    for (let x = 0.5; x < 4.6; x += 0.68) m.box(x - 0.03, y1 + 0.02, pz + 0.1, x + 0.03, py1 + 0.16, pz + 0.16, wood, { grad: false, edge: null, faces: { px: '#d8ccb0' } });
+    // climbing vine at the posts and along the beam
+    for (const px of [0.3, 4.7]) m.cyl(px, py1, 0.09, 0.08, pz - 0.1, 'z', '#4f8a3c', { sides: 6, edge: null });
+    for (let k = 0; k < 3; k++) { const a = 0.4 + k * 1.55; lights(m, [a, y1 + 0.06, pz - 0.02], [a + 1.4, py1, pz - 0.02], 0.12, 5); }
+    lights(m, [0.3, py1 + 0.06, pz], [4.7, py1 + 0.06, pz], 0.12, 10);
+    if (level >= 2) { lights(m, posts[0], [0.3, py1 + 0.06, pz], 0.1, 2); lights(m, posts[1], [4.7, py1 + 0.06, pz], 0.1, 2); lights(m, posts[0], posts[1], 0.22, 10); }
+  }
+  // a waiter and a few standing guests if the seats run out
+  seats.push([2.5, 1.95, 0.09, false], [1.6, 2.95, 0.09, false], [3.5, 2.0, 0.09, false]);
+  for (let k = 0; k < Math.min(people, seats.length); k++) { const [px, py, pz, s] = seats[k]; person(m, px, py, pz, k + 2, s); }
+  return m;
+}
+
+/** Tournament centre: a two-storey scoring office with a sign, three pennants and a big leaderboard. 4 x 3 tiles. */
+function buildTourney(level: number, people: number): Mesh {
+  const m = new Mesh();
+  const wall = '#f0e7cf', trim = '#2f5c44', roof = ROOF;
+  const x0 = 0.2, x1 = 1.85, y0 = 0.2, y1 = 1.35, h = 1.95, mid = 1.0;
+  m.box(0.06, 0.06, 0, 3.94, 1.7, 0.05, '#cbc6ba', { grad: false });
+  m.box(x0, y0, 0.05, x1, y1, 0.2, '#a69b7e', { grad: false });
+  walls(m, x0, y0, 0.2, x1, y1, h, wall);
+  for (let z = 0.3; z < h - 0.04; z += 0.1) {
+    m.line([x0, y1 + 0.004, z], [x1, y1 + 0.004, z], 'rgba(130,112,74,0.26)', 0.012, [0, 1, 0]);
+    m.line([x1 + 0.004, y0, z], [x1 + 0.004, y1, z], 'rgba(90,76,50,0.26)', 0.012, [1, 0, 0]);
+  }
+  m.box(x0 - 0.03, y1 - 0.02, 0.2, x0 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  m.box(x1 - 0.03, y1 - 0.02, 0.2, x1 + 0.03, y1 + 0.03, h, trim, { grad: false });
+  // string course between the floors
+  m.box(x0 - 0.02, y1, mid - 0.03, x1 + 0.02, y1 + 0.04, mid + 0.03, trim, { grad: false, edge: null });
+  m.box(x1, y0, mid - 0.03, x1 + 0.04, y1 + 0.04, mid + 0.03, trim, { grad: false, edge: null });
+  // ground floor: door and window; upper floor: a balcony across the scorers' window
+  frontWindow(m, y1, 0.36, 0.98, 0.42, 0.84, trim);
+  m.quad([[1.24, y1 + 0.01, 0.2], [1.66, y1 + 0.01, 0.2], [1.66, y1 + 0.01, 0.9], [1.24, y1 + 0.01, 0.9]], [0, 1, 0], trim, { bias: 0.01 });
+  m.quad([[1.28, y1 + 0.014, 0.2], [1.62, y1 + 0.014, 0.2], [1.62, y1 + 0.014, 0.86], [1.28, y1 + 0.014, 0.86]], [0, 1, 0], '#3f6a54', { bias: 0.05, grad: true });
+  frontWindow(m, y1, 0.4, 1.65, 1.18, 1.62, trim);
+  m.box(0.3, y1, mid + 0.04, 1.75, y1 + 0.28, mid + 0.1, '#e0d9c6', { grad: false });
+  m.box(0.3, y1 + 0.24, mid + 0.3, 1.75, y1 + 0.28, mid + 0.34, '#f4efe0', { grad: false, edge: 'rgba(28,26,46,0.6)' });
+  for (let x = 0.32; x < 1.76; x += 0.12) m.line([x, y1 + 0.27, mid + 0.1], [x, y1 + 0.27, mid + 0.3], '#f4efe0', 0.022, null, 0.02);
+  sideWindow(m, x1, 0.45, 0.95, 0.42, 0.8, trim);
+  sideWindow(m, x1, 0.45, 0.95, 1.2, 1.6, trim);
+  m.gableX(x0, x1, y0, y1, h, 0.52, roof, '#efe6cf', { ex: 0.14, ey: 0.2, t: 0.07, wall, courses: 'shingle' });
+  m.box(0.22, y1 + 0.01, h - 0.02, 1.83, y1 + 0.08, h + 0.26, trim, { grad: false });
+  m.text([1.025, y1 + 0.086, h + 0.12], [1, 0, 0], [0, 0, 1], 'TOURNAMENT', 0.13, '#f6ecc8', [0, 1, 0]);
+  // three pennants on poles behind the leaderboard
+  // the leaderboard, with three pennants flying from its top
+  const lx0 = 2.12, lx1 = 3.86, ly = 0.62, lz0 = 0.6, lz1 = 1.86;
+  [[2.24, '#c0392b'], [2.9, '#f2c230'], [3.56, '#2f6a8a']].forEach(([fx, col]) => flagPole(m, fx as number, ly - 0.06, lz1 + 0.75, col as string, 0.36, 0.022, lz1 + 0.07));
+  for (const lx of [2.3, 3.68]) m.box(lx - 0.05, ly - 0.14, 0, lx + 0.05, ly - 0.04, lz0 + 0.1, '#5a4030', { grad: false });
+  walls(m, lx0, ly - 0.12, lz0, lx1, ly, lz1, '#1f4a35');
+  m.box(lx0 - 0.04, ly - 0.13, lz1, lx1 + 0.04, ly + 0.02, lz1 + 0.07, '#f4efe0', { grad: false });
+  m.text([(lx0 + lx1) / 2, ly + 0.006, lz1 - 0.13], [1, 0, 0], [0, 0, 1], 'LEADERS', 0.13, '#f6ecc8', [0, 1, 0]);
+  const yf = ly + 0.004;
+  for (let k = 0; k < 6; k++) {
+    const z = lz1 - 0.3 - k * 0.16;
+    const nl = 0.6 + ((k * 37) % 5) * 0.08;
+    m.line([lx0 + 0.14, yf, z], [lx0 + 0.14 + nl, yf, z], 'rgba(244,239,224,0.9)', 0.04, [0, 1, 0], 0.01);
+    m.line([lx1 - 0.42, yf, z], [lx1 - 0.3, yf, z], k < 3 ? '#e8503f' : 'rgba(244,239,224,0.9)', 0.04, [0, 1, 0], 0.01);
+    m.line([lx1 - 0.24, yf, z], [lx1 - 0.14, yf, z], k < 3 ? '#e8503f' : 'rgba(244,239,224,0.9)', 0.04, [0, 1, 0], 0.01);
+  }
+  const slots: [number, number, number, boolean][] = [];
+  // level 2: a grandstand of three tiers facing the course
+  if (level >= 2) {
+    const gx0 = 0.35, gx1 = 1.95;
+    for (let k = 0; k < 3; k++) {
+      const ya = 2.45 - k * 0.36, z = 0.18 + k * 0.2;
+      m.box(gx0, ya, 0, gx1, ya + 0.36, z, '#2f5c44', { grad: false, faces: { pz: '#9a7048' } });
+      m.box(gx0, ya + 0.04, z, gx1, ya + 0.14, z + 0.05, '#c9a070', { grad: false, edge: null });
+    }
+    m.box(gx0, 1.67, 0, gx0 + 0.05, 2.81, 0.75, '#f4efe0', { grad: false });
+    m.box(gx1 - 0.05, 1.67, 0, gx1, 2.81, 0.75, '#f4efe0', { grad: false });
+    for (let k = 0; k < 3; k++) for (const sx of [0.6, 1.15, 1.7].slice(0, k === 0 ? 2 : 3)) slots.push([sx - (k % 2) * 0.12, 2.5 - k * 0.36, 0.23 + k * 0.2, true]);
+  }
+  // level 3: a white media marquee with a peaked roof
+  if (level >= 3) {
+    const tx0 = 2.45, tx1 = 3.85, ty0 = 1.95, ty1 = 2.85, tz = 0.62, white = '#f6f3ea';
+    m.box(tx0, ty0, 0, tx1, ty1, tz, white);
+    m.quad([[2.9, ty1 + 0.004, 0], [3.4, ty1 + 0.004, 0], [3.4, ty1 + 0.004, 0.52], [2.9, ty1 + 0.004, 0.52]], [0, 1, 0], '#4a4a52', { lit: false, edge: null, bias: 0.15 });
+    m.flat([[2.9, ty1 + 0.01, 0.52], [3.15, ty1 + 0.01, 0.52], [2.98, ty1 + 0.01, 0.06]], '#efe9da', { edge: 'rgba(28,26,46,0.4)', bias: 0.17 });
+    for (const [cx0, cx1] of [[tx0, (tx0 + tx1) / 2], [(tx0 + tx1) / 2, tx1]]) {
+      const cx = (cx0 + cx1) / 2, cy = (ty0 + ty1) / 2, apex: V3 = [cx, cy, tz + 0.5], ov = 0.06;
+      const X0 = cx0 - ov, X1 = cx1 + ov, Y0 = ty0 - ov, Y1 = ty1 + ov, zb = tz - 0.04, rise = 0.54;
+      m.quad([[X0, Y1, zb], [X1, Y1, zb], apex], [0, rise, (Y1 - Y0) / 2], white);
+      m.quad([[X1, Y0, zb], [X1, Y1, zb], apex], [rise, 0, (X1 - X0) / 2], white);
+      m.quad([[X0, Y0, zb], [X1, Y0, zb], apex], [0, -rise, (Y1 - Y0) / 2], white);
+      m.quad([[X0, Y0, zb], [X0, Y1, zb], apex], [-rise, 0, (X1 - X0) / 2], white);
+      m.cyl(cx, cy, tz + 0.48, 0.012, 0.2, 'z', '#8a8a80', { sides: 4, edge: null });
+      m.flat([[cx, cy, tz + 0.68], [cx, cy, tz + 0.56], [cx + 0.16, cy, tz + 0.62]], '#c0392b', { edge: null });
+    }
+    // scalloped valance in the club green
+    for (let k = 0; k < 6; k++) {
+      const a = tx0 - 0.06 + k * ((tx1 - tx0 + 0.12) / 6), b = a + (tx1 - tx0 + 0.12) / 6;
+      m.quad([[a, ty1 + 0.065, tz - 0.04], [b, ty1 + 0.065, tz - 0.04], [b, ty1 + 0.065, tz - 0.12], [(a + b) / 2, ty1 + 0.065, tz - 0.17], [a, ty1 + 0.065, tz - 0.12]], [0, 1, 0], k % 2 ? '#f6f3ea' : '#2f5c44', { edge: null, bias: 0.02 });
+    }
+  }
+  // spectators: in the stand first, then along the front of the leaderboard
+  slots.push([2.4, 1.05, 0, false], [2.8, 1.25, 0, false], [3.25, 1.05, 0, false], [3.6, 1.3, 0, false], [2.25, 1.6, 0, false], [3.0, 1.65, 0, false], [1.35, 1.85, 0, false], [0.75, 2.05, 0, false], [2.1, 2.4, 0, false]);
+  for (let k = 0; k < Math.min(people, 9); k++) { const [px, py, pz, s] = slots[k]; person(m, px, py, pz, k + 4, s); }
+  return m;
+}
+
+export type FacilityKind = 'barn' | 'shed' | 'halfway' | 'proShop' | 'grill' | 'pavilion' | 'nursery' | 'shelter' | 'restroom' | 'starter' | 'windmill' | 'carpark' | 'academy' | 'restaurant' | 'tourney';
+export const FACILITY_KINDS: FacilityKind[] = ['barn', 'shed', 'halfway', 'proShop', 'grill', 'pavilion', 'nursery', 'shelter', 'restroom', 'starter', 'windmill', 'carpark', 'academy', 'restaurant', 'tourney'];
 export const isFacilityKind = (k: string): k is FacilityKind => (FACILITY_KINDS as string[]).includes(k);
 /** Footprint in tiles and height, for the stamp bounds, the shadow and the tray thumbnail. */
-const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2], restroom: [2, 2, 2.2], starter: [2, 2, 2.6], windmill: [2, 2, 4.2], carpark: [4, 3, 1.0] };
+const SIZE: Record<FacilityKind, [number, number, number]> = { barn: [4, 2, 3.1], shed: [3, 2, 2.4], halfway: [3, 2, 2.4], proShop: [4, 2, 2.6], grill: [4, 3, 2.9], pavilion: [3, 3, 3.3], nursery: [3, 2, 2.3], shelter: [2, 2, 2.2], restroom: [2, 2, 2.2], starter: [2, 2, 2.6], windmill: [2, 2, 4.2], carpark: [4, 3, 1.0], academy: [5, 3, 2.6], restaurant: [5, 4, 2.9], tourney: [4, 3, 3.0] };
 const BUILDERS: Partial<Record<FacilityKind, () => Mesh>> = { proShop: buildProShop, grill: buildGrill, pavilion: buildPavilion, nursery: buildNursery, shelter: buildShelter, restroom: buildRestroom, starter: buildStarter, windmill: buildWindmill, carpark: buildCarPark };
-const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7, restroom: 1.6, starter: 1.6, windmill: 2.6, carpark: 0.05 };
+const BUILT: Record<FacilityKind, number> = { barn: 2.4, shed: 1.9, halfway: 2.0, proShop: 2.0, grill: 2.4, pavilion: 2.6, nursery: 1.6, shelter: 1.7, restroom: 1.6, starter: 1.6, windmill: 2.6, carpark: 0.05, academy: 1.9, restaurant: 2.3, tourney: 2.4 };
 
-/** Draw a placed facility with its top-left tile at (x, y). Interior carts in the barn go between its two halves. */
+/** Buildings that grow with upgrades and fill with people. Their `inside` is level * 10 + people. */
+type DetailedKind = 'academy' | 'restaurant' | 'tourney';
+const DETAILED: Record<DetailedKind, { build: (level: number, people: number) => Mesh; shadow: [number, number, number, number] }> = {
+  academy: { build: buildAcademy, shadow: [0.2, 0.2, 4.8, 1.45] },
+  restaurant: { build: buildRestaurant, shadow: [0.25, 0.2, 4.75, 1.6] },
+  tourney: { build: buildTourney, shadow: [0.2, 0.2, 1.85, 1.35] },
+};
+const isDetailed = (k: FacilityKind): k is DetailedKind => k in DETAILED;
+/** Unpack `inside` for the upgradeable buildings: level = floor(inside / 10) in 1..3 (0 counts as 1), people = inside % 10. */
+export function facilityDetail(inside: number): { level: number; people: number } {
+  const v = Math.max(0, Math.floor(inside) || 0);
+  return { level: Math.max(1, Math.min(3, Math.floor(v / 10))), people: v % 10 };
+}
+
+/** Draw a placed facility with its top-left tile at (x, y). Interior carts in the barn go between its two halves.
+ *  For the academy, restaurant and tournament centre, `inside` is level * 10 + people (see facilityDetail). */
 export function drawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha = 1, inside = 0) {
-  const n = kind === 'barn' ? Math.min(3, inside) : 0;
+  let n = 0;
+  if (kind === 'barn') n = Math.min(3, inside);
+  else if (isDetailed(kind)) { const d = facilityDetail(inside); n = d.level * 10 + d.people; }
   const [w, h, tall] = SIZE[kind];
   const ext: [number, number, number, number] = kind === 'barn' ? [-0.3, -0.4, 6.0, 2.4] : kind === 'shed' || kind === 'halfway' ? [-0.3, -0.4, 4.8, 2.4] : [-0.3, -0.4, w + 1.8, h + 0.4];
   cached(P, `${kind}:${n}`, x, y, ext, tall, alpha, (Q) => rawFacility(Q, kind, 0, 0, 1, n));
@@ -1057,6 +1443,14 @@ function rawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha
     if (!halfwayMesh) buildHalfway();
     groundShadow(P, 0.24, 0.22, 1.86, 1.12, BUILT.halfway, x, y, alpha * 0.9);
     draw(P, prepare('halfway', halfwayMesh!, 0), x, y, alpha);
+  } else if (isDetailed(kind)) {
+    const { level, people } = facilityDetail(inside);
+    const key = `${kind}:${level}:${people}`;
+    let mesh = meshes.get(key);
+    if (!mesh) { mesh = DETAILED[kind].build(level, people); meshes.set(key, mesh); }
+    const [sx0, sy0, sx1, sy1] = DETAILED[kind].shadow;
+    groundShadow(P, sx0, sy0, sx1, sy1, BUILT[kind], x, y, alpha * 0.9);
+    draw(P, prepare(key, mesh, 0), x, y, alpha);
   } else {
     let mesh = meshes.get(kind);
     if (!mesh) { mesh = BUILDERS[kind]!(); meshes.set(kind, mesh); }
@@ -1066,8 +1460,12 @@ function rawFacility(P: Painter, kind: FacilityKind, x: number, y: number, alpha
   }
 }
 
-/** A tray thumbnail drawn with the same models. */
+/** A tray thumbnail drawn with the same models. The upgradeable buildings show at their top level, with a few people. */
 export function drawFacilityThumb(canvas: HTMLCanvasElement, kind: FacilityKind | 'cart') {
+  drawFacilityPreview(canvas, kind, kind === 'barn' ? 2 : kind !== 'cart' && isDetailed(kind) ? 35 : 0);
+}
+/** Draw one facility variant (same `inside` meaning as drawFacility) fitted to a canvas, uncached: thumbnails and previews. */
+export function drawFacilityPreview(canvas: HTMLCanvasElement, kind: FacilityKind | 'cart', inside = 0) {
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const [fw, fh, tall] = kind === 'cart' ? [1.6, 1.6, 1.3] : SIZE[kind];
@@ -1076,5 +1474,5 @@ export function drawFacilityThumb(canvas: HTMLCanvasElement, kind: FacilityKind 
   const toScreen = (x: number, y: number) => ({ x: cx + (x - y - (fw - fh) / 2) * ISO_X * ts, y: base - (fw + fh) * ISO_Y * ts + (x + y) * ISO_Y * ts });
   const P: Painter = { ctx, ts, toScreen };
   if (kind === 'cart') rawCart(P, 0.8, 0.8, Math.PI * 0.75, 0);
-  else rawFacility(P, kind, 0, 0, 1, kind === 'barn' ? 2 : 0);
+  else rawFacility(P, kind, 0, 0, 1, inside);
 }

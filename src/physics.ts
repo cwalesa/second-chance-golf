@@ -3,7 +3,9 @@ import { Hole, Pt, T, World, center, idx, inBounds, isOwned, routeField, terrain
 import { Rng } from './rng';
 
 /** Regional conditions: wind widens dispersion, thin air adds distance. */
-export const PHYS = { wind: 1, dist: 1 };
+export const PHYS = { wind: 1, dist: 1, /** course setup: how hard the pins and the rough play (0.85 forgiving, 1 standard, 1.15 championship) */ setup: 1 };
+/** Course setup set from the Course panel: forgiving pins help beginners, championship pins reward skill. */
+export function setCourseSetup(f: number) { PHYS.setup = f; }
 export function setPhysics(wind: number, dist: number) {
   PHYS.wind = wind;
   PHYS.dist = dist;
@@ -209,13 +211,16 @@ export interface ExecutedShot extends ShotResult {
 }
 
 /** Apply golfer error and lie to a plan and resolve what the ball actually does. */
-export function executeShot(world: World, rng: Rng, type: GolferType, from: Pt, plan: ShotPlan): ExecutedShot {
+/** skill multiplies this golfer's dispersion and mishits: 1 is typical for the type, lower is better (lessons lower it). */
+export function executeShot(world: World, rng: Rng, type: GolferType, from: Pt, plan: ShotPlan, skill = 1): ExecutedShot {
   const gt = CFG.golfers.types[type];
   const lie = lieAt(world, from.x, from.y);
-  const mishitMult = lie.kind === 'bunker' ? 3 : lie.kind === 'rough' ? 1.8 : lie.kind === 'tee' ? 0.6 : 1;
-  const mishit = rng.next() < gt.mishit * mishitMult;
-  let angErr = rng.normal() * gt.angSigma * lie.dispF * PHYS.wind;
-  let distMul = 1 + rng.normal() * gt.distSigma * lie.dispF * PHYS.wind;
+  // championship setup makes the rough and sand bite harder; a forgiving setup softens them
+  const roughSetup = lie.kind === 'rough' || lie.kind === 'bunker' ? PHYS.setup : 1;
+  const mishitMult = (lie.kind === 'bunker' ? 3 : lie.kind === 'rough' ? 1.8 : lie.kind === 'tee' ? 0.6 : 1) * roughSetup;
+  const mishit = rng.next() < gt.mishit * mishitMult * skill;
+  let angErr = rng.normal() * gt.angSigma * lie.dispF * PHYS.wind * skill;
+  let distMul = 1 + rng.normal() * gt.distSigma * lie.dispF * PHYS.wind * skill;
   if (mishit) {
     angErr *= 2.8;
     distMul = rng.range(0.4, 0.75);
@@ -228,8 +233,9 @@ export function executeShot(world: World, rng: Rng, type: GolferType, from: Pt, 
 }
 
 // ---- Putting ----
-export function puttProbability(feet: number, type: GolferType, greenCond: number): number {
-  const half = CFG.golfers.types[type].puttHalf * (0.6 + 0.4 * (greenCond / 100));
+export function puttProbability(feet: number, type: GolferType, greenCond: number, skill = 1): number {
+  // tucked championship pins are harder to hole out on; forgiving pins sit in the flat middle of the green
+  const half = (CFG.golfers.types[type].puttHalf * (0.6 + 0.4 * (greenCond / 100))) / (skill * PHYS.setup);
   let p = 1 / (1 + Math.pow(feet / half, 1.6));
   if (feet <= 1.6) p = Math.max(p, 0.97 * (0.85 + 0.15 * (greenCond / 100)));
   if (feet > 40) p *= 0.3;
