@@ -39,10 +39,13 @@ async function boot() {
     document.body.append(splash);
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
     game = new Game(undefined, Math.floor(Math.random() * 1e9), opts);
+    // every new course starts with its clubhouse and the designed opening par 4 (opening.ts)
+    game.setUpNewCourse();
     window.setTimeout(() => { splash.classList.add('out'); window.setTimeout(() => splash.remove(), 400); }, 350);
   }
   game.applyRegion();
-  game.openProperty();
+  // the original, smaller map was always owned outright; a bigger one starts with its middle block and buys the rest
+  if (game.legacyMap) game.openProperty();
 
   const renderer = new Renderer(canvas);
   renderer.resize();
@@ -160,7 +163,9 @@ async function boot() {
   document.addEventListener('keyup', settle, true);
   // iOS only shows :active (the pressed look) when a touch listener exists
   document.addEventListener('touchstart', () => {}, { passive: true });
-  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, feedback };
+  ui.onReplayTutorial = () => tutorial.replay();
+  studio.onRetry = () => tutorial.retried();
+  (window as unknown as { scg: unknown }).scg = { game, renderer, editor, ui, tutorial, feedback, studio };
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }

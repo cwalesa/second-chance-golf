@@ -6,8 +6,9 @@ module.exports = async ({ browser, base, freshCourse, ok, withClubhouse, suggest
   await page.evaluate(async (sug) => {
     const { planNewHole } = await import('/src/editing.ts');
     const s = window.scg, g = s.game;
-    g.commitEdit(planNewHole(g.world, g.nextHoleId(), sug.tee, sug.cup, { par: 3 }));
-    g.openHole(1); s.editor.setTool('inspect'); g.exitDesign(); g.openForBusiness();
+    // a new course already has its opening hole, open: the player opens for business
+    void planNewHole; void sug;
+    s.editor.setTool('inspect'); g.exitDesign(); g.openForBusiness();
     s.ui.tab = 'money'; s.ui.refresh(true); g.setSpeed(8); g.resume();
   }, sug);
   const card = () => page.evaluate(() => { const c = document.getElementById('roundcard'); return c && !c.hidden ? c.innerText.replace(/\n/g, ' | ') : null; });

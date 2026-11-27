@@ -1,10 +1,12 @@
 /** Saved progress through the first-course tutorial. Pure data, so the game and saves can use it without the interface. */
-export const TUTORIAL_VERSION = 2;
+export const TUTORIAL_VERSION = 3;
 export interface TutorialState {
   step: number;
   done: boolean;
-  /** 2 = the guided tutorial on the player's own course. Missing = a save from before it existed (or the old practice course). */
+  /** 3 = play the opening par 4, then build; 2 = the build-first tutorial. Missing = a save from before it existed (or the old practice course). */
   v?: number;
+  /** Replaying from the menu on an existing course: the opening hole only, nothing paid. */
+  replay?: boolean;
 }
 export const freshTutorial = (): TutorialState => ({ step: 0, done: false, v: TUTORIAL_VERSION });
 

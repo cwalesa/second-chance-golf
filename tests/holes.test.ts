@@ -194,7 +194,7 @@ describe('holes across water', () => {
 
   it('treats a bridge as walkable ground and a plain water crossing as blocked', () => {
     const g = meadow();
-    lake(g, 80, 90, 0, 159);
+    lake(g, 80, 90, 0, g.world.h - 1);
     expect(findPath(g.world, { x: 70.5, y: 30.5 }, { x: 100.5, y: 30.5 })).toBeNull();
     for (let x = 80; x <= 90; x++) g.world.terrain[idx(g.world, x, 30)] = T.BRIDGE;
     const path = findPath(g.world, { x: 70.5, y: 30.5 }, { x: 100.5, y: 30.5 })!;

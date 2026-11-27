@@ -95,14 +95,30 @@ export const idx = (w: World, x: number, y: number) => y * w.w + x;
 export const inBounds = (w: World, x: number, y: number) => x >= 0 && y >= 0 && x < w.w && y < w.h;
 export const center = (p: Pt): Pt => ({ x: p.x + 0.5, y: p.y + 0.5 });
 
-/** Terrain id at a continuous position, or -1 outside the property. */
-export function parcelIndex(tx: number, ty: number): number {
-  return Math.floor(ty / CFG.land.ph) * CFG.land.cols + Math.floor(tx / CFG.land.pw);
+/** Land is sold in parcels of CFG.land.pw x ph tiles; a map has as many as fit (older 240 x 160 saves have 5 x 4). */
+export const parcelCols = (w: { w: number }) => Math.ceil(w.w / CFG.land.pw);
+export const parcelRows = (w: { h: number }) => Math.ceil(w.h / CFG.land.ph);
+export function parcelIndex(w: { w: number }, tx: number, ty: number): number {
+  return Math.floor(ty / CFG.land.ph) * parcelCols(w) + Math.floor(tx / CFG.land.pw);
 }
 export function isOwned(w: World, tx: number, ty: number): boolean {
-  return inBounds(w, tx, ty) && w.parcels[parcelIndex(tx, ty)] === 1;
+  return inBounds(w, tx, ty) && w.parcels[parcelIndex(w, tx, ty)] === 1;
 }
-export const startsOwned = (col: number, row: number) => col < CFG.land.startCols && row < CFG.land.startRows;
+/** The test fixture's starting land: the top-left 3 x 3 parcels. */
+export const startsOwned = (col: number, row: number) => col < 3 && row < 3;
+/** A new course's starting block: startCols x startRows parcels in the middle of the map. Everything around it is for sale. */
+export function startBlock(w: { w: number; h: number }): { c0: number; r0: number; c1: number; r1: number } {
+  const cols = parcelCols(w), rows = parcelRows(w);
+  const sc = Math.min(cols, CFG.land.startCols), sr = Math.min(rows, CFG.land.startRows);
+  const c0 = Math.floor((cols - sc) / 2), r0 = Math.floor((rows - sr) / 2);
+  return { c0, r0, c1: c0 + sc - 1, r1: r0 + sr - 1 };
+}
+/** The tiles worth scanning for one hole: its route plus the zone radius, and its green. Loops over a hole use this, not the whole map. */
+export function holeBox(world: { w: number; h: number }, h: Hole, pad = CFG.holes.zoneRadius + 1): { x0: number; y0: number; x1: number; y1: number } {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of holePath(h)) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+  return { x0: Math.max(0, Math.floor(x0 - pad)), y0: Math.max(0, Math.floor(y0 - pad)), x1: Math.min(world.w - 1, Math.ceil(x1 + pad)), y1: Math.min(world.h - 1, Math.ceil(y1 + pad)) };
+}
 
 export function terrainAt(w: World, x: number, y: number): number {
   const tx = Math.floor(x);
@@ -243,11 +259,13 @@ export function holeCondition(world: World, h: Hole): HoleCondition {
   let worn = 0;
   let total = 0;
   const cup = center(h.cup);
-  for (let i = 0; i < world.terrain.length; i++) {
+  const box = holeBox(world, h);
+  for (let by = box.y0; by <= box.y1; by++) for (let bx = box.x0; bx <= box.x1; bx++) {
+    const i = by * world.w + bx;
     const t = world.terrain[i];
     if (t !== T.FAIRWAY && t !== T.GREEN && t !== T.TEE) continue;
-    const x = (i % world.w) + 0.5;
-    const y = Math.floor(i / world.w) + 0.5;
+    const x = bx + 0.5;
+    const y = by + 0.5;
     if (t === T.GREEN) {
       if (Math.hypot(x - cup.x, y - cup.y) <= 4) {
         gs += world.cond[i];

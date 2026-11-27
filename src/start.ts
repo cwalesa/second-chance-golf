@@ -1,5 +1,6 @@
 
-import { LOGO_COLORS, LOGO_ICONS, LOGO_LETTERING, LOGO_NAMES, LOGO_PATTERNS, LOGO_SHAPES, Logo, defaultLogo, drawLogo, initialsOf } from './logo';
+import { Logo, defaultLogo, initialsOf } from './logo';
+import { CREST_STYLES, CREST_SYMBOLS, CrestStyle, CrestSymbol, CrestVariant, Identity, PALETTES, PALETTE_IDS, PaletteId, REGION_SYMBOL, STYLE_NAMES, SYMBOL_NAMES, identityOf, paintCrest } from './crest';
 import type { NewGameOptions } from './game';
 import { REGIONS, REGION_IDS, RegionId } from './progression';
 import { BANNER_ART, REGION_ART, levelFlags } from './start-art';
@@ -10,56 +11,53 @@ import { regionsDone } from './save';
 /** Easiest first, so the choice reads as a ladder. */
 const ORDER = [...REGION_IDS].sort((a, b) => REGIONS[a].level - REGIONS[b].level);
 
-export function paintLogo(canvas: HTMLCanvasElement, logo: Logo) {
-  const s = canvas.width;
-  const c = canvas.getContext('2d')!;
-  c.clearRect(0, 0, s, s);
-  drawLogo(c, s / 2, s / 2, s * 0.94, logo);
+/** Draw the club's logo into a canvas: the full logo with its name, or the emblem for small places (crest.ts). */
+export function paintLogo(canvas: HTMLCanvasElement, logo: Logo, name = 'Little Links', variant: CrestVariant = 'full') {
+  paintCrest(canvas, logo, name, variant);
 }
 
-const COLOUR_NAMES = ['Forest green', 'Fairway green', 'Teal', 'Sky blue', 'Blue', 'Navy', 'Purple', 'Pink', 'Red', 'Maroon', 'Orange', 'Gold', 'Cream', 'Grey', 'Charcoal', 'White'];
-
 /**
- * The emblem designer: shape, background, emblem, lettering and two colours, with a live preview. Shapes, backgrounds
- * and emblems are shown as small pictures of the player's own crest with that one thing changed, so each choice shows
- * what it would look like. Built once; a tweak only moves the highlight and repaints. Calls onChange after every tweak.
+ * The club identity designer: a construction (seal, shield, monogram, roundel, pennant or wordmark), a symbol and a palette,
+ * with a live preview of the full logo and the small emblem. Each option is shown as the player's own club with that one thing
+ * changed. Built once; a choice only moves the highlight and repaints. Calls onChange after every choice.
  */
 export function logoDesigner(root: HTMLElement, logo: Logo, getName: () => string, onChange: (l: Logo) => void): () => void {
-  logo.pattern ??= 'plain';
-  logo.lettering ??= 'serif';
-  const pics = (k: string, vals: string[]) => `<div class="opts pics" data-k="${k}">${vals.map((v) => `<button class="opt pic" data-v="${v}" aria-label="${LOGO_NAMES[v] ?? v}" title="${LOGO_NAMES[v] ?? v}"><canvas width="88" height="88"></canvas></button>`).join('')}</div>`;
-  const words = (k: string, vals: string[]) => `<div class="opts" data-k="${k}">${vals.map((v) => `<button class="opt" data-v="${v}">${LOGO_NAMES[v] ?? v}</button>`).join('')}</div>`;
-  const swatches = (k: string) => `<div class="opts" data-k="${k}">${LOGO_COLORS.map((c, i) => `<button class="sw" data-v="${c}" style="background:${c}" aria-label="${COLOUR_NAMES[i] ?? c}" title="${COLOUR_NAMES[i] ?? c}"></button>`).join('')}</div>`;
+  const id = identityOf(logo);
+  logo.style = id.style; logo.symbol = id.symbol; logo.palette = id.palette;
+  const pics = (k: string, vals: string[], label: (v: string) => string, size = 88) => `<div class="opts pics" data-k="${k}">${vals.map((v) => `<button class="opt pic" data-v="${v}" aria-label="${label(v)}" title="${label(v)}"><canvas width="${size * 2}" height="${size * 2}"></canvas></button>`).join('')}</div>`;
   root.innerHTML = `
-      <div class="logo-prev"><canvas width="140" height="140" id="lgPrev"></canvas></div>
+      <div class="logo-prev"><canvas width="360" height="360" id="lgPrev" aria-label="Full logo"></canvas><canvas width="120" height="120" id="lgEmb" aria-label="Emblem"></canvas></div>
       <div class="logo-opts">
-        <div class="lbl">Shape</div>${pics('shape', LOGO_SHAPES)}
-        <div class="lbl">Background</div>${pics('pattern', LOGO_PATTERNS)}
-        <div class="lbl">Emblem</div>${pics('icon', LOGO_ICONS)}
-        <div class="lbl">Lettering</div>${words('lettering', LOGO_LETTERING)}
-        <div class="lbl">Main colour</div>${swatches('primary')}
-        <div class="lbl">Accent colour</div>${swatches('secondary')}
+        <div class="lbl">Style</div>${pics('style', CREST_STYLES, (v) => STYLE_NAMES[v as CrestStyle], 96)}
+        <div class="lbl">Symbol</div>${pics('symbol', CREST_SYMBOLS, (v) => SYMBOL_NAMES[v as CrestSymbol])}
+        <div class="lbl">Colours</div>${pics('palette', PALETTE_IDS, (v) => PALETTES[v as PaletteId].name)}
       </div>`;
   const update = () => {
-    logo.initials = initialsOf(getName());
-    paintLogo(root.querySelector('#lgPrev') as HTMLCanvasElement, logo);
+    const name = getName();
+    logo.initials = initialsOf(name);
+    paintLogo(root.querySelector('#lgPrev') as HTMLCanvasElement, logo, name, 'full');
+    paintLogo(root.querySelector('#lgEmb') as HTMLCanvasElement, logo, name, 'emblem');
     root.querySelectorAll<HTMLElement>('.opts').forEach((row) => {
-      const k = row.dataset.k as keyof Logo;
+      const k = row.dataset.k as 'style' | 'symbol' | 'palette';
       row.querySelectorAll<HTMLElement>('button').forEach((b) => {
-        const on = String(logo[k]) === b.dataset.v;
+        const on = logo[k] === b.dataset.v;
         b.classList.toggle('on', on);
         b.setAttribute('aria-pressed', String(on));
         const cv = b.querySelector('canvas');
-        if (cv) paintLogo(cv, { ...logo, [k]: b.dataset.v } as Logo);
+        // styles are shown as full logos; symbols and colours as emblems, which is where they matter most
+        if (cv) paintCrest(cv, logo, name, k === 'style' ? 'full' : 'emblem', { [k]: b.dataset.v } as Partial<Identity>);
       });
     });
   };
   update();
   root.onclick = (e) => {
     const b = (e.target as HTMLElement).closest('button') as HTMLElement | null;
-    const k = (b?.parentElement as HTMLElement | null)?.dataset.k as keyof Logo | undefined;
+    const k = (b?.parentElement as HTMLElement | null)?.dataset.k as 'style' | 'symbol' | 'palette' | undefined;
     if (!b || !k) return;
-    (logo as unknown as Record<string, string>)[k] = b.dataset.v!;
+    logo[k] = b.dataset.v!;
+    if (k === 'symbol') root.dataset.symbolChosen = '1';
+    // keep the older fields in step, so a save opened by an older version still shows something close
+    if (k === 'palette') { const pal = PALETTES[logo.palette as PaletteId]; logo.primary = pal.plate; logo.secondary = pal.accent; }
     update();
     onChange(logo);
   };
@@ -117,7 +115,7 @@ export function startScreen(): Promise<NewGameOptions> {
         <section class="guide-club" aria-labelledby="gc">
           <div class="rule-head"><h2 id="gc">Found your club</h2><span>$${CFG.economy.startCash.toLocaleString('en-US')} to start</span></div>
           <div class="club-line">
-            <button type="button" class="crest-btn" id="crestBtn" aria-label="Design the club crest" aria-expanded="false"><canvas id="crestCv" width="112" height="112"></canvas><span>Crest</span></button>
+            <button type="button" class="crest-btn" id="crestBtn" aria-label="Design the club crest" aria-expanded="false"><canvas id="crestCv" width="120" height="120"></canvas><span>Crest</span></button>
             <label class="club-name"><span>Club name</span><input id="newClubName" maxlength="28" value="Willow Creek" autocomplete="off" /></label>
           </div>
           <div class="rule-head crest-head"><h2>Choose your emblem</h2><span>You can change it later</span></div>
@@ -130,9 +128,7 @@ export function startScreen(): Promise<NewGameOptions> {
     // both pictures of the emblem (the small crest and the designer's big preview) follow the name as it is typed
     const repaint = () => {
       const shown = { ...logo, initials: initialsOf(name) };
-      paintLogo(crest, shown);
-      const big = root.querySelector('#lgPrev') as HTMLCanvasElement | null;
-      if (big) paintLogo(big, shown);
+      paintLogo(crest, shown, name, 'emblem');
     };
     const lg = root.querySelector('#logoBox') as HTMLElement;
     const redrawDesigner = logoDesigner(lg, logo, () => name, repaint);
@@ -149,6 +145,8 @@ export function startScreen(): Promise<NewGameOptions> {
     const cards = Array.from(root.querySelectorAll<HTMLElement>('.place'));
     cards.forEach((c) => (c.onclick = () => {
       region = c.dataset.region as RegionId;
+      // a club that has not picked its own symbol takes one that suits the land it chose
+      if (!lg.dataset.symbolChosen) { logo.symbol = REGION_SYMBOL[region] ?? logo.symbol; redrawDesigner(); repaint(); }
       cards.forEach((o) => { const on = o === c; o.classList.toggle('on', on); o.setAttribute('aria-checked', String(on)); });
     }));
     (root.querySelector('#startBtn') as HTMLElement).onclick = () => {

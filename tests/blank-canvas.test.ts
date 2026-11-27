@@ -33,13 +33,14 @@ describe('blank canvas world', () => {
         if (w.terrain[i] === T.WATER) water++;
         else if (w.tree[i]) trees++;
         else open++;
-        expect([T.ROUGH, T.WATER]).toContain(w.terrain[i]);
+        expect([T.ROUGH, T.WATER, T.PATH, T.BRIDGE]).toContain(w.terrain[i]); // paths and footbridges: the trail out to the landmarks
       }
       const n = w.terrain.length;
       expect(w.holes).toEqual([]);
       expect(w.clubhouse).toBeNull();
-      expect(w.parcels.every((p) => p === 1)).toBe(true);
-      expect(water / n).toBeGreaterThan(0.015);
+      expect(w.parcels.some((p) => p === 1) && w.parcels.some((p) => p === 0)).toBe(true); // a starting block, and land for sale
+      expect(landOf(seed).sites.map((x) => x.id).sort()).toEqual(['lake', 'meadow', 'orchard']);
+      expect(water / n).toBeGreaterThan(0.01);
       expect(water / n).toBeLessThan(0.14);
       expect(trees / n).toBeGreaterThan(0.35); // a forest
       expect(open / n).toBeGreaterThan(0.25); // with meadows to build on
@@ -74,6 +75,9 @@ describe('blank canvas world', () => {
 describe('choosing the clubhouse spot', () => {
   it('refuses water, the map edge and steep ground, and offers a spot that works', () => {
     const w = createWilderness(1);
+    // land beyond the starting block has to be bought before anything is built on it
+    expect(clubhouseProblem(w, { x: 20, y: 20 })).toMatch(/own/);
+    w.parcels.fill(1);
     expect(clubhouseProblem(w, { x: 0, y: 0 })).toMatch(/edge/);
     expect(clubhouseProblem(w, { x: w.w - 6, y: 40 })).toMatch(/edge/);
     let wet = null as { x: number; y: number } | null;

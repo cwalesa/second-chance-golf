@@ -129,7 +129,7 @@ describe('save compatibility and recovery', () => {
     expect(values.get('second-chance-golf.save.v2')).toBe(before);
   });
   it('rejects broken terrain, non-finite condition, and invalid campaign indexes', () => {
-    for (const mutate of [(d:any)=>d.world.tree='0', (d:any)=>d.world.cond[0]=null, (d:any)=>d.campaign.stage=-1]) {
+    for (const mutate of [(d:any)=>{ d.world.tree='0'; delete d.world.treeRle; }, (d:any)=>{ d.world.cond=new Array(d.world.w*d.world.h).fill(50); d.world.cond[0]=null; delete d.world.condQ; }, (d:any)=>{ d.world.treeRle='0x.'; }, (d:any)=>d.campaign.stage=-1]) {
       const d = JSON.parse(serialize(new Game(createTestCourse()))); mutate(d); expect(deserialize(JSON.stringify(d))).toBeNull();
     }
   });

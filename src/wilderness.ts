@@ -5,7 +5,7 @@ import { CFG } from './config';
 import { lotKindAt, reserveLots } from './lots';
 import { ITEMS } from './items';
 import { REGIONS, RegionId } from './progression';
-import { CLUB_H, CLUB_W, clubDims, clubRel, Pt, T, World, computeZones, hash2, idx, inBounds, polyDist, vnoise } from './terrain';
+import { CLUB_H, CLUB_W, clubDims, clubRel, Pt, T, World, computeZones, hash2, idx, inBounds, isOwned, parcelCols, parcelRows, startBlock, vnoise } from './terrain';
 
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const smooth = (a: number, b: number, x: number) => {
@@ -18,9 +18,14 @@ export interface Pond {
   y: number;
   r: number;
 }
+/** A named place out in the wider land: a reason to buy it and build there. Holes beside one are more scenic. */
+export interface Landmark { id: 'lake' | 'orchard' | 'meadow'; name: string; x: number; y: number; r: number; blurb: string }
 export interface Land {
   creek: Pt[];
   ponds: Pond[];
+  /** Bigger maps only: named places outside the starting block, and a walking trail that links them. */
+  sites: Landmark[];
+  trail: Pt[];
   /** 0 = valley floor, 1 = ridge top, one value per tile. */
   relief: Float32Array;
 }
@@ -30,7 +35,24 @@ export interface Dims {
   h: number;
 }
 
-const nearestCreek = (creek: Pt[], x: number, y: number) => polyDist(x, y, creek).d;
+/**
+ * Distance to the creek. The creek runs left to right with a point every 5 tiles from x = -4, so only the segments within
+ * about 40 tiles across can be closest; anything further than that reads as 99 (no use of the distance cares beyond ~30).
+ * Exact where it matters and an order of magnitude faster than measuring every segment, which the bigger map needs.
+ */
+function nearestCreek(creek: Pt[], x: number, y: number): number {
+  const k0 = Math.max(0, Math.floor((x - 40 + 4) / 5) - 1), k1 = Math.min(creek.length - 2, Math.ceil((x + 40 + 4) / 5) + 1);
+  let best = 99 * 99;
+  for (let k = k0; k <= k1; k++) {
+    const a = creek[k], b = creek[k + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    let t = l2 ? ((x - a.x) * dx + (y - a.y) * dy) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = a.x + dx * t - x, ey = a.y + dy * t - y, d2 = ex * ex + ey * ey;
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
 
 /** How much the ground rises and falls: mountains are rugged, prairie and coast are gentle. */
 const RELIEF_GAIN: Record<RegionId, number> = { parkland: 1, coast: 0.7, mountain: 1.6, plains: 0.5, desert: 0.9 };
@@ -61,6 +83,54 @@ export function landOf(seed: number, dims: Dims & { region?: RegionId } = CFG.gr
       break;
     }
   }
+  // A bigger map gets more ponds, a proper lake, an orchard and a high meadow out in the land beyond the starting block,
+  // and a trail linking them. The original size keeps exactly what it always had.
+  const big = w * h > 240 * 160;
+  const sites: Landmark[] = [];
+  let trail: Pt[] = [];
+  if (big) {
+    const sx = w / 240, sy = h / 160;
+    const inStart = (x: number, y: number) => x > w * 0.2 - 4 && x < w * 0.7 + 4 && y > h * 0.25 - 4 && y < h * 0.75 + 4;
+    const spots = [[0.08, 0.12], [0.92, 0.12], [0.08, 0.88], [0.92, 0.88], [0.5, 0.08], [0.5, 0.92], [0.85, 0.5], [0.1, 0.5]];
+    for (let k = 0; k < spots.length && ponds.length < 7; k++) {
+      const r = 3.4 + hash2(s, 40 + k, 6) * 2.8;
+      const x = clamp(w * spots[k][0] + (hash2(s, 41 + k, 7) - 0.5) * 20 * sx, 12, w - 13), y = clamp(h * spots[k][1] + (hash2(s, 42 + k, 8) - 0.5) * 14 * sy, 10, h - 11);
+      if (nearestCreek(creek, x, y) < r + 6 || ponds.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + r + 16)) continue;
+      ponds.push({ x, y, r });
+    }
+    // the three landmarks, each in a different corner region outside the start block
+    const corners = [[0.12, 0.2], [0.86, 0.2], [0.12, 0.8], [0.86, 0.8]];
+    const order = [0, 1, 2, 3].sort((a, b) => hash2(s, 70 + a, 3) - hash2(s, 70 + b, 3));
+    const place = (id: Landmark['id'], name: string, blurb: string, r: number, k: number) => {
+      const [fx, fy] = corners[order[k]];
+      for (let j = 0; j < 20; j++) {
+        const x = clamp(w * fx + (hash2(s, 80 + k * 20 + j, 9) - 0.5) * 30, r + 8, w - r - 9), y = clamp(h * fy + (hash2(s, 81 + k * 20 + j, 9) - 0.5) * 24, r + 8, h - r - 9);
+        if (inStart(x, y) || nearestCreek(creek, x, y) < r + 4 || ponds.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + r + 6)) continue;
+        sites.push({ id, name, x, y, r, blurb });
+        return;
+      }
+    };
+    const reg = dims.region ?? 'parkland';
+    const N = { lake: { parkland: 'Heron Lake', coast: 'Saltwater Lagoon', mountain: 'Glacier Tarn', plains: 'Prairie Lake', desert: 'Palm Oasis' }, orchard: { parkland: 'Old Orchard', coast: 'Pine Grove', mountain: 'Larch Grove', plains: 'Old Orchard', desert: 'Date Grove' }, meadow: { parkland: 'High Meadow', coast: 'Lookout Bluff', mountain: 'Alpine Meadow', plains: 'Wildflower Rise', desert: 'Painted Flats' } };
+    place('lake', N.lake[reg], 'A wide, still stretch of water. Holes along its shore are the most scenic on the property.', 10 + hash2(s, 75, 2) * 3, 0);
+    place('orchard', N.orchard[reg], 'Trees in tidy rows around a sunny clearing: a ready-made setting for a memorable hole.', 9, 1);
+    place('meadow', N.meadow[reg], 'Open, flower-strewn ground with long views.', 12, 2);
+    const lake = sites.find((x) => x.id === 'lake');
+    if (lake) ponds.push({ x: lake.x, y: lake.y, r: lake.r });
+    // a trail from the edge of the starting block out to each landmark, gently winding
+    const hub = { x: w * 0.45, y: h * 0.75 + 2 };
+    for (const site of sites) {
+      const pts: Pt[] = [];
+      const n = Math.ceil(Math.hypot(site.x - hub.x, site.y - hub.y) / 4);
+      const tx = site.id === 'lake' ? site.x + (site.x > hub.x ? -site.r - 2 : site.r + 2) : site.x, ty = site.y;
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        const wob = Math.sin(t * Math.PI) * 10 * (vnoise(k / 3, site.x, s + 95) - 0.5);
+        pts.push({ x: hub.x + (tx - hub.x) * t + wob, y: hub.y + (ty - hub.y) * t + wob * 0.6 });
+      }
+      trail = trail.concat(pts, [{ x: NaN, y: NaN }]);
+    }
+  }
   const relief = new Float32Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -70,7 +140,7 @@ export function landOf(seed: number, dims: Dims & { region?: RegionId } = CFG.gr
       for (const p of ponds) v -= 0.3 * Math.exp(-Math.pow(Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) / (p.r * 2.1), 2));
       relief[y * w + x] = clamp((clamp(v * 1.35 + 0.1) - 0.5) * gain + 0.5);
     }
-  const land = { creek, ponds, relief };
+  const land = { creek, ponds, relief, sites, trail };
   lands.set(key, land);
   return land;
 }
@@ -101,13 +171,19 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
     holes: [],
     version: 1,
     region,
-    parcels: new Uint8Array(CFG.land.cols * CFG.land.rows).fill(1),
+    parcels: new Uint8Array(parcelCols(dims) * parcelRows(dims)),
     dirty: new Set(),
     clubhouse: null,
     gate: { x: 0.5, y: h / 2 + 0.5 },
     landSeed: s,
     items: [],
   };
+  // The original 240 x 160 map was owned outright; a bigger map starts with the middle block and the rest is for sale.
+  if (w * h <= 240 * 160) world.parcels.fill(1);
+  else {
+    const b = startBlock(dims), cols = parcelCols(dims);
+    for (let r = b.r0; r <= b.r1; r++) for (let c = b.c0; c <= b.c1; c++) world.parcels[r * cols + c] = 1;
+  }
   // Coast: the sea fills the top or bottom edge (never the sides, so the entrance road always has land to leave by).
   const seaTop = hash2(s, 90, 3) < 0.5;
   const seaDepth = (x: number) => 18 + 12 * vnoise(x / 22, 4, s + 91) + 4 * vnoise(x / 6, 9, s + 92);
@@ -130,7 +206,8 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
         world.cond[i] = 100;
         continue;
       }
-      const shore = Math.min(desert ? 99 : d - 1.2, sea - 0.5, ...land.ponds.map((q) => Math.hypot(x + 0.5 - q.x, y + 0.5 - q.y) - q.r * (desert ? 1.35 : 1)));
+      let shore = Math.min(desert ? 99 : d - 1.2, sea - 0.5);
+      for (const q of land.ponds) shore = Math.min(shore, Math.hypot(x + 0.5 - q.x, y + 0.5 - q.y) - q.r * (desert ? 1.35 : 1));
       // Meadows gather on valley floors; ridges and slopes are forest.
       const valley = smooth(0.62, 0.34, relief);
       const open = clamp(0.1 + 0.6 * valley + 1.15 * (vnoise(x / 10, y / 10, s + 7) - 0.5));
@@ -173,10 +250,53 @@ export function createWilderness(landSeed: number, region: RegionId = 'parkland'
       if (hash2(x, y, s + 21) < p) world.tree[i] = 1;
       world.cond[i] = flowers ? 24 + hash2(x, y, 3) * 14 : dry ? 30 + hash2(x, y, 1) * 14 : world.tree[i] ? 54 + hash2(x, y, 2) * 14 : 60 + hash2(x, y, 1) * 16;
     }
+  if (land.sites.length) shapeLandmarks(world, land, s);
   computeZones(world);
   world.version++;
   return world;
 }
+
+/** The orchard's rows of trees, the meadow's open flowers, and the trail out to them (bigger maps only). */
+function shapeLandmarks(world: World, land: Land, s: number) {
+  const { w, h } = world;
+  for (const site of land.sites) {
+    if (site.id === 'lake') continue;
+    for (let y = Math.floor(site.y - site.r - 2); y <= site.y + site.r + 2; y++)
+      for (let x = Math.floor(site.x - site.r - 2); x <= site.x + site.r + 2; x++) {
+        if (!inBounds(world, x, y)) continue;
+        const i = idx(world, x, y), d = Math.hypot(x + 0.5 - site.x, y + 0.5 - site.y);
+        if (d > site.r + (vnoise(x / 3, y / 3, s + 97) - 0.5) * 2 || world.terrain[i] === T.WATER) continue;
+        world.terrain[i] = T.ROUGH;
+        if (site.id === 'orchard') {
+          // trees in tidy rows, three tiles apart, with mown grass between them
+          world.tree[i] = x % 3 === 0 && y % 3 === 0 && d < site.r - 1 ? 1 : 0;
+          world.cond[i] = 70 + hash2(x, y, 4) * 10;
+        } else {
+          world.tree[i] = 0;
+          world.cond[i] = 26 + hash2(x, y, 5) * 12; // flowers
+        }
+      }
+  }
+  // the trail: one tile of path, with a footbridge where it crosses water
+  let prev: Pt | null = null;
+  for (const p of land.trail) {
+    if (!Number.isFinite(p.x)) { prev = null; continue; }
+    if (prev) {
+      const n = Math.ceil(Math.hypot(p.x - prev.x, p.y - prev.y) * 2);
+      for (let k = 0; k <= n; k++) {
+        const x = Math.floor(prev.x + ((p.x - prev.x) * k) / n), y = Math.floor(prev.y + ((p.y - prev.y) * k) / n);
+        if (!inBounds(world, x, y) || x < 2 || y < 2 || x > w - 3 || y > h - 3) continue;
+        const i = idx(world, x, y);
+        world.tree[i] = 0;
+        world.terrain[i] = world.terrain[i] === T.WATER ? T.BRIDGE : T.PATH;
+        world.cond[i] = 60;
+      }
+    }
+    prev = p;
+  }
+}
+/** The named places on this map (none on the original size). */
+export const landmarksOf = (world: World): Landmark[] => (world.landSeed ? landOf(world.landSeed, world).sites : []);
 
 // ---- Choosing the clubhouse spot ----
 
@@ -202,6 +322,7 @@ export function clubhouseProblem(world: World, c: Pt, flip = false): string | nu
   const lot = clubLot(c, flip);
   const { w: CW, h: CH } = clubDims(flip);
   if (lot.x0 < 1 || lot.y0 < 1 || lot.x1 > world.w - 2 || lot.y1 > world.h - 2) return 'Too close to the edge. The clubhouse needs room for its lawn, car park and road.';
+  for (const [x, y] of [[c.x, c.y], [c.x + CW - 1, c.y], [c.x, c.y + CH - 1], [c.x + CW - 1, c.y + CH - 1]]) if (!isOwned(world, x, y)) return 'You do not own that land. Build on your own property, or buy the land first.';
   for (let y = c.y - 1; y <= c.y + CH; y++)
     for (let x = c.x - 1; x <= c.x + CW; x++) if (world.terrain[idx(world, x, y)] === T.WATER) return 'Too close to the water. Pick drier ground.';
   if (slopeAt(world, c, flip) > 0.2) return 'Too steep. Look for flatter ground on the valley floor.';
@@ -375,7 +496,8 @@ export function suggestFirstHole(world: World): { tee: Pt; cup: Pt } | null {
   const blocked = (x: number, y: number) => {
     if (!inBounds(world, x, y)) return true;
     const t = world.terrain[idx(world, x, y)];
-    return t === T.WATER || t === T.PATH || t === T.BUILDING || lotKindAt(world, x, y) !== null; // the putting green and range lots stay clear
+    // the putting green and range lots stay clear, and so does any hole already there (the opening par 4) and land not owned
+    return t === T.WATER || t === T.PATH || t === T.BUILDING || t === T.FAIRWAY || t === T.GREEN || t === T.TEE || t === T.BUNKER || world.zone[idx(world, x, y)] !== 0 || !isOwned(world, x, y) || lotKindAt(world, x, y) !== null;
   };
   let best: { tee: Pt; cup: Pt } | null = null;
   let bestScore = -Infinity;

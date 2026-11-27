@@ -5,6 +5,7 @@ import { designPanel, staffPanel, escapeHtml } from './panels';
 import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { landmarksOf } from './wilderness';
 import { calendarHtml, courseSetupHtml, facilitiesHtml, holeReportHtml, identityHtml, moneySummaryHtml, regularsHtml, returnSummaryHtml } from './clubpanels';
 import { FacilityId, upgradeFacility } from './facilities';
 import { FAC } from './facilities';
@@ -96,6 +97,7 @@ export class UI {
   onExport: () => void = () => {};
   onImport: () => void = () => {};
   onNewLook: () => void = () => {};
+  onReplayTutorial: () => void = () => {};
 
   constructor(private game: Game, private editor: Editor) {
     document.addEventListener('pointerdown', (e) => {
@@ -139,7 +141,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('pan', 'Move map', 'hand')}${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('pan', 'Move map', 'hand')}${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}<button class="tool landtile" data-tool="land" aria-label="Buy land"><span class="club-tile" aria-hidden="true">${svg('pan')}</span><span>Buy land</span><em id="landPrice"></em></button></div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -319,6 +321,7 @@ export class UI {
           if (this.mobile) this.tab = 'none';
         }
         else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
+        else if (el.dataset.act === 'playhole') { this.editor.setTool('inspect'); this.game.owner.start(this.game); this.tab = 'none'; }
         else if (el.dataset.act === 'undo') this.editor.undo();
         else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'open') this.openFromPanel(id);
@@ -676,6 +679,26 @@ export class UI {
       document.body.classList.add('has-proposal');
       return;
     }
+    if (this.editor.tool === 'land' && (!this.mobile || this.tab === 'build')) {
+      const g = this.game, pc = this.editor.parcel;
+      const owned = pc ? g.isParcelOwned(pc.col, pc.row) : false;
+      const site = pc ? landmarksOf(g.world).find((s) => Math.floor(s.x / CFG.land.pw) === pc.col && Math.floor(s.y / CFG.land.ph) === pc.row) : undefined;
+      const price = g.parcelPrice, short = price - g.cash;
+      const html = !pc
+        ? `<span class="cf-text"><b>Buy land</b><span class="cf-sub">Tap a parcel beyond your boundary (the dashed lines). Landmarks are labelled on the map.</span></span><button class="btn" id="landNo">Done</button>`
+        : owned
+        ? `<span class="cf-text"><b>You own this parcel</b><span class="cf-sub">Build anywhere on it.</span></span><button class="btn" id="landNo">Done</button>`
+        : `<span class="cf-text"><b>${site ? escapeHtml(site.name) : 'Wild land'} · ${fmtMoney(price)}</b><span class="cf-sub">${site ? escapeHtml(site.blurb) : 'Forest and meadow to build new holes on.'}${short > 0 ? ` You need ${fmtMoney(short)} more.` : ''}</span></span><button class="btn" id="landNo">Done</button><button class="btn primary" id="landOk" ${short > 0 ? 'disabled' : ''}>Buy</button>`;
+      if (this.cache.get('confirm') !== html) {
+        this.cache.set('confirm', html);
+        el.innerHTML = html;
+        el.style.display = 'flex';
+        document.body.classList.add('has-proposal');
+        const no = el.querySelector<HTMLElement>('#landNo'); if (no) no.onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
+        const ok = el.querySelector<HTMLElement>('#landOk'); if (ok && pc) ok.onclick = () => { if (g.buyParcel(pc.col, pc.row)) this.toast(`${site ? site.name : 'Land'} is yours.`, 'good'); this.refresh(true); };
+      }
+      return;
+    }
     const p = this.editor.proposal;
     const short = p ? p.cost - this.game.cash : 0;
     const what = p ? (p.tiles.length ? `${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}` : 'No terrain change') : '';
@@ -860,12 +883,14 @@ export class UI {
     const g = this.game;
     const m = this.modal(`<h2>Help and settings</h2><div class="menu-list">
       <button class="btn primary" id="mdHelp">How to play</button>
+      <button class="btn" id="mdReplay">Replay tutorial</button>
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
       <button class="btn" id="mdSettings">Sound and day reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdHelp') as HTMLElement).onclick = () => this.helpModal();
+    (m.querySelector('#mdReplay') as HTMLElement).onclick = () => { this.closeModal(); this.tab = 'none'; this.refresh(true); this.onReplayTutorial(); };
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
@@ -890,6 +915,7 @@ export class UI {
   logoModal() {
     const m = this.modal(`<h2>Club logo</h2><div id="lgBox" class="logo-box"></div><div class="actions"><button class="btn primary" id="lgOk">Done</button></div>`);
     logoDesigner(m.querySelector('#lgBox') as HTMLElement, this.game.logo, () => this.game.name, () => {
+      this.cache.delete('side');
       this.game.dirtySave = true;
       this.cache.delete('logo');
     });
@@ -933,7 +959,9 @@ export class UI {
     const sec = (t: string, items: string[]) => `<h3>${t}</h3><ul class="help-list">${items.map((x) => `<li>${x}</li>`).join('')}</ul>`;
     const m = this.modal(`<h2>How to play</h2><div class="help">
       ${sec('The idea', ['Build golf holes, open them, and golfers pay to play.', 'Happy golfers come back, spend more and join as members.', 'The bar under the clock always shows your next goal. Tap it for the full list.'])}
-      ${sec('Moving around', ['Drag with one finger to move the map. Pinch to zoom, or double-tap.', 'Tap a hole, a golfer or the clubhouse to open its panel.', 'The two buttons above the menu jump to the clubhouse and to the selected hole.'])}
+      ${sec('Moving around', ['Drag with one finger (or the mouse) to move the map. Pinch, the mouse wheel or + and − to zoom; arrow keys pan.', 'Tap a hole, a golfer or the clubhouse to open its panel.', 'The buttons on the right jump to the clubhouse, the active hole and, in a round of your own, your ball. The map button shows the whole property, with its landmarks.'])}
+      ${sec('Playing a hole yourself', ['Open hole panels have Play it yourself. Tap where you want the ball to go: it flies toward that spot, up to the club\'s range.', 'Pick a club by distance: Driver about 250 yards, Iron 170, Wedge 80, Putter on the green.', 'Start the swing, then Strike as the marker crosses the centre line. Early pulls left, late pushes right.', 'Replay the tutorial any time from this menu.'])}
+      ${sec('Your land', ['You start with the middle of the property. Buy land (in the Design tray) to build beyond it.', 'Landmarks out there (a lake, an orchard, a high meadow) make the holes beside them more scenic.'])}
       ${sec('Building', ['Menu, then Design. Pick <b>New hole</b>, tap where the tee goes, then where the green goes, then <b>Build</b>.', 'To paint fairway, sand, water or trees: press and hold, then drag. A quick tap paints one spot.', 'Nothing is charged until you tap Build, and Undo gives the money back.', 'Building on a hole closes it. The bar at the top offers <b>Open it</b> when you are done.'])}
       ${sec('Time', ['Course tools pause the clock so you can design without hurry. <b>Resume</b> starts it again.', 'Decorating, placing buildings and repairing turf do not pause.', 'The button beside Pause changes speed: 1×, 3× or 8×.'])}
       ${sec('Keeping golfers happy', ['Keep each fee close to what Finances says guests think is fair.', 'Greens wear out around the cup. Tap a hole and use <b>Repair green</b>, or buy the Grounds crew.', 'Flowers, benches and buildings near tees and greens make holes more enjoyable.'])}
@@ -1240,9 +1268,10 @@ export class UI {
     set('starsTxt', stars(g.stars));
     set('clubName', g.name);
     set('dayk', this.mobile ? `Day ${g.day}${WEATHER[g.weather].mark ? ' ' + WEATHER[g.weather].mark : ''}` : `Day ${g.day}, ${g.season.name}`);
-    if (this.cache.get('logo') !== JSON.stringify(g.logo)) {
-      this.cache.set('logo', JSON.stringify(g.logo));
-      paintLogo(this.$('topLogo') as HTMLCanvasElement, g.logo);
+    if (this.cache.get('logo') !== JSON.stringify(g.logo) + g.name) {
+      this.cache.set('logo', JSON.stringify(g.logo) + g.name);
+      // the header has room for the emblem only; the full logo with the name is in the Clubhouse panel
+      paintLogo(this.$('topLogo') as HTMLCanvasElement, g.logo, g.name, 'emblem');
     }
     const nb = g.bookings[0];
     const evText = g.activeEvent ? `${EVENTS[g.activeEvent.id].name}, today` : nb ? `${EVENTS[nb.id].name}, day ${nb.day}` : '';
@@ -1279,6 +1308,12 @@ export class UI {
       const redo = this.$('tools').querySelector<HTMLButtonElement>('.ph-redo')!, undo = this.$('tools').querySelector<HTMLButtonElement>('.ph-undo:not(.ph-redo)')!;
       redo.hidden = !!this.editor.proposal || !g.redoStack.length;
       undo.disabled = !this.editor.proposal && !g.undoStack.length;
+    }
+    {
+      // land for sale: the tray tile shows the next parcel's price, and hides when everything is owned
+      const lt = this.$('tools').querySelector<HTMLElement>('.landtile');
+      const forSale = g.world.parcels.some((p) => p === 0);
+      if (lt) { lt.hidden = !forSale; const em = lt.querySelector('em'); const txt = `$${g.parcelPrice.toLocaleString('en-US')}`; if (em && em.textContent !== txt) em.textContent = txt; lt.classList.toggle('on', this.editor.tool === 'land'); }
     }
     {
       const done = this.$('tools').querySelector<HTMLElement>('.tray-done');
@@ -1380,7 +1415,7 @@ export class UI {
         if (card) body.scrollTop = card.offsetTop - 8;
       }
       const cl = document.getElementById('clubLogo') as HTMLCanvasElement | null;
-      if (cl) paintLogo(cl, g.logo);
+      if (cl) paintLogo(cl, g.logo, g.name, 'full');
     }
   }
 
@@ -1708,7 +1743,7 @@ export class UI {
     }
     if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>${allRepair.tiles.length > repair.tiles.length ? `<button class="btn" data-act="repairall" ${allRepair.cost > g.cash ? 'disabled' : ''}>Every green · ${fmtMoney(allRepair.cost)}</button>` : ''}</div>`;
     html += h.open
-      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
+      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="playhole">Play it yourself</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
     html += holeReportHtml(g, h);
@@ -1851,7 +1886,7 @@ export class UI {
     const r = REGIONS[g.region];
     const si = g.season.index;
     const nextSeason = (si + 1) % 4;
-    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="96" height="96"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
+    let html = `<div class="sec"><div class="clubhead"><canvas id="clubLogo" width="240" height="240" aria-label="Club logo"></canvas><div><div class="t big">${escapeHtml(g.name)}</div><div class="dim">${r.name} · ${g.season.name}, year ${g.stats.years}</div><div class="stars lg">${stars(g.stars)} <span class="dim">${g.stars.toFixed(1)}</span></div></div></div>
       <div class="btnrow"><button class="btn" data-act="renameclub">Rename</button><button class="btn" data-act="editlogo">Edit logo</button></div></div>`;
     html += `<div class="sec"><h3>Clubhouse</h3><div class="card"><div class="row"><span class="t">${club.name}</span><span class="dim">Level ${g.clubLevel + 1} of ${CLUB_LEVELS.length}</span></div><div class="dim">${club.blurb}</div>
       <div class="row"><span class="k">Demand</span><span>+${Math.round((club.demand - 1) * 100)}%</span></div><div class="row"><span class="k">Clubhouse spending</span><span>+${Math.round((club.shop - 1) * 100)}%</span></div><div class="row"><span class="k">Fair price</span><span>+${fmtMoney(club.fair)}</span></div><div class="row"><span class="k">Max holes</span><span>${g.maxHoles}</span></div>`;

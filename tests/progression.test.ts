@@ -140,7 +140,7 @@ describe('persistence and time away', () => {
   });
   it('a tee box on edge tiles survives: new world has owned parcels only around the start', () => {
     const w = createTestCourse();
-    expect(w.parcels.reduce((a, b) => a + b, 0)).toBe(CFG.land.startCols * CFG.land.startRows);
+    expect(w.parcels.reduce((a, b) => a + b, 0)).toBe(9); // the fixture owns its top-left 3 x 3 parcels
     expect(w.terrain[idx(w, 9, 33)]).toBe(T.TEE);
   });
 });

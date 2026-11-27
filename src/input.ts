@@ -255,6 +255,16 @@ export class Editor {
       else if (e.key === '[') this.setBrush(Math.max(0, this.brush - 1));
       else if (e.key === ']') this.setBrush(Math.min(BRUSH_RADII.length - 1, this.brush + 1));
       else if (e.key.toLowerCase() === 'p') { if (this.game.settings.paused) this.game.resume(); else this.game.pause(); }
+      else if (e.key.startsWith('Arrow')) {
+        // arrow keys pan the map, a screen-fifth at a time
+        e.preventDefault();
+        const step = Math.min(this.r.cw, this.r.ch) * 0.2 / this.r.cam.zoom;
+        this.r.cancelCamera();
+        if (e.key === 'ArrowLeft') this.r.cam.x -= step; else if (e.key === 'ArrowRight') this.r.cam.x += step;
+        else if (e.key === 'ArrowUp') this.r.cam.y -= step; else this.r.cam.y += step;
+        this.r.clampCam(this.game.world);
+      } else if (e.key === '+' || e.key === '=') this.r.zoomAt(this.r.cw / 2, this.r.ch / 2, 1.25, this.game.world);
+      else if (e.key === '-') this.r.zoomAt(this.r.cw / 2, this.r.ch / 2, 0.8, this.game.world);
     });
     window.addEventListener('keyup', (e) => {
       if (e.key === ' ') this.space = false;
@@ -969,7 +979,9 @@ export class Editor {
         this.endStroke();
       } else if (over) this.commitPlace(this.startTile);
     } else if (this.mode === 'inspect' && !this.moved && this.game.owner.active) {
-      this.game.owner.aim = this.r.toWorld(p.x, p.y);
+      // a tap aims the next shot; taps while the ball is in the air or after holing out are ignored, so nothing is aimed by accident
+      const o = this.game.owner;
+      if (!o.flight && !o.completed) { o.aim = this.r.toWorld(p.x, p.y); o.swing.cancel(); this.onChange(); }
     } else if (this.mode === 'inspect' && !this.moved) this.inspectAt(p);
     else if (this.mode === 'paint') this.endStroke();
     else if (this.mode === 'place' && over) this.commitPlace(this.moved ? this.tileAt(p) : this.startTile);

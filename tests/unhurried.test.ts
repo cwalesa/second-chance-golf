@@ -216,11 +216,11 @@ describe('time away', () => {
 describe('tutorial state on the real course', () => {
   it('a new course starts the tutorial, and its progress survives a reload', () => {
     const g = new Game(undefined, 5, { region: 'coast', name: 'Salt Marsh' });
-    expect(g.tutorial).toMatchObject({ step: 0, done: false, v: 2 });
+    expect(g.tutorial).toMatchObject({ step: 0, done: false, v: 3 });
     expect(g.practice).toBe(false);
     g.tutorial.step = 4;
     const back = deserialize(serialize(g))!.game;
-    expect(back.tutorial).toMatchObject({ step: 4, done: false, v: 2 });
+    expect(back.tutorial).toMatchObject({ step: 4, done: false, v: 3 });
     expect(back.region).toBe('coast');
     expect(back.name).toBe('Salt Marsh');
     expect(back.settings).toMatchObject({ paused: true, open: false });

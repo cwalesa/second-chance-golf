@@ -8,7 +8,8 @@
 import { CFG, GolferType } from './config';
 import { assessDesign } from './design';
 import { beautyNear } from './items';
-import { Hole, HolePlay, PAR_YARDS, PlaySummary, T, World, center, holeBends, holeCondition, holePath, holeYards, polyDist } from './terrain';
+import { landmarksOf } from './wilderness';
+import { Hole, HolePlay, PAR_YARDS, PlaySummary, T, World, center, holeBends, holeBox, holeCondition, holePath, holeYards, polyDist } from './terrain';
 
 export type Segment = 'beginner' | 'regular' | 'skilled' | 'resort';
 export const SEGMENTS: Segment[] = ['beginner', 'regular', 'skilled', 'resort'];
@@ -118,11 +119,13 @@ function layoutParts(w: World, h: Hole): LayoutParts {
   // hazards in the middle of the corridor block play; hazards beside it shape decisions
   const path = holePath(h);
   let inPlay = 0, flank = 0;
-  for (let i = 0; i < w.terrain.length; i++) {
+  const box = holeBox(w, h);
+  for (let by = box.y0; by <= box.y1; by++) for (let bx = box.x0; bx <= box.x1; bx++) {
+    const i = by * w.w + bx;
     if (w.zone[i] !== h.id) continue;
     const t = w.terrain[i];
     if (t !== T.WATER && t !== T.BUNKER) continue;
-    const dist = polyDist((i % w.w) + 0.5, Math.floor(i / w.w) + 0.5, path).d;
+    const dist = polyDist(bx + 0.5, by + 0.5, path).d;
     if (dist < 1.3) inPlay++;
     else if (dist < 5.5) flank++;
   }
@@ -130,7 +133,9 @@ function layoutParts(w: World, h: Hole): LayoutParts {
   const hazards = clamp(inPlay + flank === 0 ? 45 : 52 + Math.min(38, 8 * Math.sqrt(flank)) - inPlay * 3.5 - Math.max(0, flank - 70) * 0.8);
   const beauty = beautyNear(w, h.tee) + beautyNear(w, h.cup);
   // decorations help, with sharply diminishing returns: a few well-placed things matter, a carpet of them does not
-  const scenery = clamp(d.scenery * 0.8 + 20 * (1 - Math.exp(-beauty / 5)));
+  // a hole beside one of the map's landmarks (the lake, the orchard, the high meadow) has a setting nothing else can buy
+  const landmark = landmarksOf(w).some((s) => [h.tee, h.cup].some((p) => Math.hypot(p.x - s.x, p.y - s.y) < s.r + 8)) ? 14 : 0;
+  const scenery = clamp(d.scenery * 0.8 + 20 * (1 - Math.exp(-beauty / 5)) + landmark);
   const r: LayoutParts = { length, strategy: d.strategy, landing: d.forgiveness, hazards, scenery, inPlay, flank };
   m.set(h.id, { v, key, r });
   return r;

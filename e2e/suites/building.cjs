@@ -26,14 +26,14 @@ module.exports = async ({ browser, base, freshCourse, touch, ok, tileXY, withClu
     const cost = await page.evaluate(() => window.scg.editor.proposal.cost);
     await page.evaluate(() => document.getElementById('cfOk').click()); await page.waitForTimeout(1500);
     s = await snap();
-    ok(`${kind}: Build charges exactly the previewed cost`, base0.cash - s.cash === cost && s.holes === 1, `${base0.cash - s.cash} vs ${cost}`);
+    ok(`${kind}: Build charges exactly the previewed cost`, base0.cash - s.cash === cost && s.holes === base0.holes + 1, `${base0.cash - s.cash} vs ${cost}`);
     ok(`${kind}: no tree is left faded after Build`, (await fades()) === 0);
     await page.evaluate(() => window.scg.editor.undo()); await page.waitForTimeout(500);
     s = await snap();
-    ok(`${kind}: Undo restores cash, terrain and trees`, s.cash === base0.cash && s.terrain === base0.terrain && s.tree === base0.tree && s.holes === 0);
+    ok(`${kind}: Undo restores cash, terrain and trees`, s.cash === base0.cash && s.terrain === base0.terrain && s.tree === base0.tree && s.holes === base0.holes);
     await page.evaluate(() => window.scg.editor.redo()); await page.waitForTimeout(500);
     // bend drag
-    await page.evaluate(() => { const s = window.scg; s.editor.selectHole(1); s.editor.setTool('bend'); if (s.ui.mobile) s.ui.tab = 'build'; s.ui.refresh(true); });
+    await page.evaluate(() => { const s = window.scg; s.editor.selectHole(Math.max(...s.game.world.holes.map((h) => h.id))); s.editor.setTool('bend'); if (s.ui.mobile) s.ui.tab = 'build'; s.ui.refresh(true); });
     await page.waitForTimeout(600);
     await page.evaluate(() => document.getElementById('cfBend').click()); await page.waitForTimeout(700);
     const pin = await page.evaluate(() => { const ui = window.scg.editor.overlay.bendUi; const g = window.scg.renderer.pinGeom({ x: ui.bends[0].x + 0.5, y: ui.bends[0].y + 0.5 }); const b = document.getElementById('view').getBoundingClientRect(); return { x: g.head.x + b.left, y: g.head.y + b.top }; });
