@@ -1,5 +1,5 @@
 import { GolferType, CFG } from './config';
-import { Hole, World, T, holePath, polyDist, center, terrainAt } from './terrain';
+import { Hole, World, T, holePath, polyDist, center, terrainAt, holeBox } from './terrain';
 
 export interface DesignReport {
   scenery: number; strategy: number; forgiveness: number; character: number;
@@ -16,9 +16,11 @@ export function assessDesign(w: World, h: Hole): DesignReport {
   const path = holePath(h);
   let corridor = 0, fair = 0, trees = 0, edgeTrees = 0, water = 0, sand = 0, nearGreen = 0;
   const cup = center(h.cup);
-  for (let i = 0; i < w.terrain.length; i++) {
+  const box = holeBox(w, h);
+  for (let by = box.y0; by <= box.y1; by++) for (let bx = box.x0; bx <= box.x1; bx++) {
+    const i = by * w.w + bx;
     if (w.zone[i] !== h.id) continue;
-    const x = i % w.w + .5, y = Math.floor(i / w.w) + .5;
+    const x = bx + .5, y = by + .5;
     const d = polyDist(x, y, path).d, t = w.terrain[i];
     if (d < 2.8) {
       corridor++;

@@ -5,7 +5,15 @@ import { UI } from './ui';
 import { CLUBS, ClubId } from './owner';
 import { escapeHtml } from './panels';
 import { fmtMoney } from './game';
-import { CLUB_H, CLUB_W, holeYards } from './terrain';
+import { CLUB_H, CLUB_W, holeYards, parcelCols } from './terrain';
+import { CFG } from './config';
+import { usesTouch } from './device';
+import { projectGround } from './isometric';
+/** The bottom edge of the tutorial strip, when it is showing (the map frames itself below it). */
+const coachBottom = () => { const c = document.getElementById('coach'); return c && !c.hidden ? c.getBoundingClientRect().bottom : 0; };
+/** True on a touch screen: instructions say Tap there, Click with a mouse. */
+const coarse = () => usesTouch();
+import { landmarksOf } from './wilderness';
 
 /** Persistent map controls and a practice HUD that stays above mobile sheets. */
 export class Studio {
@@ -32,7 +40,7 @@ export class Studio {
     top.insertBefore(Object.assign(document.createElement('div'), { className: 'tbreak' }), this.holebar);
     document.getElementById('app')!.append(this.controls, this.hud, this.mini);
     const arrow = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="map" id="mapBtn" aria-label="Show course map" title="Course map">${arrow('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}</button><button data-camera="club" aria-label="Go to clubhouse" title="Go to clubhouse">${arrow('<path d="M4 20V10l8-6 8 6v10z"/><path d="M10 20v-6h4v6"/>')}</button><button data-camera="home" aria-label="Find selected hole" title="Find selected hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
+    this.controls.innerHTML = `<button data-camera="design" title="Pause time while you plan. Edits still cost money.">Design mode</button><button data-camera="fit" title="See your property">Overview</button><button data-camera="map" id="mapBtn" aria-label="Show course map" title="Course map">${arrow('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>')}</button><button data-camera="club" aria-label="Go to clubhouse" title="Go to clubhouse">${arrow('<path d="M4 20V10l8-6 8 6v10z"/><path d="M10 20v-6h4v6"/>')}</button><button data-camera="ball" aria-label="Find your ball" title="Find your ball">${arrow('<circle cx="12" cy="12" r="5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>')}</button><button data-camera="home" aria-label="Find the active hole" title="Find the active hole">◎</button><button data-camera="in" aria-label="Zoom in">+</button><button data-camera="out" aria-label="Zoom out">−</button>`;
     this.editbtns.innerHTML = `<button data-camera="undo" id="undoBtn" aria-label="Undo">${arrow('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 8"/>')}<span>Undo</span></button><button data-camera="redo" id="redoBtn" aria-label="Redo">${arrow('<path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 8"/>')}</button>`;
     this.editbtns.onclick = e => {
       const action = (e.target as HTMLElement).closest<HTMLElement>('[data-camera]')?.dataset.camera;
@@ -58,6 +66,7 @@ export class Studio {
       else if (action === 'club') { this.g.followGolfer = 0; this.toClubhouse(); }
       else if (action === 'map') { document.body.classList.toggle('minimap-open'); this.drawMini(); }
       else if (action === 'home') { this.g.followGolfer = 0; this.editor.focusHole(); }
+      else if (action === 'ball') this.toBall();
       else if (action) this.r.zoomAt(this.r.cw / 2, this.r.ch / 2, action === 'in' ? 1.3 : 1 / 1.3, this.g.world);
       this.update(0);
     };
@@ -72,9 +81,10 @@ export class Studio {
     this.mini.addEventListener('pointermove', e => { if (this.mini.hasPointerCapture(e.pointerId)) aim(e); });
     this.mini.style.touchAction = 'none';
     this.hud.onclick = e => {
-      const b = (e.target as HTMLElement).closest<HTMLElement>('button'); if (!b) return;
+      const b = (e.target as HTMLElement).closest<HTMLElement>('button'); if (!b || (b as HTMLButtonElement).disabled) return;
       if (b.dataset.club) { this.g.owner.club = b.dataset.club as ClubId; this.g.owner.swing.cancel(); }
-      if (b.dataset.owner === 'hit') { const o = this.g.owner; if (o.swing.active) o.hit(this.g, o.swing.strike()); else o.swing.start(); }
+      if (b.dataset.owner === 'hit') { const o = this.g.owner; if (!o.aim) return; if (o.swing.active) o.hit(this.g, o.swing.strike()); else o.swing.start(); }
+      if (b.dataset.owner === 'retry') { this.g.owner.restartHole(this.g); this.editor.focusHole(); this.onRetry(); }
       if (b.dataset.owner === 'aim') { const h = this.g.hole(this.g.owner.holeId); this.g.owner.aim = { x: h.cup.x + .5, y: h.cup.y + .5 }; this.g.owner.swing.cancel(); }
       if (b.dataset.owner === 'next') { this.g.owner.next(this.g); this.editor.focusHole(); }
       // A practice round never changes whether time is held: a paused course stays paused afterwards.
@@ -82,9 +92,46 @@ export class Studio {
       this.update(0);
     };
   }
+  /** Called when the player restarts a hole from the practice panel (the tutorial goes back to its aiming step). */
+  onRetry: () => void = () => {};
+  private flightWas = false;
+  /**
+   * Frame the shot at hand in a round of your own: the ball and where it is going (the aim, or the far end of what the club
+   * can reach toward the pin), so both stay in the free area between the panels at a zoom where the ground can be read.
+   */
+  frameShot() {
+    const o = this.g.owner, h = this.g.world.holes.find((x) => x.id === o.holeId);
+    if (!o.active || !h) return;
+    const cup = { x: h.cup.x + 0.5, y: h.cup.y + 0.5 };
+    const d = Math.hypot(cup.x - o.ball.x, cup.y - o.ball.y), reach = o.reach(this.g) + 3;
+    const target = o.aim ?? (d > reach ? { x: o.ball.x + ((cup.x - o.ball.x) * reach) / d, y: o.ball.y + ((cup.y - o.ball.y) * reach) / d } : cup);
+    // fit both points in the free area between the panels, with room for the labels above them
+    const ins = this.r.insets;
+    const a = projectGround(o.ball.x * 32, o.ball.y * 32), b = projectGround(target.x * 32, target.y * 32);
+    const freeW = Math.max(120, this.r.cw - ins.l - ins.r - 60), freeH = Math.max(120, this.r.ch - ins.t - ins.b - 70);
+    const zoom = Math.max(0.3, Math.min(1.1, freeW / (Math.abs(a.x - b.x) + 60), freeH / (Math.abs(a.y - b.y) + 70)));
+    this.r.focus((o.ball.x + target.x) / 2, (o.ball.y + target.y) / 2, zoom, this.g.world);
+  }
+  /** Bring the ball (in a round of your own) to the middle of the free map area. */
+  toBall() {
+    const o = this.g.owner;
+    if (!o.active) { this.editor.focusHole(); return; }
+    this.g.followGolfer = 0;
+    this.r.focus(o.ball.x, o.ball.y, Math.max(this.r.cam.zoom, 0.8), this.g.world);
+  }
   update(dt: number) {
     const g = this.g, o = g.owner;
     o.update(g, dt);
+    // the camera follows the ball in flight, and makes sure it can be seen where it stopped
+    if (o.active && o.flight) {
+      const f = o.flight, bx = f.from.x + (f.shot.air.x - f.from.x) * f.t, by = f.from.y + (f.shot.air.y - f.from.y) * f.t;
+      this.r.follow(bx, by, dt, g.world);
+      this.flightWas = true;
+    } else if (o.active && this.flightWas) {
+      // the ball has stopped: frame it with the next shot's direction
+      this.flightWas = false;
+      this.frameShot();
+    }
     if (g.followGolfer) {
       const golfer = g.sim.golfers.find(x => x.id === g.followGolfer);
       if (golfer) this.r.follow(golfer.x, golfer.y, dt, g.world);
@@ -96,26 +143,29 @@ export class Studio {
     // the map buttons only offer what exists: a clubhouse to go back to, a hole to find
     this.controls.querySelector<HTMLElement>('[data-camera="club"]')!.hidden = !g.world.clubhouse;
     this.controls.querySelector<HTMLElement>('[data-camera="home"]')!.hidden = !g.world.holes.some((h) => h.id === g.selectedHole);
+    this.controls.querySelector<HTMLElement>('[data-camera="ball"]')!.hidden = !o.active;
     this.syncEditing();
     this.hud.hidden = !o.active;
     if (o.active) {
       const hole = g.hole(o.holeId), diff = o.scores.reduce((s, x) => s + x.strokes - x.par, 0);
-      const html = `<div class="owner-top"><div><span class="eyebrow">Practice round</span><h3>Hole ${hole.id} · ${escapeHtml(hole.name)}</h3></div><button class="btn" data-owner="stop">Finish</button></div><div class="owner-stats"><span>Par <b>${hole.par}</b></span><span>Strokes <b>${o.strokes}</b></span><span>Total <b>${diff > 0 ? '+' : ''}${diff || 'E'}</b></span><span>Target <b>${Math.round(o.distance * 10)} yd</b></span></div><div class="owner-clubs">${(Object.keys(CLUBS) as ClubId[]).map(id => `<button class="${id === o.club ? 'on' : ''}" data-club="${id}">${CLUBS[id].name}<small>${Math.round((id === o.club ? o.reach(g) : CLUBS[id].reach) * 10)} yd</small></button>`).join('')}</div><div class="swing-panel ${o.swing.active ? 'is-swinging' : ''}"><div class="swing-label"><span>${o.swing.active ? 'TIME YOUR STRIKE' : 'SWING TIMING'}</span><b id="swingQuality">${o.lastStrike || 'Aim · swing · strike'}</b></div><div class="swing-rail"><i class="swing-center"></i><i id="swingNeedle"></i></div><small>${o.swing.active ? 'Tap Strike when the marker crosses the center.' : 'Start the swing, then strike through the center for clean contact.'}</small></div><p>${o.message}</p><div class="btnrow"><button class="btn" data-owner="aim">Aim at pin</button>${o.completed ? `<button class="btn primary" data-owner="next">${o.route.length ? 'Next hole →' : 'Save scorecard'}</button>` : `<button class="btn primary" data-owner="hit" ${o.flight ? 'disabled' : ''}>${o.swing.active ? 'Strike →' : 'Start swing →'}</button>`}</div>${o.scores.length ? `<div class="owner-scorecard">${o.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div>` : ''}`;
+      const tap = coarse() ? 'Tap' : 'Click';
+      const struggling = !o.completed && !o.flight && (o.strokes >= hole.par + 2 || (o.landing?.penalty ?? 0) > 0);
+      const html = `<div class="owner-top"><div><span class="eyebrow">${o.guided ? 'Your first round' : 'Practice round'}</span><h3>Hole ${hole.id} · ${escapeHtml(hole.name)}</h3></div>${o.guided ? '' : '<button class="btn" data-owner="stop">Finish</button>'}</div><div class="owner-stats"><span>Par <b>${hole.par}</b></span><span>Strokes <b>${o.strokes}</b></span><span>Total <b>${diff > 0 ? '+' : ''}${diff || 'E'}</b></span><span>Target <b>${o.aim ? `${Math.round(Math.min(o.distance, o.reach(g)) * 10)} yd` : '—'}</b></span></div><div class="owner-clubs">${(Object.keys(CLUBS) as ClubId[]).map(id => `<button class="${id === o.club ? 'on' : ''}" data-club="${id}">${CLUBS[id].name}<small>${Math.round((id === o.club ? o.reach(g) : CLUBS[id].reach) * 2) * 5} yd</small></button>`).join('')}</div><div class="swing-panel ${o.swing.active ? 'is-swinging' : ''}"><div class="swing-label"><span>${o.swing.active ? 'TIME YOUR STRIKE' : 'SWING TIMING'}</span><b id="swingQuality">${o.lastStrike || 'Aim · swing · strike'}</b></div><div class="swing-rail"><i class="swing-center"></i><i id="swingNeedle"></i></div>${o.guided ? '' : `<small>${o.swing.active ? `${tap} Strike when the marker crosses the centre line.` : `Start the swing, then ${tap.toLowerCase()} Strike as the marker crosses the centre.`}</small>`}</div>${o.guided ? '' : `<p>${!o.aim && !o.completed && !o.flight ? `${tap} the course to aim. The shot flies toward that spot, up to the club's range.` : o.message}</p>`}<div class="btnrow">${o.guided ? '' : '<button class="btn" data-owner="aim">Aim at pin</button>'}${struggling ? '<button class="btn" data-owner="retry">Retry hole</button>' : ''}${o.completed ? (o.guided ? '' : `<button class="btn primary" data-owner="next">${o.route.length ? 'Next hole →' : 'Save scorecard'}</button>`) : `<button class="btn primary" data-owner="hit" ${o.flight || !o.aim ? 'disabled' : ''}>${!o.aim ? 'Aim first' : o.swing.active ? 'Strike →' : 'Start swing →'}</button>`}</div>${o.scores.length ? `<div class="owner-scorecard">${o.scores.map(x => `<span>${x.hole}<b>${x.strokes}</b><small>par ${x.par}</small></span>`).join('')}</div>` : ''}`;
       if (html !== this.cache) { this.hud.innerHTML = html; this.cache = html; }
       const needle = this.hud.querySelector<HTMLElement>('#swingNeedle');
       if (needle) needle.style.left = `${o.swing.active ? (o.swing.offset + 1) * 50 : 50}%`;
       const quality = this.hud.querySelector<HTMLElement>('#swingQuality');
       if (quality && o.swing.active) quality.textContent = o.swing.quality > .88 ? 'Perfect window' : o.swing.quality > .6 ? 'Good contact' : 'Find the center';
     }
-    const layoutKey = `${o.active}:${o.holeId}:${this.r.cw}:${this.r.ch}:${this.hud.offsetHeight}`;
+    const layoutKey = `${o.active}:${o.holeId}:${this.r.cw}:${this.r.ch}:${this.hud.offsetHeight}:${Math.round(coachBottom())}`;
     if (layoutKey !== this.layoutKey) {
       const wasPlaying = this.layoutKey.startsWith('true'); this.layoutKey = layoutKey;
       if (o.active) {
         const box = this.hud.getBoundingClientRect();
         this.r.insets = this.ui.landscape
           ? { l: this.ui.insets().l, r: this.r.cw - box.left + 10, t: document.getElementById('top')!.getBoundingClientRect().bottom + 12, b: 12 }
-          : { l: 0, r: 0, t: document.getElementById('top')!.getBoundingClientRect().bottom + 12, b: this.r.ch - box.top + 12 };
-        this.editor.focusHole();
+          : { l: 0, r: 0, t: Math.max(document.getElementById('top')!.getBoundingClientRect().bottom, coachBottom()) + 12, b: this.r.ch - box.top + 12 };
+        this.frameShot();
       } else if (wasPlaying) { this.ui.refresh(true); this.r.insets = this.ui.insets(); this.editor.focusHole(); }
     }
     this.miniTime += dt;
@@ -175,6 +225,15 @@ export class Studio {
       c.fillStyle = h.open ? '#fff5d4' : '#f0a16b'; c.strokeStyle = '#102238'; c.lineWidth = 1; c.beginPath(); c.arc((h.cup.x + .5) * sx, (h.cup.y + .5) * sy, 3, 0, Math.PI * 2); c.fill(); c.stroke();
     }
     for (const x of this.g.sim.golfers) { c.fillStyle = '#f8e3b0'; c.fillRect(x.x * sx - 1, x.y * sy - 1, 3, 3); }
+    // land the club does not own yet is shaded, and the landmarks out there are marked
+    const cols = parcelCols(w), pw = CFG.land.pw * sx, ph = CFG.land.ph * sy;
+    c.fillStyle = 'rgba(20,30,24,.35)';
+    w.parcels.forEach((o, i) => { if (!o) c.fillRect((i % cols) * pw, Math.floor(i / cols) * ph, pw, ph); });
+    c.font = 'bold 9px system-ui'; c.textAlign = 'center';
+    for (const s of landmarksOf(w)) { c.fillStyle = '#fff3c4'; c.beginPath(); c.arc(s.x * sx, s.y * sy, 3, 0, Math.PI * 2); c.fill(); c.fillStyle = '#fff'; c.fillText(s.name, s.x * sx, s.y * sy - 5); }
+    // the ball in a practice round
+    const o = this.g.owner;
+    if (o.active) { c.fillStyle = '#ffffff'; c.strokeStyle = '#102238'; c.beginPath(); c.arc(o.ball.x * sx, o.ball.y * sy, 3.5, 0, Math.PI * 2); c.fill(); c.stroke(); }
     const corners = [[0, 0], [this.r.cw, 0], [this.r.cw, this.r.ch], [0, this.r.ch]].map(([x, y]) => this.r.toWorld(x, y));
     c.strokeStyle = '#ffffff'; c.lineWidth = 2; c.beginPath(); corners.forEach((p, i) => i ? c.lineTo(p.x * sx, p.y * sy) : c.moveTo(p.x * sx, p.y * sy)); c.closePath(); c.stroke();
   }

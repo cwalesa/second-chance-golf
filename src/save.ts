@@ -60,9 +60,11 @@ export function serialize(g: Game): string {
     name: g.name,
     logo: g.logo,
     world: {
-      terrain: Array.from(w.terrain).join(''),
-      tree: Array.from(w.tree).join(''),
-      cond: Array.from(w.cond, (c) => Math.round(c * 10) / 10),
+      // rev 3: the ground is run-length encoded and condition stored as one character per tile (0 to 100), which keeps a
+      // 480 x 320 map to a fraction of what plain arrays took. Older saves with plain strings and arrays still load.
+      terrainRle: rle(Array.from(w.terrain).join('')),
+      treeRle: rle(Array.from(w.tree).join('')),
+      condQ: condChars(w.cond),
       holes: w.holes,
       parcels: Array.from(w.parcels),
       clubhouse: w.clubhouse,
@@ -101,9 +103,47 @@ export function serialize(g: Game): string {
   });
 }
 
+/** Run-length encoding for long strings of repeated characters: each run is the character and its length in base 36, then a dot. */
+export function rle(str: string): string {
+  let out = '';
+  for (let i = 0; i < str.length;) {
+    let j = i + 1;
+    while (j < str.length && str[j] === str[i]) j++;
+    out += str[i] + (j - i).toString(36) + '.';
+    i = j;
+  }
+  return out;
+}
+export function unrle(code: string): string | null {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+    const dot = code.indexOf('.', i + 1);
+    if (dot < 0) return null;
+    const n = parseInt(code.slice(i + 1, dot), 36);
+    if (!Number.isFinite(n) || n < 1) return null;
+    parts.push(ch.repeat(n));
+    i = dot + 1;
+  }
+  return parts.join('');
+}
+/** Condition as one character per tile: code 40 + the rounded value, so every tile is a plain printable character. */
+const condChars = (cond: Float32Array) => { let s = ''; const CH = 8192; for (let i = 0; i < cond.length; i += CH) s += String.fromCharCode(...Array.from(cond.subarray(i, i + CH), (c) => 40 + Math.max(0, Math.min(100, Math.round(c))))); return s; };
+/** The saved ground in either format, as the plain digit strings and condition array the loader checks. */
+function groundOf(world: Record<string, unknown>): { terrain: string; tree: string; cond: number[] } | null {
+  const terrain = typeof world.terrain === 'string' ? world.terrain : typeof world.terrainRle === 'string' ? unrle(world.terrainRle) : null;
+  const tree = typeof world.tree === 'string' ? world.tree : typeof world.treeRle === 'string' ? unrle(world.treeRle) : null;
+  let cond: number[] | null = null;
+  if (Array.isArray(world.cond)) cond = world.cond as number[];
+  else if (typeof world.condQ === 'string') { const q = world.condQ; cond = new Array(q.length); for (let i = 0; i < q.length; i++) cond[i] = q.charCodeAt(i) - 40; }
+  return terrain && tree && cond ? { terrain, tree, cond } : null;
+}
+
 export function deserialize(text: string): LoadedSave | null {
   try {
     const d = JSON.parse(text);
+    if (d && d.world) { const gr = groundOf(d.world); if (gr) { d.world.terrain = gr.terrain; d.world.tree = gr.tree; d.world.cond = gr.cond; } }
     if (d.v !== VERSION || !REGIONS[d.region as keyof typeof REGIONS]) return null;
     if (!Number.isFinite(d.cash) || !Number.isInteger(d.day) || d.day < 1 || !Number.isFinite(d.clock) || d.clock < 0 || !Number.isFinite(d.total) || d.total < 0) return null;
     if (!d.world || typeof d.world.terrain !== 'string' || typeof d.world.tree !== 'string' || !Array.isArray(d.world.cond) || !Array.isArray(d.world.parcels)) return null;

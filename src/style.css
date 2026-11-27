@@ -1339,3 +1339,15 @@ body.coaching[data-tut-only] #side[data-sheet="half"] { height: auto !important;
   #tstate .ts-act { font-size: 0 !important; gap: 0; justify-content: center; }
   #tstate .ts-act .ic { width: 20px; height: 20px; }
 }
+
+/* ---- tutorial v3: retry, first-step skip line ---- */
+#coach .coach-retry { flex: none; min-height: 40px; padding: 0 10px; }
+#coach .coach-first { display: flex; align-items: center; gap: 8px; padding: 0 10px 6px; font-size: 12px; color: var(--ink-2); }
+#owner-hud .owner-clubs button.coach-target, #owner-hud .btn.coach-target { position: relative; z-index: 2; }
+.tool.landtile .club-tile svg { width: 26px; height: 26px; }
+/* a long instruction with a button: the button goes under the words, full width, so the words get the room */
+@media (max-width: 700px) {
+  #coach .coach-strip.stack { flex-wrap: wrap; }
+  #coach .coach-strip.stack .coach-short { flex: 1 1 calc(100% - 90px); }
+  #coach .coach-strip.stack .coach-next { order: 5; flex: 1 1 100%; margin: 2px 4px 4px; }
+}

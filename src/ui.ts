@@ -5,6 +5,7 @@ import { designPanel, staffPanel, escapeHtml } from './panels';
 import { assessDesign } from './design';
 const assessDesignScore = (g: Game, h: Hole) => assessDesign(g.world, h).overall;
 import { CHAIN, currentGoal, goalProgressText } from './campaign';
+import { landmarksOf } from './wilderness';
 import { calendarHtml, courseSetupHtml, facilitiesHtml, holeReportHtml, identityHtml, moneySummaryHtml, regularsHtml, returnSummaryHtml } from './clubpanels';
 import { FacilityId, upgradeFacility } from './facilities';
 import { FAC } from './facilities';
@@ -96,6 +97,7 @@ export class UI {
   onExport: () => void = () => {};
   onImport: () => void = () => {};
   onNewLook: () => void = () => {};
+  onReplayTutorial: () => void = () => {};
 
   constructor(private game: Game, private editor: Editor) {
     document.addEventListener('pointerdown', (e) => {
@@ -139,7 +141,7 @@ export class UI {
     this.$('tools').innerHTML = `
       <div class="trayrow catrow">${mk('inspect', 'Select', 'mini')}${mk('pan', 'Pan', 'mini')}<div class="cats" role="group" aria-label="Tool groups">${cat('terrain', 'Terrain')}${cat('nature', 'Nature')}${cat('holes', 'Holes')}</div></div>
       <div class="ph-mode" role="tablist" aria-label="Building or decorating"><button data-trayset="course" class="on">Course</button><button data-trayset="decor">Decorate</button><button data-trayset="buildings">Buildings</button></div>
-      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('pan', 'Move map', 'hand')}${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}</div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
+      <div class="phonerow"><button class="ph-undo" data-undo="1" aria-label="Undo">${icon('undo')}</button><button class="ph-undo ph-redo" data-redo="1" aria-label="Redo" hidden>${icon('redo')}</button><div class="ph-tools">${mk('pan', 'Move map', 'hand')}${mk('build', 'New hole')}${mk('fairway')}${mk('green')}${mk('bunker')}${mk('water')}${mk('path', 'Path')}${mk('treeAdd', 'Tree')}${mk('treeDel', 'Clear')}${mk('rough')}${mk('repair', 'Repair')}<button class="tool landtile" data-tool="land" aria-label="Buy land"><span class="club-tile" aria-hidden="true">${svg('pan')}</span><span>Buy land</span><em id="landPrice"></em></button></div><div class="ph-tools ph-decor ph-bld"><button class="tool" data-moveclub="1" aria-label="Move or turn the clubhouse"><span class="club-tile" aria-hidden="true">${pic('club')}</span><span>Clubhouse</span><em>Move · turn</em></button>${BUILDING_KINDS.map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost.toLocaleString('en-US')}</em></button>`).join('')}</div><div class="ph-tools ph-decor ph-fun">${ITEM_KINDS.filter((k) => !isBuilding(k)).map((k) => `<button class="tool" data-decor="${k}" aria-label="${ITEMS[k].label}"><canvas class="decor-thumb" data-decorthumb="${k}" width="96" height="72"></canvas><span>${ITEMS[k].label}</span><em>$${ITEMS[k].cost}</em></button>`).join('')}</div><button class="tray-done" data-done="1">Done</button></div>
       <div class="trayrow toolrow" data-tools="terrain">${mk('fairway')}${mk('green')}${mk('rough')}${mk('path', 'Path')}${mk('bunker')}${mk('water')}</div>
       <div class="trayrow toolrow" data-tools="nature">${mk('treeAdd', 'Plant tree')}${mk('treeDel', 'Clear tree')}${mk('repair', 'Repair')}</div>
       <div class="trayrow toolrow" data-tools="holes">${mk('tee', 'Move tee')}${mk('cup', 'Move cup')}${mk('bend', 'Dogleg')}${mk('build', 'New hole')}</div>`;
@@ -319,6 +321,7 @@ export class UI {
           if (this.mobile) this.tab = 'none';
         }
         else if (el.dataset.act === 'focus') { this.editor.focusHole(); if (this.mobile) this.tab = 'none'; }
+        else if (el.dataset.act === 'playhole') { this.editor.setTool('inspect'); this.game.owner.start(this.game); this.tab = 'none'; }
         else if (el.dataset.act === 'undo') this.editor.undo();
         else if (el.dataset.act === 'watch') { this.game.selectedGolfer = id; this.game.followGolfer = id; if (this.mobile) this.tab = 'none'; }
         else if (el.dataset.act === 'open') this.openFromPanel(id);
@@ -676,6 +679,26 @@ export class UI {
       document.body.classList.add('has-proposal');
       return;
     }
+    if (this.editor.tool === 'land' && (!this.mobile || this.tab === 'build')) {
+      const g = this.game, pc = this.editor.parcel;
+      const owned = pc ? g.isParcelOwned(pc.col, pc.row) : false;
+      const site = pc ? landmarksOf(g.world).find((s) => Math.floor(s.x / CFG.land.pw) === pc.col && Math.floor(s.y / CFG.land.ph) === pc.row) : undefined;
+      const price = g.parcelPrice, short = price - g.cash;
+      const html = !pc
+        ? `<span class="cf-text"><b>Buy land</b><span class="cf-sub">Tap a parcel beyond your boundary (the dashed lines). Landmarks are labelled on the map.</span></span><button class="btn" id="landNo">Done</button>`
+        : owned
+        ? `<span class="cf-text"><b>You own this parcel</b><span class="cf-sub">Build anywhere on it.</span></span><button class="btn" id="landNo">Done</button>`
+        : `<span class="cf-text"><b>${site ? escapeHtml(site.name) : 'Wild land'} · ${fmtMoney(price)}</b><span class="cf-sub">${site ? escapeHtml(site.blurb) : 'Forest and meadow to build new holes on.'}${short > 0 ? ` You need ${fmtMoney(short)} more.` : ''}</span></span><button class="btn" id="landNo">Done</button><button class="btn primary" id="landOk" ${short > 0 ? 'disabled' : ''}>Buy</button>`;
+      if (this.cache.get('confirm') !== html) {
+        this.cache.set('confirm', html);
+        el.innerHTML = html;
+        el.style.display = 'flex';
+        document.body.classList.add('has-proposal');
+        const no = el.querySelector<HTMLElement>('#landNo'); if (no) no.onclick = () => { this.editor.setTool('inspect'); this.refresh(true); };
+        const ok = el.querySelector<HTMLElement>('#landOk'); if (ok && pc) ok.onclick = () => { if (g.buyParcel(pc.col, pc.row)) this.toast(`${site ? site.name : 'Land'} is yours.`, 'good'); this.refresh(true); };
+      }
+      return;
+    }
     const p = this.editor.proposal;
     const short = p ? p.cost - this.game.cash : 0;
     const what = p ? (p.tiles.length ? `${p.tiles.length} tile${p.tiles.length === 1 ? '' : 's'}` : 'No terrain change') : '';
@@ -860,12 +883,14 @@ export class UI {
     const g = this.game;
     const m = this.modal(`<h2>Help and settings</h2><div class="menu-list">
       <button class="btn primary" id="mdHelp">How to play</button>
+      <button class="btn" id="mdReplay">Replay tutorial</button>
       <button class="btn" id="mdName">Rename club</button>
       <button class="btn" id="mdLogo">Edit logo</button>
       <button class="btn" id="mdSettings">Sound and day reports</button><button class="btn" id="mdSave">Save now</button><button class="btn" id="mdExport">Export save backup</button><button class="btn" id="mdImport">Import save backup</button>
       <button class="btn danger" id="mdReset">Reset game</button></div>
       <p class="dim" style="margin-top:10px">Your game saves automatically on this device. ${REGIONS[g.region].name}, ${g.season.name}, year ${g.stats.years}.</p>`);
     (m.querySelector('#mdHelp') as HTMLElement).onclick = () => this.helpModal();
+    (m.querySelector('#mdReplay') as HTMLElement).onclick = () => { this.closeModal(); this.tab = 'none'; this.refresh(true); this.onReplayTutorial(); };
     (m.querySelector('#mdSettings') as HTMLElement).onclick = () => this.settingsModal();
     (m.querySelector('#mdExport') as HTMLElement).onclick = () => this.onExport();
     (m.querySelector('#mdImport') as HTMLElement).onclick = () => this.onImport();
@@ -1279,6 +1304,12 @@ export class UI {
       const redo = this.$('tools').querySelector<HTMLButtonElement>('.ph-redo')!, undo = this.$('tools').querySelector<HTMLButtonElement>('.ph-undo:not(.ph-redo)')!;
       redo.hidden = !!this.editor.proposal || !g.redoStack.length;
       undo.disabled = !this.editor.proposal && !g.undoStack.length;
+    }
+    {
+      // land for sale: the tray tile shows the next parcel's price, and hides when everything is owned
+      const lt = this.$('tools').querySelector<HTMLElement>('.landtile');
+      const forSale = g.world.parcels.some((p) => p === 0);
+      if (lt) { lt.hidden = !forSale; const em = lt.querySelector('em'); const txt = `$${g.parcelPrice.toLocaleString('en-US')}`; if (em && em.textContent !== txt) em.textContent = txt; lt.classList.toggle('on', this.editor.tool === 'land'); }
     }
     {
       const done = this.$('tools').querySelector<HTMLElement>('.tray-done');
@@ -1708,7 +1739,7 @@ export class UI {
     }
     if (cupWorn) html += `<div class="note warn">The green is worn around the cup (${Math.round(cupCond)} out of 100). Golfers judge the turf by where they putt.</div><div class="btnrow"><button class="btn" data-act="repairgreen" ${repair.cost > g.cash ? 'disabled' : ''}>Repair green · ${fmtMoney(repair.cost)}</button>${allRepair.tiles.length > repair.tiles.length ? `<button class="btn" data-act="repairall" ${allRepair.cost > g.cash ? 'disabled' : ''}>Every green · ${fmtMoney(allRepair.cost)}</button>` : ''}</div>`;
     html += h.open
-      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
+      ? `<div class="btnrow hole-actions"><button class="btn primary" data-act="testgolfers">Test golfers</button><button class="btn" data-act="playhole">Play it yourself</button><button class="btn" data-act="close" data-id="${h.id}">Close hole</button></div>`
       : `<div class="btnrow hole-actions"><button class="btn primary big wide" data-act="open" data-id="${h.id}" ${v.ok ? '' : 'disabled'}>Open hole</button></div>${v.ok ? `<p class="dim small">Opening it lets golfers play.${g.settings.open ? '' : ' Time stays paused until you open for business.'}</p>` : ''}`;
     html += `</div>`;
     html += holeReportHtml(g, h);

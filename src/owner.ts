@@ -23,10 +23,17 @@ export class OwnerRound {
   route: number[] = [];
   flight: { from: Pt; shot: ShotResult; t: number; holed: boolean; putt: boolean } | null = null;
   message = 'Tap the course to aim, then hit your shot.';
+  /** The tutorial's round: the player aims every shot themselves and picks the club for the approach. */
+  guided = false;
+  /** Where the last shot finished, what it finished on, and how far was left: shown on the map for a few seconds. */
+  landing: { at: Pt; lie: string; left: number; penalty: number; t: number } | null = null;
+  /** Shots hit on this hole (penalties not counted), so a step can tell a new shot from an old one. */
+  shots = 0;
   private rng = new Rng(78391);
-  start(g: Game, all = false) {
+  start(g: Game, all = false, guided = false) {
     const h = g.world.holes.find(h => h.id === g.selectedHole);
     if (!h) return;
+    this.guided = guided;
     this.active = true; this.scores = []; this.route = all ? g.openHoles.map(h => h.id) : [h.id];
     if (!this.route.length) this.route = [h.id];
     this.next(g);
@@ -37,9 +44,29 @@ export class OwnerRound {
     const h = g.world.holes.find(h => h.id === id);
     if (!h) return this.next(g);
     this.swing.cancel(); this.lastStrike = '';
-    this.holeId = id; this.ball = center(h.tee); this.strokes = 0; this.completed = false; this.flight = null;
-    this.aim = center(h.cup); this.club = h.par === 3 ? 'iron' : 'driver'; this.message = 'Tap a landing spot. Pick a club, then hit.';
+    this.holeId = id; this.ball = center(h.tee); this.strokes = 0; this.shots = 0; this.completed = false; this.flight = null; this.landing = null;
+    this.aim = this.guided ? null : center(h.cup); this.club = h.par === 3 ? 'iron' : 'driver'; this.message = 'Tap a landing spot. Pick a club, then hit.';
     g.selectedHole = id;
+  }
+  /** Start this hole again from the tee (the tutorial's retry): the score so far is not kept. */
+  restartHole(g: Game) {
+    if (!this.active) return;
+    this.route.unshift(this.holeId);
+    this.next(g);
+  }
+  /** Where the ball would land with the current aim and club: along the aim line, no further than the club reaches. */
+  landingPoint(g: Game): Pt | null {
+    if (!this.aim) return null;
+    const d = this.distance, k = d > 0 ? Math.min(1, this.reach(g) / d) : 0;
+    return { x: this.ball.x + (this.aim.x - this.ball.x) * k, y: this.ball.y + (this.aim.y - this.ball.y) * k };
+  }
+  /** The club that suits the shot left: putter on the green, wedge inside 80 yards, iron from further. */
+  suggestedClub(g: Game): ClubId {
+    const h = g.world.holes.find(x => x.id === this.holeId);
+    if (!h) return 'iron';
+    const lie = lieAt(g.world, this.ball.x, this.ball.y);
+    const d = Math.hypot(h.cup.x + .5 - this.ball.x, h.cup.y + .5 - this.ball.y);
+    return lie.kind === 'green' ? 'putter' : d < 8 ? 'wedge' : 'iron';
   }
   stop(g: Game) {
     if (this.scores.length) { g.ownerRecords.push({ day: g.day, scores: [...this.scores] }); g.ownerRecords = g.ownerRecords.slice(-12); g.dirtySave = true; }
@@ -75,6 +102,8 @@ export class OwnerRound {
     }
     g.onFeedback('swing');
     this.strokes += 1 + shot.penalty;
+    this.shots++;
+    this.landing = null;
     this.flight = { from: { ...this.ball }, shot, t: 0, holed, putt };
     this.message = shot.penalty ? `${shot.kind === 'water' ? 'Water' : 'Out of bounds'}. One penalty stroke; drop included.` : 'Ball in motion…';
   }
@@ -87,6 +116,10 @@ export class OwnerRound {
     f.t = Math.min(1, f.t + dt / (f.putt ? .7 : 1.1));
     if (f.t < 1) return;
     this.ball = { ...f.shot.end }; this.flight = null;
+    {
+      const lie = lieAt(g.world, this.ball.x, this.ball.y);
+      this.landing = { at: { ...this.ball }, lie: f.holed ? 'cup' : lie.kind, left: Math.round(Math.hypot(h.cup.x + .5 - this.ball.x, h.cup.y + .5 - this.ball.y) * 10), penalty: f.shot.penalty, t: performance.now() };
+    }
     if (f.holed || this.strokes >= h.par + 5) {
       this.completed = true;
       g.onFeedback('cup');
@@ -95,8 +128,9 @@ export class OwnerRound {
       this.message = f.holed ? `${diff === 0 ? 'Par' : diff === -1 ? 'Birdie' : diff < -1 ? 'Eagle or better' : '+' + diff}! Hole complete.` : 'Stroke limit reached. Score recorded.';
     } else {
       const lie = lieAt(g.world, this.ball.x, this.ball.y);
-      this.club = lie.kind === 'green' ? 'putter' : Math.hypot(h.cup.x - this.ball.x, h.cup.y - this.ball.y) < 8 ? 'wedge' : 'iron';
-      this.aim = center(h.cup);
+      // guided: the putter is picked for the player on the green, but away from it they choose the club and aim themselves
+      if (this.guided) { if (lie.kind === 'green') this.club = 'putter'; this.aim = null; }
+      else { this.club = lie.kind === 'green' ? 'putter' : Math.hypot(h.cup.x - this.ball.x, h.cup.y - this.ball.y) < 8 ? 'wedge' : 'iron'; this.aim = center(h.cup); }
       if (!f.shot.penalty) this.message = `${Math.round(Math.hypot(h.cup.x + .5 - this.ball.x, h.cup.y + .5 - this.ball.y) * 10)} yards to the pin. ${lie.kind}.`;
     }
   }

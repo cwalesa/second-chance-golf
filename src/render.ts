@@ -10,8 +10,8 @@ import { facilityPeople } from './facilities';
 import { Golfer, cartDriving, cartOut, inCar } from './sim';
 import { drawAmenity, drawLot } from './art/amenities';
 import { LOT_LABEL, LotKind } from './lots';
-import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, vnoise } from './terrain';
-import { landOf, clubLot } from './wilderness';
+import { clubDims, Pt, T, World, center, hash2, holePath, inBounds, parcelCols, vnoise } from './terrain';
+import { landOf, clubLot, landmarksOf } from './wilderness';
 import { ITEMS, ItemKind } from './items';
 import type { Painter } from './art/buildings';
 import { ToolId } from './editing';
@@ -79,7 +79,7 @@ export interface Overlay {
   /** The clubhouse the player is about to place, with the reason it cannot stand there (null = fine). */
   club: { x: number; y: number; problem: string | null; flip?: boolean } | null;
   /** Where the tutorial suggests putting a tee and a green. */
-  hint: { tee?: Pt; cup?: Pt; club?: Pt } | null;
+  hint: { tee?: Pt; cup?: Pt; club?: Pt; /** tutorial marks: a ring of radius r tiles around a spot, with a short label */ marks?: { at: Pt; r: number; text: string }[] } | null;
   /** A finger resting on the map, waiting to become a paint stroke: screen position and when it landed (ms). */
   hold: { x: number; y: number; t0: number; ms?: number } | null;
   /** A building about to be placed or sold: its top-left tile and whether it can stand there. */
@@ -314,9 +314,15 @@ export class Renderer {
   }
   fit(w: World) {
     let right = 1, bottom = 1;
-    w.parcels.forEach((owned, i) => { if (owned) { right = Math.max(right, (i % CFG.land.cols + 1) * CFG.land.pw); bottom = Math.max(bottom, (Math.floor(i / CFG.land.cols) + 1) * CFG.land.ph); } });
-    const zoom = Math.max(Renderer.MIN_ZOOM, Math.min((this.cw - this.insets.l - this.insets.r - 40) / ((right + bottom) * TS * ISO_X), (this.ch - this.insets.t - this.insets.b - 40) / ((right + bottom) * TS * ISO_Y)));
-    this.focus(right / 2, bottom / 2, zoom, w);
+    // frame the land the club owns (the whole map is still there to pan to)
+    let left = Infinity, top = Infinity;
+    const cols = parcelCols(w);
+    w.parcels.forEach((owned, i) => { if (owned) { const c = i % cols, r = Math.floor(i / cols); left = Math.min(left, c * CFG.land.pw); top = Math.min(top, r * CFG.land.ph); right = Math.max(right, (c + 1) * CFG.land.pw); bottom = Math.max(bottom, (r + 1) * CFG.land.ph); } });
+    if (!Number.isFinite(left)) { left = 0; top = 0; right = w.w; bottom = w.h; }
+    right = Math.min(right, w.w); bottom = Math.min(bottom, w.h);
+    const span = right - left + (bottom - top);
+    const zoom = Math.max(Renderer.MIN_ZOOM, Math.min((this.cw - this.insets.l - this.insets.r - 40) / (span * TS * ISO_X), (this.ch - this.insets.t - this.insets.b - 40) / (span * TS * ISO_Y)));
+    this.focus((left + right) / 2, (top + bottom) / 2, zoom, w);
   }
   private groundPolygon(x: number, y: number, width = 1, depth = 1) {
     const points = [[x,y],[x+width,y],[x+width,y+depth],[x,y+depth]].map(([x,y]) => this.toScreen(x,y));
@@ -1976,6 +1982,18 @@ export class Renderer {
       ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#d4ae5c'; ctx.lineWidth = 2; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y - z, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       if (!f) { ctx.strokeStyle = '#f8e1a1'; ctx.beginPath(); ctx.arc(p.x, p.y, 12 + Math.sin(this.time * 3) * 2, 0, Math.PI * 2); ctx.stroke(); }
+      // where the shot finished: a flag of words over the ball for a few seconds (and for good while the round waits on the player)
+      const L = owner.landing;
+      if (L && !f && !owner.completed && (performance.now() - L.t < 6000 || game.owner.guided)) {
+        const where = L.lie === 'cup' ? 'In the hole' : L.penalty ? 'Penalty: dropped here' : L.lie === 'green' ? 'On the green' : L.lie === 'fairway' ? 'Fairway' : L.lie === 'bunker' ? 'In the sand' : L.lie === 'rough' ? 'Light rough' : L.lie;
+        const text = `${where} · ${L.left} yd to the pin`;
+        ctx.font = '800 12px system-ui, sans-serif';
+        const wd = ctx.measureText(text).width + 18;
+        ctx.fillStyle = 'rgba(16,45,34,.92)'; ctx.beginPath(); ctx.roundRect(p.x - wd / 2, p.y - 44, wd, 24, 12); ctx.fill();
+        ctx.strokeStyle = '#f8e1a1'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#fff4d4'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, p.x, p.y - 31.5); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.strokeStyle = 'rgba(248,225,161,.9)'; ctx.beginPath(); ctx.moveTo(p.x, p.y - 20); ctx.lineTo(p.x, p.y - 8); ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -2966,8 +2984,8 @@ export class Renderer {
   private vigSize = '';
   /** Locked land is dimmed and hatched; the Land tool shows prices. */
   private drawParcels(game: Game, ov: Overlay) {
-    const ctx = this.ctx, L = CFG.land;
-    for(let row=0;row<L.rows;row++)for(let col=0;col<L.cols;col++){
+    const ctx = this.ctx, L = CFG.land, G = game.parcelGrid;
+    for(let row=0;row<G.rows;row++)for(let col=0;col<G.cols;col++){
       const owned=game.isParcelOwned(col,row), sel=!!ov.parcel && ov.parcel.col===col && ov.parcel.row===row;
       if(owned && !(ov.tool==='land' && sel))continue;
       this.groundPolygon(col*L.pw,row*L.ph,L.pw,L.ph);
@@ -2978,6 +2996,18 @@ export class Renderer {
         ctx.font='bold 12px Georgia';const width=ctx.measureText(label).width+18;
         ctx.fillStyle=sel?'#e0c987':'#324632';ctx.beginPath();ctx.roundRect(p.x-width/2,p.y-12,width,25,4);ctx.fill();
         ctx.fillStyle=sel?'#30422e':'#f0e5bf';ctx.textAlign='center';ctx.fillText(label,p.x,p.y+4);ctx.textAlign='left';
+      }
+    }
+    // the map's landmarks are named when you look out over the land, or when you are buying it
+    if (ov.tool === 'land' || this.cam.zoom < 0.55) {
+      for (const s of landmarksOf(game.world)) {
+        const p = this.toScreen(s.x, s.y);
+        if (p.x < -80 || p.y < -40 || p.x > this.cw + 80 || p.y > this.ch + 40) continue;
+        ctx.font = 'bold 13px Georgia, serif';
+        const tw = ctx.measureText(s.name).width + 22;
+        ctx.fillStyle = 'rgba(28,40,30,.82)'; ctx.beginPath(); ctx.roundRect(p.x - tw / 2, p.y - 13, tw, 26, 13); ctx.fill();
+        ctx.strokeStyle = '#e6d39a'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#f4ead0'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(s.name, p.x, p.y + 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       }
     }
   }
@@ -3164,6 +3194,33 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(ov.hold.x, ov.hold.y - 46, 17, 0, Math.PI * 2); ctx.stroke();
         ctx.strokeStyle = k >= 1 ? '#c8952a' : '#f5edd8';
         ctx.beginPath(); ctx.arc(ov.hold.x, ov.hold.y - 46, 17, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+      }
+    }
+    if (ov.hint?.marks) {
+      // tutorial highlights: a soft pulsing ring on the ground (the landing area, the green, the ball) with a label above it
+      for (const m of ov.hint.marks) {
+        const s = this.toScreen(m.at.x, m.at.y);
+        const pulse = 1 + 0.06 * Math.sin(time * 3.2);
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.lineDashOffset = -time * 14;
+        ctx.strokeStyle = '#ffe27a';
+        ctx.fillStyle = 'rgba(255,226,122,.16)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, Math.max(14, ts * m.r * ISO_X * 2 * pulse / 1), Math.max(8, ts * m.r * ISO_Y * 2 * pulse), 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.restore();
+        ctx.font = '800 13px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const wd = ctx.measureText(m.text).width + 18;
+        const ly = s.y - Math.max(8, ts * m.r * ISO_Y * 2) - 16;
+        // the label stays on screen even when its spot is near an edge
+        const lx = Math.max(wd / 2 + 8, Math.min(this.cw - wd / 2 - 8, s.x));
+        ctx.fillStyle = 'rgba(40,32,10,.9)';
+        ctx.beginPath(); ctx.roundRect(lx - wd / 2, ly - 12, wd, 24, 12); ctx.fill();
+        ctx.fillStyle = '#ffe9a6'; ctx.fillText(m.text, lx, ly + 0.5);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       }
     }
     if (ov.hint) {

@@ -10,7 +10,7 @@ import { AMENITY_KINDS, CART_PRICE, FLEET_BASE, FLEET_WITH_BARN, ITEMS, building
 import { OwnerRound, OwnerRecord } from './owner';
 import { CFG } from './config';
 import { Rng } from './rng';
-import { World, Hole, computeZones, hash2, holeCondition, idx, validateHole, Validation } from './terrain';
+import { World, Hole, computeZones, hash2, holeCondition, idx, parcelCols, parcelRows, validateHole, Validation } from './terrain';
 import { CourseSim, GuestComment, RoundResult } from './sim';
 import { DayLedger, DaySummary, Owned, UpgradeId, amenityBonus, cartRentalRate, noUpgrades, emptyLedger, fairFee, farewellFor, maintenancePerHour, operatingProfit, netChange, pickGolferType, reputationOf, scoreRound, shopSpend, RoundScore } from './economy';
 import { ActiveEvent, Booking, EVENTS, EVENT_IDS, EventId, EventResult, eventGuests, eventProblems, pickEventGolfer } from './events';
@@ -30,6 +30,7 @@ import { DecisionState, dailyDecisions, freshDecisions, heatPlan } from './decis
 import { Identity, computeIdentity } from './identity';
 import { QualityContext, effectiveHoles, holeEnjoyment, holeQuality, playKind, segmentMix, segmentOf, summarisePlays } from './quality';
 import { setCourseSetup } from './physics';
+import { setUpOpening } from './opening';
 import type { Golfer } from './sim';
 
 export interface LogEntry {
@@ -248,6 +249,21 @@ export class Game {
     this.applyRegion();
   }
 
+  /**
+   * A new course from the start screen: the clubhouse on the best spot in the starting block and the designed opening
+   * par 4 beside it, open and ready to play (opening.ts). Its "open your first hole" goal is marked done without a payment;
+   * finishing the opening round in the tutorial pays instead.
+   */
+  setUpNewCourse(): boolean {
+    const res = setUpOpening(this.world);
+    if (!res) return false;
+    this.selectedHole = 1;
+    this.campaign.done = [...new Set([...(this.campaign.done ?? []), 'c-hole1'])];
+    this.campaign.step = 1;
+    this.campaign.goalId = CHAIN[1]?.id ?? 'complete';
+    this.dirtySave = true;
+    return true;
+  }
   /** Blank-canvas start: put the clubhouse where the player chose. It is the club's first gift, so it costs nothing. */
   buildClubhouse(at: { x: number; y: number }, flip = false): boolean {
     if (this.world.clubhouse) return false;
@@ -297,7 +313,7 @@ export class Game {
     }
   }
 
-  /** First-course designer: all of Willow Creek is yours to build on from the start. */
+  /** Own every parcel. Courses on the original 240 x 160 map were built owning all of it; bigger maps buy land as they grow. */
   openProperty() {
     if (!this.world.parcels.every((p) => p === 1)) {
       this.world.parcels.fill(1);
@@ -562,7 +578,14 @@ export class Game {
     return Math.max(this.club.holes, CFG.holes.designCap);
   }
   get parcelPrice(): number {
-    return Math.round((CFG.land.base * this.regionDef.landMult * Math.pow(CFG.land.growth, Math.max(0, this.parcelsOwned - CFG.land.startCols * CFG.land.startRows))) / 10) * 10;
+    // each parcel bought costs a little more than the last (counted from the nine of the smallest starting property)
+    return Math.round((CFG.land.base * this.regionDef.landMult * Math.pow(CFG.land.growth, Math.max(0, this.parcelsOwned - 9))) / 10) * 10;
+  }
+  /** Parcels across and down for this map (older, smaller maps have fewer). */
+  /** True for maps made before the land doubled: they own all of their (smaller) property. */
+  get legacyMap(): boolean { return this.world.w * this.world.h <= 240 * 160; }
+  get parcelGrid(): { cols: number; rows: number } {
+    return { cols: parcelCols(this.world), rows: parcelRows(this.world) };
   }
   /** Demand per day before price: reputation, season, region, clubhouse, rating and range all count. */
   get dailyBase(): number {
@@ -1315,7 +1338,7 @@ export class Game {
     return Math.max(0, ...this.world.holes.map((h) => h.id)) + 1;
   }
   isParcelOwned(col: number, row: number): boolean {
-    return this.world.parcels[row * CFG.land.cols + col] === 1;
+    return this.world.parcels[row * parcelCols(this.world) + col] === 1;
   }
   buyParcel(col: number, row: number): boolean {
     if (this.isParcelOwned(col, row)) return false;
@@ -1327,7 +1350,7 @@ export class Game {
     this.cash -= price;
     this.today.construction += price;
     this.logEntry('Bought land parcel', -price);
-    this.world.parcels[row * CFG.land.cols + col] = 1;
+    this.world.parcels[row * parcelCols(this.world) + col] = 1;
     this.world.version++;
     this.notify('good', `Land bought for ${fmtMoney(price)}.`);
     this.checkGoals();

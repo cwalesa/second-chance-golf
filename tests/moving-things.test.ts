@@ -7,8 +7,11 @@ import { deserialize, serialize } from '../src/save';
 import { createTestCourse } from './fixtures/classic-course';
 
 function wild(seed = 5) {
-  const g = new Game(createWilderness(newLandSeed(seed)), seed);
-  const spot = suggestClubhouse(g.world)!;
+  // a seed whose suggested spot is flat enough to turn the clubhouse on the spot
+  let w = createWilderness(newLandSeed(seed));
+  let spot = suggestClubhouse(w)!;
+  while (relocateProblem({ ...w, clubhouse: spot } as typeof w, spot, true)?.match(/steep|water|own|edge/)) { seed++; w = createWilderness(newLandSeed(seed)); spot = suggestClubhouse(w)!; }
+  const g = new Game(w, seed);
   g.buildClubhouse(spot);
   g.cash = 100000;
   return { g, spot };

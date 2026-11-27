@@ -52,7 +52,7 @@ export const TOOL_INFO: Record<ToolId, { label: string; hint: string }> = {
   tee: { label: 'Move tee', hint: 'Build the selected hole a new tee box.' },
   cup: { label: 'Move cup', hint: 'Cut a new green and cup for the selected hole.' },
   build: { label: 'Build hole', hint: 'Tap a tee spot, then a green spot. A fairway corridor is laid between them.' },
-  land: { label: 'Land', hint: 'Tap a locked parcel to see its price and buy it.' },
+  land: { label: 'Buy land', hint: 'Tap a parcel beyond your boundary to see what is there and what it costs.' },
 };
 
 export function brushTiles(world: World, tx: number, ty: number, size: number): number[] {

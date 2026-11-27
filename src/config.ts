@@ -1,8 +1,10 @@
 // Central tuning values. Distances are in tiles (1 tile = 10 yards = 30 feet).
 export const CFG = {
-  grid: { w: 240, h: 160, yardsPerTile: 10, feetPerTile: 30 },
+  // twice the width and height of the first version (240 x 160): a starting block you own and land around it to grow into
+  grid: { w: 480, h: 320, yardsPerTile: 10, feetPerTile: 30 },
 
-  land: { pw: 48, ph: 40, cols: 5, rows: 4, base: 900, growth: 1.3, startCols: 3, startRows: 3 },
+  // parcels are pw x ph tiles; how many there are follows the map size (see parcelCols). A new course owns a startCols x startRows block in the middle.
+  land: { pw: 48, ph: 40, cols: 10, rows: 8, base: 1400, growth: 1.045, startCols: 5, startRows: 4 },
   offline: { realSecondsPerDay: 300, maxDays: 6, efficiency: 0.6, minAwaySeconds: 90 },
 
   sim: { dt: 1 / 30, maxStepsPerFrame: 400, speeds: [0, 1, 3, 8] as const },

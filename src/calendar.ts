@@ -11,7 +11,7 @@ import type { Game } from './game';
 import { Access, Booking, BoardRow, EVENTS, EventId, Prep, TournamentReport, eventGuests, eventProblems } from './events';
 import { facLevel, FAC, FACILITIES } from './facilities';
 import { eventReadiness } from './quality';
-import { T, center, hash2 } from './terrain';
+import { T, center, hash2, holeBox } from './terrain';
 import { story } from './regulars';
 import { WEATHER } from './weather';
 
@@ -152,10 +152,12 @@ export function applyPrep(g: Game, route: number[], prep: Prep): number {
     const h = g.world.holes.find((x) => x.id === id);
     if (!h) continue;
     const cup = center(h.cup);
-    for (let i = 0; i < w.terrain.length; i++) {
+    const box = holeBox(w, h);
+    for (let by = box.y0; by <= box.y1; by++) for (let bx = box.x0; bx <= box.x1; bx++) {
+      const i = by * w.w + bx;
       if (w.zone[i] !== id) continue;
       const t = w.terrain[i];
-      const green = t === T.GREEN && Math.hypot((i % w.w) + 0.5 - cup.x, Math.floor(i / w.w) + 0.5 - cup.y) < 5;
+      const green = t === T.GREEN && Math.hypot(bx + 0.5 - cup.x, by + 0.5 - cup.y) < 5;
       if (green || t === T.TEE || (prep === 'championship' && t === T.FAIRWAY)) {
         if (w.cond[i] < to) { w.cond[i] = to; w.dirty.add(i); }
       }

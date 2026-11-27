@@ -46,8 +46,8 @@ describe('starting regions', () => {
       expect(s.plains.trees).toBeLessThan(s.parkland.trees * 0.7);
       expect(s.desert.trees).toBeLessThan(0.1);
       expect(s.desert.sand).toBeGreaterThan(0.05);
-      expect(s.coast.water).toBeGreaterThan(0.1); // the sea
-      expect(s.coast.sand).toBeGreaterThan(0.02);
+      expect(s.coast.water).toBeGreaterThan(0.07); // the sea (a smaller share of the bigger map)
+      expect(s.coast.sand).toBeGreaterThan(0.01); // dunes along a sea that is a smaller share of the bigger map
       expect(s.parkland.sand).toBe(0);
       expect(s.desert.water).toBeGreaterThan(0.002); // an oasis to build around
     }
@@ -86,9 +86,17 @@ describe('starting regions', () => {
     }
   });
 
-  it('the whole map is buildable from the start, with no chapters or unlocks', () => {
+  it('a new course owns a starting block in the middle; the land around it is for sale, with no chapters or unlocks', () => {
     const g = new Game(undefined, 5, { region: 'mountain' });
-    expect(g.world.parcels.every((p) => p === 1)).toBe(true);
+    expect(g.world.w).toBe(480);
+    expect(g.world.parcels.reduce((a, b) => a + b, 0)).toBe(CFG.land.startCols * CFG.land.startRows);
+    expect(g.isParcelOwned(0, 0)).toBe(false);
+    const { cols, rows } = g.parcelGrid;
+    expect(g.isParcelOwned(Math.floor(cols / 2), Math.floor(rows / 2))).toBe(true);
+    const price = g.parcelPrice;
+    g.cash = 1e6;
+    expect(g.buyParcel(0, 0)).toBe(true);
+    expect(g.parcelPrice).toBeGreaterThan(price);
     expect('travel' in g).toBe(false);
   });
 
